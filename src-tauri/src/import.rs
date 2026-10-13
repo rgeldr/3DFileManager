@@ -76,7 +76,7 @@ impl<F: FnMut(ImportProgress)> ImportProgressCtx<F> {
     fn emit_now(&mut self, message: impl Into<String>) {
         self.pending_message = None;
         self.last_emit = Instant::now();
-        self.on_progress(ImportProgress {
+        (self.on_progress)(ImportProgress {
             current: self.current,
             total: self.total.max(1),
             message: message.into(),
@@ -240,6 +240,17 @@ impl FolderCache {
 
 #[cfg(test)]
 pub(crate) static FORCE_COPY: AtomicBool = AtomicBool::new(false);
+
+fn force_copy_enabled() -> bool {
+    #[cfg(test)]
+    {
+        FORCE_COPY.load(Ordering::SeqCst)
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
+}
 
 pub fn import_paths<F: FnMut(ImportProgress)>(
     db: &mut AppDb,
@@ -568,7 +579,7 @@ fn import_file(
     fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
     let dest = unique_file_path(&dest_dir, &file_name);
 
-    let force_copy = FORCE_COPY.load(Ordering::SeqCst);
+    let force_copy = force_copy_enabled();
     let linked = if !force_copy {
         fs::hard_link(source, &dest).is_ok()
     } else {
