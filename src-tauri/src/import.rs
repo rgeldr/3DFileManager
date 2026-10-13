@@ -26,7 +26,55 @@ pub struct ImportProgress {
     pub message: String,
 }
 
-pub fn import_paths<F: Fn(ImportProgress)>(
+struct ImportProgressCtx<F: FnMut(ImportProgress)> {
+    current: u32,
+    total: u32,
+    on_progress: F,
+}
+
+impl<F: FnMut(ImportProgress)> ImportProgressCtx<F> {
+    fn emit(&mut self, message: impl Into<String>) {
+        self.on_progress(ImportProgress {
+            current: self.current,
+            total: self.total.max(1),
+            message: message.into(),
+        });
+    }
+
+    fn tick(&mut self, message: impl Into<String>) {
+        self.current += 1;
+        self.emit(message);
+    }
+
+    /// An archive is counted as one file during the pre-scan; replace that unit with extracted files.
+    fn adjust_total_for_archive_contents(&mut self, inner_file_count: u32) {
+        self.total = self.total.saturating_sub(1) + inner_file_count;
+    }
+}
+
+fn count_files_in_dir(source_root: &Path) -> u32 {
+    let mut count = 0u32;
+    for entry in WalkDir::new(source_root).follow_links(false) {
+        if entry
+            .ok()
+            .map(|e| e.file_type().is_file())
+            .unwrap_or(false)
+        {
+            count += 1;
+        }
+    }
+    count
+}
+
+fn count_job_files(path: &Path) -> u32 {
+    if path.is_dir() {
+        count_files_in_dir(path)
+    } else {
+        1
+    }
+}
+
+pub fn import_paths<F: FnMut(ImportProgress)>(
     db: &AppDb,
     paths: &[String],
     target_folder: Option<i64>,
@@ -56,37 +104,43 @@ pub fn import_paths<F: Fn(ImportProgress)>(
         }
         jobs.push(path);
     }
-    let total = jobs.len() as u32;
-    for (index, path) in jobs.into_iter().enumerate() {
-        on_progress(ImportProgress {
-            current: index as u32,
-            total: total.max(1),
-            message: format!("Importing {}", path.display()),
-        });
+    let mut progress = ImportProgressCtx {
+        current: 0,
+        total: 0,
+        on_progress,
+    };
+    progress.emit("Counting files");
+    let file_total = jobs.iter().map(|p| count_job_files(p)).sum::<u32>();
+    progress.total = file_total;
+    progress.emit("Importing…");
+    for path in jobs {
         let ext = extension_of(&path.file_name().unwrap_or_default().to_string_lossy());
         if path.is_dir() {
-            import_tree(db, &path, target_folder, None, 0, &mut summary)?;
+            import_tree(db, &path, target_folder, None, 0, &mut summary, &mut progress)?;
         } else if is_archive(&ext) {
-            import_archive(db, &path, target_folder, 0, &mut summary)?;
+            import_archive(db, &path, target_folder, 0, &mut summary, &mut progress)?;
         } else {
             import_file(db, &path, target_folder, None, true, &mut summary)?;
+            let label = path
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| path.display().to_string());
+            progress.tick(label);
         }
     }
-    on_progress(ImportProgress {
-        current: total,
-        total: total.max(1),
-        message: "Import finished".into(),
-    });
+    progress.current = progress.total.max(progress.current);
+    progress.emit("Import finished");
     Ok(summary)
 }
 
-fn import_tree(
+fn import_tree<F: FnMut(ImportProgress)>(
     db: &AppDb,
     source_root: &Path,
     target_folder: Option<i64>,
     source_archive: Option<&str>,
     archive_depth: u8,
     summary: &mut ImportSummary,
+    progress: &mut ImportProgressCtx<F>,
 ) -> Result<(), String> {
     for entry in WalkDir::new(source_root).follow_links(false) {
         let entry = match entry {
@@ -110,9 +164,10 @@ fn import_tree(
         let folder_id = db.ensure_folder_chain(target_folder, &rel_parent)?;
         if is_archive(&ext) {
             if archive_depth < 1 {
-                import_archive(db, path, folder_id, archive_depth + 1, summary)?;
+                import_archive(db, path, folder_id, archive_depth + 1, summary, progress)?;
             } else {
                 summary.unsupported_count += 1;
+                progress.tick(file_name_of(path));
             }
             continue;
         }
@@ -124,16 +179,24 @@ fn import_tree(
             source_archive.is_none(),
             summary,
         )?;
+        progress.tick(file_name_of(path));
     }
     Ok(())
 }
 
-fn import_archive(
+fn file_name_of(path: &Path) -> String {
+    path.file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| path.display().to_string())
+}
+
+fn import_archive<F: FnMut(ImportProgress)>(
     db: &AppDb,
     archive_path: &Path,
     target_folder: Option<i64>,
     depth: u8,
     summary: &mut ImportSummary,
+    progress: &mut ImportProgressCtx<F>,
 ) -> Result<(), String> {
     let stem = archive_path
         .file_stem()
@@ -156,8 +219,10 @@ fn import_archive(
             archive_path.display()
         ));
         let _ = fs::remove_dir_all(&temp);
+        progress.tick(file_name_of(archive_path));
         return Ok(());
     }
+    progress.adjust_total_for_archive_contents(count_files_in_dir(&temp));
     let before_failed = summary.failed.len();
     let before_imported = summary.imported_count;
     let before_dup = summary.duplicate_count;
@@ -172,6 +237,7 @@ fn import_archive(
         archive_name.as_deref(),
         depth,
         summary,
+        progress,
     )?;
     let _ = fs::remove_dir_all(&temp);
     let imported_something = summary.imported_count > before_imported || summary.duplicate_count > before_dup;
@@ -484,6 +550,41 @@ mod flow_tests {
         let failed = recycle_paths(&[first.to_string_lossy().to_string()]).unwrap();
         assert!(failed.is_empty(), "{failed:?}");
         assert!(!first.exists());
+        let _ = fs::remove_dir_all(data.parent().unwrap());
+    }
+
+    #[test]
+    fn folder_import_emits_per_file_progress() {
+        let (data, library, incoming) = scratch();
+        let db = open(&data).unwrap();
+        let boot = db.set_library_root(&library).unwrap();
+        let models = boot.folders.iter().find(|f| f.name == "Models").unwrap().id;
+
+        let pack = incoming.join("pack");
+        fs::create_dir_all(pack.join("nested")).unwrap();
+        fs::write(pack.join("a.stl"), b"solid a\nendsolid a\n").unwrap();
+        fs::write(pack.join("nested").join("b.stl"), b"solid b\nendsolid b\n").unwrap();
+        fs::write(pack.join("notes.txt"), b"skip").unwrap();
+
+        let mut events: Vec<(u32, u32)> = Vec::new();
+        let summary = import_paths(
+            &db,
+            &[pack.to_string_lossy().to_string()],
+            Some(models),
+            |p| events.push((p.current, p.total)),
+        )
+        .unwrap();
+        assert_eq!(summary.imported_count, 2);
+        assert_eq!(summary.unsupported_count, 1);
+
+        let totals: Vec<u32> = events.iter().map(|(_, t)| *t).collect();
+        assert!(
+            totals.iter().any(|t| *t == 3),
+            "expected total 3 files in folder, got totals {totals:?}"
+        );
+        let max_current = events.iter().map(|(c, _)| *c).max().unwrap_or(0);
+        assert_eq!(max_current, 3, "progress should advance once per file: {events:?}");
+
         let _ = fs::remove_dir_all(data.parent().unwrap());
     }
 }

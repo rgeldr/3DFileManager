@@ -108,7 +108,7 @@ export function App() {
   const runImport = useCallback(async (paths: string[]) => {
     if (paths.length === 0) return;
     setBusy("Importing…");
-    setProgress({ current: 0, total: paths.length, message: "Starting import" });
+    setProgress({ current: 0, total: 0, message: "Counting files…" });
     try {
       const result = await api.importPaths(paths, targetFolderId);
       setSummary(result);
@@ -539,7 +539,10 @@ export function App() {
         <div className="modal-back">
           <div className="card">
             <h2>{busy ?? "Working"}</h2>
-            <p>{progress?.message}</p>
+            <p>
+              {progress?.message}
+              {progress && progress.total > 0 ? ` · ${progress.current} of ${progress.total}` : null}
+            </p>
             <div className="progress-track">
               <div
                 className="progress-bar"
