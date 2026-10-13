@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Menu, MenuItem, PredefinedMenuItem, Submenu, CheckMenuItem } from "@tauri-apps/api/menu";
@@ -9,9 +10,14 @@ import { api } from "./api";
 import { FileGrid } from "./components/FileGrid";
 import { Inspector } from "./components/Inspector";
 import { Sidebar } from "./components/Sidebar";
+import { debugLog } from "./debugLog";
 import { renderMeshStill } from "./lib/renderThumb";
 import { useTheme } from "./theme/ThemeProvider";
 import type { Browse, FileRow, FolderRow, GridSize, ImportSummary, Settings } from "./types";
+
+function Modal({ children }: { children: ReactNode }) {
+  return createPortal(<div className="modal-back">{children}</div>, document.body);
+}
 
 interface Actions {
   importFolder: () => void;
@@ -61,6 +67,11 @@ export function App() {
   });
   const themeItems = useRef<{ dark?: CheckMenuItem; light?: CheckMenuItem }>({});
   const gridItems = useRef<Partial<Record<GridSize, CheckMenuItem>>>({});
+  const [thumbNonce, setThumbNonce] = useState(0);
+  const thumbCancel = useRef(false);
+  const gridScrollRef = useRef<HTMLDivElement>(null);
+  const [previewIconsEnabled, setPreviewIconsEnabled] = useState(false);
+  const [folderExpandHint, setFolderExpandHint] = useState<{ key: string; nonce: number } | null>(null);
 
   const libraryName = useMemo(() => {
     const root = settings?.libraryRoot;
@@ -92,18 +103,22 @@ export function App() {
 
   const pumpThumbs = useCallback(async () => {
     for (let i = 0; i < 5000; i += 1) {
+      if (thumbCancel.current) return;
+      await new Promise((resolve) => setTimeout(resolve, 32));
+      if (thumbCancel.current) return;
       const job = await api.nextThumbnail();
       if (!job) break;
       if (job.kind === "render") {
         try {
           const png = await renderMeshStill(convertFileSrc(job.absolutePath), job.ext);
+          if (thumbCancel.current) return;
           await api.saveRenderedThumb(job.id, Array.from(png));
         } catch {
           await api.markThumbUnavailable(job.id);
         }
       }
     }
-    await refreshLists();
+    if (!thumbCancel.current) await refreshLists();
   }, [refreshLists]);
 
   const BULK_TAG_LIMIT = 200;
@@ -121,7 +136,6 @@ export function App() {
         setBulk(result.importedIds);
       }
       await refreshLists();
-      void pumpThumbs();
     } catch (err) {
       setError(String(err));
     } finally {
@@ -129,8 +143,48 @@ export function App() {
       setBusy(null);
       setProgress(null);
     }
-  }, [pumpThumbs, refreshLists, targetFolderId]);
+  }, [refreshLists, targetFolderId]);
   runImportRef.current = runImport;
+
+  const dialogOpen = Boolean(busy || progress || summary || bulk || namePrompt || missingOpen || error);
+
+  useEffect(() => {
+    debugLog("dialogs", {
+      busy,
+      progress: progress ? `${progress.current}/${progress.total} ${progress.message}` : null,
+      summary: summary ? summary.importedCount : null,
+      bulk: bulk?.length ?? null,
+      namePrompt: namePrompt?.title ?? null,
+      missingOpen,
+      error,
+    });
+  }, [busy, progress, summary, bulk, namePrompt, missingOpen, error]);
+
+  useEffect(() => {
+    if (!ready || !settings?.libraryRoot || dialogOpen) {
+      debugLog("thumb-pump-idle", { ready, hasLibrary: Boolean(settings?.libraryRoot), dialogOpen });
+      return;
+    }
+    thumbCancel.current = false;
+    debugLog("thumb-pump-start");
+    void pumpThumbs();
+    return () => {
+      thumbCancel.current = true;
+      debugLog("thumb-pump-stop");
+    };
+  }, [ready, settings?.libraryRoot, dialogOpen, thumbNonce, pumpThumbs]);
+
+  useEffect(() => {
+    if (!dialogOpen) return;
+    const focusDialog = () => {
+      document.querySelector<HTMLElement>(".modal-back input, .modal-back button")?.focus();
+    };
+    try {
+      void getCurrentWebview().setFocus().then(focusDialog).catch(focusDialog);
+    } catch {
+      focusDialog();
+    }
+  }, [dialogOpen]);
 
   useEffect(() => {
     actions.current = {
@@ -153,13 +207,13 @@ export function App() {
         void api.rescanLibrary()
           .then(async () => {
             await refreshLists();
-            void pumpThumbs();
+            setThumbNonce((nonce) => nonce + 1);
           })
           .catch((err) => setError(String(err)))
           .finally(() => setBusy(null));
       },
       clearThumbs: () => {
-        void api.clearThumbnailCache().then(() => pumpThumbs()).catch((err) => setError(String(err)));
+        void api.clearThumbnailCache().then(() => setThumbNonce((nonce) => nonce + 1)).catch((err) => setError(String(err)));
       },
       setTheme: (next) => {
         setTheme(next);
@@ -170,7 +224,7 @@ export function App() {
         void api.setGridSize(size);
       },
     };
-  }, [pumpThumbs, refreshLists, runImport, setTheme]);
+  }, [refreshLists, runImport, setTheme]);
 
   useEffect(() => {
     let unlisten = () => undefined;
@@ -183,7 +237,6 @@ export function App() {
       }
       if (boot.settings.libraryRoot) {
         await refreshLists();
-        void pumpThumbs();
       }
       setReady(true);
     }).catch((err) => {
@@ -220,6 +273,12 @@ export function App() {
     }, 200);
     return () => clearTimeout(timer);
   }, [browse, query, creator, tag, sort, ready, refreshLists]);
+
+  useEffect(() => {
+    if (!ready || !settings?.libraryRoot) return;
+    const timer = setTimeout(() => setPreviewIconsEnabled(true), 5000);
+    return () => clearTimeout(timer);
+  }, [ready, settings?.libraryRoot]);
 
   useEffect(() => {
     let cancelled = false;
@@ -425,6 +484,7 @@ export function App() {
         libraryName={libraryName}
         browseKey={browseKey}
         dropTarget={dropTarget}
+        expandHint={folderExpandHint}
         onBrowse={(key) => {
           if (key === "all") setBrowse({ type: "all" });
           else if (key === "root") setBrowse({ type: "root" });
@@ -437,7 +497,13 @@ export function App() {
             value: "",
             onOk: (value) => {
               const parentId = browse.type === "folder" ? browse.id : null;
-              void api.createFolder(parentId, value).then(() => refreshLists()).catch((err) => setError(String(err)));
+              const expandKey = parentId == null ? "root" : `folder:${parentId}`;
+              void api.createFolder(parentId, value)
+                .then(() => {
+                  setFolderExpandHint((hint) => ({ key: expandKey, nonce: (hint?.nonce ?? 0) + 1 }));
+                  return refreshLists();
+                })
+                .catch((err) => setError(String(err)));
             },
           });
         }}
@@ -500,11 +566,13 @@ export function App() {
           </div>
         ) : null}
         <div className="workspace">
-          <div className="grid-wrap">
+          <div className="grid-wrap" ref={gridScrollRef}>
             <FileGrid
               files={files}
               gridSize={settings.gridSize}
               selected={selected}
+              previewIconsEnabled={previewIconsEnabled}
+              scrollRootRef={gridScrollRef}
               onSelect={onSelect}
             />
           </div>
@@ -547,7 +615,7 @@ export function App() {
         </footer>
       </section>
       {busy || progress ? (
-        <div className="modal-back">
+        <Modal>
           <div className="card">
             <h2>{busy ?? "Working"}</h2>
             <p>
@@ -568,10 +636,10 @@ export function App() {
               </div>
             ) : null}
           </div>
-        </div>
+        </Modal>
       ) : null}
-      {summary ? (
-        <div className="modal-back">
+      {summary && !bulk ? (
+        <Modal>
           <div className="card">
             <h2>{summary.cancelled ? "Import stopped" : "Import finished"}</h2>
             <p>
@@ -601,14 +669,14 @@ export function App() {
               ) : null}
             </div>
           </div>
-        </div>
+        </Modal>
       ) : null}
       {bulk ? (
-        <div className="modal-back">
+        <Modal>
           <div className="card">
             <h2>Tag this import</h2>
             <p>Apply a creator and tags to the {bulk.length} files just imported.</p>
-            <input placeholder="Creator" value={bulkCreator} onChange={(event) => setBulkCreator(event.target.value)} />
+            <input placeholder="Creator" value={bulkCreator} autoFocus onChange={(event) => setBulkCreator(event.target.value)} />
             <input placeholder="Tags, separated by commas" value={bulkTags} onChange={(event) => setBulkTags(event.target.value)} />
             <div className="row">
               <button type="button" onClick={() => setBulk(null)}>Skip</button>
@@ -626,10 +694,10 @@ export function App() {
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       ) : null}
       {namePrompt ? (
-        <div className="modal-back">
+        <Modal>
           <form
             className="card"
             onSubmit={(event) => {
@@ -646,10 +714,10 @@ export function App() {
               <button type="submit" className="primary">OK</button>
             </div>
           </form>
-        </div>
+        </Modal>
       ) : null}
       {missingOpen ? (
-        <div className="modal-back">
+        <Modal>
           <div className="card">
             <h2>Missing files</h2>
             {missingFiles.map((file) => <p key={file.id}>{file.sortName}</p>)}
@@ -665,10 +733,10 @@ export function App() {
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       ) : null}
       {error ? (
-        <div className="modal-back">
+        <Modal>
           <div className="card">
             <h2>Something went wrong</h2>
             <p>{error}</p>
@@ -676,7 +744,7 @@ export function App() {
               <button type="button" className="primary" onClick={() => setError(null)}>Close</button>
             </div>
           </div>
-        </div>
+        </Modal>
       ) : null}
     </div>
   );

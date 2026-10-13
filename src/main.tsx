@@ -1,9 +1,12 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { installDebugProbes } from "./debugLog";
 import { readStoredTheme, ThemeProvider } from "./theme/ThemeProvider";
 import "./theme/tokens.css";
 import "./styles.css";
+
+installDebugProbes();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

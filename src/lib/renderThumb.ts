@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { debugLog } from "../debugLog";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { ThreeMFLoader } from "three/addons/loaders/3MFLoader.js";
@@ -26,13 +27,29 @@ function fitCamera(camera: THREE.PerspectiveCamera, object: THREE.Object3D) {
   camera.updateProjectionMatrix();
 }
 
-export async function renderMeshStill(url: string, ext: string): Promise<Uint8Array> {
-  const renderer = new THREE.WebGLRenderer({
+let sharedRenderer: THREE.WebGLRenderer | null = null;
+
+function rendererForThumbs(): THREE.WebGLRenderer {
+  if (sharedRenderer && !sharedRenderer.getContext().isContextLost()) return sharedRenderer;
+  sharedRenderer?.dispose();
+  sharedRenderer = new THREE.WebGLRenderer({
     antialias: true,
     alpha: false,
     preserveDrawingBuffer: true,
   });
-  renderer.setSize(256, 256);
+  sharedRenderer.setSize(256, 256);
+  return sharedRenderer;
+}
+
+function disposeMeshTree(object: THREE.Object3D) {
+  object.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    child.geometry?.dispose();
+  });
+}
+
+export async function renderMeshStill(url: string, ext: string): Promise<Uint8Array> {
+  const renderer = rendererForThumbs();
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(cssVar("--viewer-bg"));
   const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 1000);
@@ -53,34 +70,43 @@ export async function renderMeshStill(url: string, ext: string): Promise<Uint8Ar
       throw new Error("Could not read the file for a thumbnail.");
     }
     const buffer = await response.arrayBuffer();
+    const started = performance.now();
+    debugLog("thumb-parse-start", { ext, bytes: buffer.byteLength });
+    await new Promise((resolve) => setTimeout(resolve, 0));
     const root = new THREE.Group();
-    if (ext === "stl") {
-      const geometry = new STLLoader().parse(buffer);
-      geometry.computeVertexNormals();
-      root.add(new THREE.Mesh(geometry, material));
-    } else if (ext === "obj") {
-      const text = new TextDecoder().decode(buffer);
-      const loaded = new OBJLoader().parse(text);
-      loaded.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          child.material = material;
-        }
-      });
-      root.add(loaded);
-    } else if (ext === "3mf") {
-      const loaded = new ThreeMFLoader().parse(buffer);
-      loaded.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          child.material = material;
-        }
-      });
-      root.add(loaded);
-    } else {
-      throw new Error("Not a mesh.");
+    try {
+      if (ext === "stl") {
+        const geometry = new STLLoader().parse(buffer);
+        geometry.computeVertexNormals();
+        root.add(new THREE.Mesh(geometry, material));
+      } else if (ext === "obj") {
+        const text = new TextDecoder().decode(buffer);
+        const loaded = new OBJLoader().parse(text);
+        loaded.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.material = material;
+          }
+        });
+        root.add(loaded);
+      } else if (ext === "3mf") {
+        const loaded = new ThreeMFLoader().parse(buffer);
+        loaded.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.material = material;
+          }
+        });
+        root.add(loaded);
+      } else {
+        throw new Error("Not a mesh.");
+      }
+      scene.add(root);
+      fitCamera(camera, root);
+      renderer.render(scene, camera);
+      debugLog("thumb-parse-end", { ext, ms: Math.round(performance.now() - started) });
+    } catch (err) {
+      debugLog("thumb-parse-fail", { ext, ms: Math.round(performance.now() - started), error: String(err) });
+      throw err;
     }
-    scene.add(root);
-    fitCamera(camera, root);
-    renderer.render(scene, camera);
     const blob = await new Promise<Blob | null>((resolve) => {
       renderer.domElement.toBlob((result) => resolve(result), "image/png");
     });
@@ -89,7 +115,8 @@ export async function renderMeshStill(url: string, ext: string): Promise<Uint8Ar
     }
     return new Uint8Array(await blob.arrayBuffer());
   } finally {
+    disposeMeshTree(scene);
     material.dispose();
-    renderer.dispose();
+    scene.clear();
   }
 }

@@ -7,7 +7,8 @@ mod preview;
 mod rescan;
 mod settings;
 
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -22,6 +23,8 @@ struct AppState {
     import_cancel: AtomicBool,
     last_recycle_paths: Mutex<Vec<String>>,
 }
+
+static DEBUG_LOG_LOCK: Mutex<()> = Mutex::new(());
 
 fn data_dir() -> PathBuf {
     dirs::data_dir()
@@ -348,6 +351,22 @@ fn clear_thumbnail_cache(state: State<AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn debug_log(line: String) -> Result<String, String> {
+    let dir = data_dir();
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("debug.log");
+    let _guard = DEBUG_LOG_LOCK.lock().map_err(|e| e.to_string())?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| e.to_string())?;
+    writeln!(file, "{line}").map_err(|e| e.to_string())?;
+    eprintln!("{line}");
+    Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 fn get_settings(state: State<AppState>) -> Result<Settings, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     Ok(db.settings())
@@ -401,7 +420,8 @@ pub fn run() {
             next_thumbnail,
             save_rendered_thumb,
             mark_thumb_unavailable,
-            clear_thumbnail_cache
+            clear_thumbnail_cache,
+            debug_log
         ])
         .run(tauri::generate_context!())
         .expect("error while running 3D File Library");
