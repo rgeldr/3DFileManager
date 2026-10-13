@@ -36,6 +36,8 @@ export const api = {
     folderId: number | null;
   }) => invoke<void>("update_file", payload),
   setTags: (id: number, tags: string[]) => invoke<void>("set_tags", { id, tags }),
+  addTagsUnderFolder: (folderId: number | null, tags: string[]) =>
+    invoke<number>("add_tags_under_folder", { folderId, tags }),
   applyBulkMeta: (ids: number[], creator: string | null, tags: string[] | null) =>
     invoke<void>("apply_bulk_meta", { ids, creator, tags }),
   listCreators: () => invoke<string[]>("list_creators"),

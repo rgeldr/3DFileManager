@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { FolderRow } from "../types";
+
+type FolderContextMenu = { x: number; y: number; folderId: number | null };
 
 const ROOT_KEY = "root";
 
@@ -17,6 +20,7 @@ export function Sidebar({
   onNew,
   onRename,
   onDelete,
+  onTagFolder,
 }: {
   folders: FolderRow[];
   libraryName: string;
@@ -27,8 +31,10 @@ export function Sidebar({
   onNew: () => void;
   onRename: () => void;
   onDelete: () => void;
+  onTagFolder: (folderId: number | null) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([ROOT_KEY]));
+  const [contextMenu, setContextMenu] = useState<FolderContextMenu | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastClickRef = useRef<{ key: string; time: number } | null>(null);
 
@@ -94,6 +100,39 @@ export function Sidebar({
     }, 500);
     return () => window.clearTimeout(timer);
   }, [dropTarget, hasChildren]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    const onPointer = (event: PointerEvent) => {
+      const menu = document.querySelector(".folder-context-menu");
+      if (menu?.contains(event.target as Node)) return;
+      close();
+    };
+    const scrollEl = scrollRef.current;
+    window.addEventListener("pointerdown", onPointer);
+    window.addEventListener("keydown", onKey);
+    scrollEl?.addEventListener("scroll", close, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", onPointer);
+      window.removeEventListener("keydown", onKey);
+      scrollEl?.removeEventListener("scroll", close);
+    };
+  }, [contextMenu]);
+
+  const openFolderContextMenu = (
+    event: React.MouseEvent,
+    browse: string,
+    folderId: number | null,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onBrowse(browse);
+    setContextMenu({ x: event.clientX, y: event.clientY, folderId });
+  };
 
   const visibleRowKeys = useMemo(() => {
     const keys: string[] = ["all", ROOT_KEY];
@@ -191,6 +230,7 @@ export function Sidebar({
             data-tree-key={key}
             tabIndex={0}
             onKeyDown={(event) => onTreeKeyDown(event, key, parentKey, kids)}
+            onContextMenu={(event) => openFolderContextMenu(event, browse, folder.id)}
           >
             {kids ? twist(key, open, folder.name) : twistSpacer()}
             <span
@@ -231,6 +271,7 @@ export function Sidebar({
           data-tree-key={ROOT_KEY}
           tabIndex={0}
           onKeyDown={(event) => onTreeKeyDown(event, ROOT_KEY, null, rootKids)}
+          onContextMenu={(event) => openFolderContextMenu(event, ROOT_KEY, null)}
         >
           {rootKids ? twist(ROOT_KEY, expanded.has(ROOT_KEY), libraryName) : twistSpacer()}
           <span
@@ -242,6 +283,27 @@ export function Sidebar({
         </div>
         {expanded.has(ROOT_KEY) ? renderLevel(null, 1, ROOT_KEY) : null}
       </div>
+      {contextMenu
+        ? createPortal(
+            <div
+              className="folder-context-menu"
+              style={{ left: contextMenu.x, top: contextMenu.y }}
+              role="menu"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  onTagFolder(contextMenu.folderId);
+                  setContextMenu(null);
+                }}
+              >
+                Tag contents…
+              </button>
+            </div>,
+            document.body,
+          )
+        : null}
     </aside>
   );
 }

@@ -883,6 +883,103 @@ impl AppDb {
         Ok(())
     }
 
+    pub fn add_tags_under_folder(&self, folder_id: Option<i64>, tags: &[String]) -> Result<i64, String> {
+        let names: Vec<String> = tags
+            .iter()
+            .map(|t| t.trim())
+            .filter(|t| !t.is_empty())
+            .map(|t| t.to_string())
+            .collect();
+        let file_ids = self.file_ids_under_folder(folder_id)?;
+        if names.is_empty() {
+            return Ok(file_ids.len() as i64);
+        }
+        let tx = self.conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        let tag_ids: Vec<i64> = names
+            .iter()
+            .map(|name| self.ensure_tag_id(name))
+            .collect::<Result<Vec<_>, _>>()?;
+        for file_id in &file_ids {
+            for tag_id in &tag_ids {
+                tx.execute(
+                    "INSERT OR IGNORE INTO file_tags (file_id, tag_id) VALUES (?1, ?2)",
+                    params![file_id, tag_id],
+                )
+                .map_err(|e| e.to_string())?;
+            }
+            let tags = self.tag_string_in_tx(&tx, *file_id)?;
+            tx.execute(
+                "UPDATE files SET tags_text = ?1 WHERE id = ?2",
+                params![tags, file_id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(file_ids.len() as i64)
+    }
+
+    fn file_ids_under_folder(&self, folder_id: Option<i64>) -> Result<Vec<i64>, String> {
+        match folder_id {
+            None => {
+                let mut stmt = self
+                    .conn
+                    .prepare("SELECT id FROM files WHERE missing = 0")
+                    .map_err(|e| e.to_string())?;
+                stmt.query_map([], |r| r.get(0))
+                    .map_err(|e| e.to_string())?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| e.to_string())
+            }
+            Some(id) => {
+                let mut stmt = self
+                    .conn
+                    .prepare(
+                        "WITH RECURSIVE subfolders(id) AS (
+                            SELECT ?1
+                            UNION ALL
+                            SELECT f.id FROM folders f INNER JOIN subfolders s ON f.parent_id = s.id
+                         )
+                         SELECT id FROM files WHERE missing = 0 AND folder_id IN (SELECT id FROM subfolders)",
+                    )
+                    .map_err(|e| e.to_string())?;
+                stmt.query_map([id], |r| r.get(0))
+                    .map_err(|e| e.to_string())?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| e.to_string())
+            }
+        }
+    }
+
+    fn ensure_tag_id(&self, name: &str) -> Result<i64, String> {
+        self.conn
+            .execute(
+                "INSERT INTO tags (name) VALUES (?1) ON CONFLICT(name) DO NOTHING",
+                [name],
+            )
+            .map_err(|e| e.to_string())?;
+        self.conn
+            .query_row(
+                "SELECT id FROM tags WHERE name = ?1 COLLATE NOCASE",
+                [name],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())
+    }
+
+    fn tag_string_in_tx(&self, tx: &rusqlite::Transaction, id: i64) -> Result<String, String> {
+        let mut stmt = tx
+            .prepare(
+                "SELECT t.name FROM tags t JOIN file_tags ft ON ft.tag_id = t.id WHERE ft.file_id = ?1 ORDER BY t.name",
+            )
+            .map_err(|e| e.to_string())?;
+        let names = stmt
+            .query_map([id], |r| r.get::<_, String>(0))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        Ok(names.join(" "))
+    }
+
     pub fn list_creators(&self) -> Result<Vec<String>, String> {
         let mut stmt = self
             .conn
@@ -1236,6 +1333,57 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].id, id);
         assert_eq!(found[0].sort_name, "Throne of Baal");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn add_tags_under_folder_keeps_existing_and_skips_siblings() {
+        let dir = std::env::temp_dir().join(format!("filelib-masstag-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = open(&dir).unwrap();
+        let root = dir.join("library");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+
+        let parent = db.create_folder(None, "Parent", 0).unwrap();
+        let child = db.create_folder(Some(parent.id), "Child", 0).unwrap();
+        let sibling = db.create_folder(None, "Sibling", 0).unwrap();
+
+        let in_parent = db
+            .insert_file("a.stl", "a.stl", "stl", 1, "sha1", 1, Some(parent.id), None)
+            .unwrap();
+        let in_child = db
+            .insert_file("b.stl", "b.stl", "stl", 1, "sha2", 1, Some(child.id), None)
+            .unwrap();
+        let in_sibling = db
+            .insert_file("c.stl", "c.stl", "stl", 1, "sha3", 1, Some(sibling.id), None)
+            .unwrap();
+
+        db.set_tags(in_parent, &["existing".into()]).unwrap();
+        let count = db
+            .add_tags_under_folder(Some(parent.id), &["newtag".into()])
+            .unwrap();
+        assert_eq!(count, 2);
+
+        let parent_row = db
+            .list_files(FolderFilter::Id(parent.id), "", "", "", "name")
+            .unwrap();
+        assert_eq!(parent_row[0].tags, vec!["existing", "newtag"]);
+
+        let child_row = db
+            .list_files(FolderFilter::Id(child.id), "", "", "", "name")
+            .unwrap();
+        assert_eq!(child_row[0].tags, vec!["newtag"]);
+
+        let sibling_row = db
+            .list_files(FolderFilter::Id(sibling.id), "", "", "", "name")
+            .unwrap();
+        assert_eq!(sibling_row[0].tags, Vec::<String>::new());
+        assert_eq!(in_sibling, sibling_row[0].id);
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

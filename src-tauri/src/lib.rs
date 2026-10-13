@@ -150,6 +150,16 @@ fn set_tags(state: State<AppState>, id: i64, tags: Vec<String>) -> Result<(), St
 }
 
 #[tauri::command]
+fn add_tags_under_folder(
+    state: State<AppState>,
+    folder_id: Option<i64>,
+    tags: Vec<String>,
+) -> Result<i64, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.add_tags_under_folder(folder_id, &tags)
+}
+
+#[tauri::command]
 fn apply_bulk_meta(
     state: State<AppState>,
     ids: Vec<i64>,
@@ -416,6 +426,7 @@ pub fn run() {
             remove_missing,
             update_file,
             set_tags,
+            add_tags_under_folder,
             apply_bulk_meta,
             list_creators,
             list_tags,
