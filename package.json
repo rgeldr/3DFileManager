@@ -1,11 +1,13 @@
 {
   "name": "3d-file-library",
   "private": true,
-  "version": "0.1.0",
+  "version": "26.10.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "version:check": "node scripts/version.mjs check",
+    "version:bump": "node scripts/version.mjs bump",
     "preview": "vite preview",
     "tauri": "tauri"
   },
