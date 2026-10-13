@@ -41,7 +41,7 @@ export function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [folders, setFolders] = useState<FolderRow[]>([]);
   const [files, setFiles] = useState<FileRow[]>([]);
-  const [browse, setBrowse] = useState<Browse>({ type: "all" });
+  const [browse, setBrowse] = useState<Browse>({ type: "root" });
   const [query, setQuery] = useState("");
   const [creator, setCreator] = useState("");
   const [tag, setTag] = useState("");
@@ -93,8 +93,10 @@ export function App() {
   const targetFolderId = browse.type === "folder" ? browse.id : null;
 
   const refreshLists = useCallback(async (nextBrowse = browse, nextQuery = query, nextCreator = creator, nextTag = tag, nextSort = sort) => {
-    const folder = nextBrowse.type === "all" ? "all" : nextBrowse.type === "root" ? "root" : "id";
-    const folderId = nextBrowse.type === "folder" ? nextBrowse.id : null;
+    const queryActive = /[\p{L}\p{N}]/u.test(nextQuery);
+    const finding = queryActive || nextCreator !== "" || nextTag !== "";
+    const folder = finding ? "all" : nextBrowse.type === "root" ? "root" : "id";
+    const folderId = !finding && nextBrowse.type === "folder" ? nextBrowse.id : null;
     const [rows, creatorRows, tagRows, boot] = await Promise.all([
       api.listFiles({ folder, folderId, query: nextQuery, creator: nextCreator, tag: nextTag, sort: nextSort }),
       api.listCreators(),
@@ -508,8 +510,7 @@ export function App() {
         dropTarget={dropTarget}
         expandHint={folderExpandHint}
         onBrowse={(key) => {
-          if (key === "all") setBrowse({ type: "all" });
-          else if (key === "root") setBrowse({ type: "root" });
+          if (key === "root") setBrowse({ type: "root" });
           else setBrowse({ type: "folder", id: Number(key.slice(7)) });
           setSelected([]);
         }}
@@ -544,8 +545,8 @@ export function App() {
         onDelete={() => {
           if (browse.type !== "folder") return;
           void api.deleteFolder(browse.id).then(() => {
-            setBrowse({ type: "all" });
-            return refreshLists({ type: "all" });
+            setBrowse({ type: "root" });
+            return refreshLists({ type: "root" });
           }).catch((err) => setError(String(err)));
         }}
         onTagFolder={(folderId) => {

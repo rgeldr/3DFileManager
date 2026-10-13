@@ -1028,10 +1028,12 @@ impl AppDb {
                     .conn
                     .prepare("SELECT id FROM files WHERE missing = 0")
                     .map_err(|e| e.to_string())?;
-                stmt.query_map([], |r| r.get(0))
+                let ids = stmt
+                    .query_map([], |r| r.get(0))
                     .map_err(|e| e.to_string())?
                     .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| e.to_string())
+                    .map_err(|e| e.to_string())?;
+                Ok(ids)
             }
             Some(id) => {
                 let mut stmt = self
@@ -1045,10 +1047,12 @@ impl AppDb {
                          SELECT id FROM files WHERE missing = 0 AND folder_id IN (SELECT id FROM subfolders)",
                     )
                     .map_err(|e| e.to_string())?;
-                stmt.query_map([id], |r| r.get(0))
+                let ids = stmt
+                    .query_map([id], |r| r.get(0))
                     .map_err(|e| e.to_string())?
                     .collect::<Result<Vec<_>, _>>()
-                    .map_err(|e| e.to_string())
+                    .map_err(|e| e.to_string())?;
+                Ok(ids)
             }
         }
     }

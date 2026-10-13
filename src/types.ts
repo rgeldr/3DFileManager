@@ -60,6 +60,5 @@ export interface ThumbJob {
 }
 
 export type Browse =
-  | { type: "all" }
   | { type: "root" }
   | { type: "folder"; id: number };

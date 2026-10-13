@@ -71,7 +71,7 @@ export function Sidebar({
 
   const isInvalidFolderDrop = useCallback(
     (dragFolderId: number, target: string | null) => {
-      if (!target || target === "all") return true;
+      if (!target) return true;
       const dropFolderId = target === ROOT_KEY ? null : Number(target);
       if (dropFolderId === dragFolderId) return true;
       return isFolderUnderAncestor(folders, dragFolderId, dropFolderId);
@@ -119,7 +119,7 @@ export function Sidebar({
   }, [expandHint?.nonce, expandHint?.key]);
 
   useEffect(() => {
-    if (!effectiveDropTarget || effectiveDropTarget === "all") return;
+    if (!effectiveDropTarget) return;
     const key = effectiveDropTarget === ROOT_KEY ? ROOT_KEY : folderKey(Number(effectiveDropTarget));
     const parentId = effectiveDropTarget === ROOT_KEY ? null : Number(effectiveDropTarget);
     if (!hasChildren(parentId)) return;
@@ -226,7 +226,7 @@ export function Sidebar({
   };
 
   const visibleRowKeys = useMemo(() => {
-    const keys: string[] = ["all", ROOT_KEY];
+    const keys: string[] = [ROOT_KEY];
     const walk = (parentId: number | null) => {
       for (const folder of childrenOf(parentId)) {
         const key = folderKey(folder.id);
@@ -352,15 +352,6 @@ export function Sidebar({
       </div>
       <div className="sidebar-scroll" ref={scrollRef}>
         <div className="section-label">Library</div>
-        <div
-          className={`tree-item${browseKey === "all" ? " active" : ""}`}
-          data-tree-key="all"
-          tabIndex={0}
-          onClick={() => onBrowse("all")}
-          onKeyDown={(event) => onTreeKeyDown(event, "all", null, false)}
-        >
-          All files
-        </div>
         <div
           className={`folder-row${browseKey === ROOT_KEY ? " active" : ""}${dropClass(ROOT_KEY)}`}
           data-folder-id="root"
