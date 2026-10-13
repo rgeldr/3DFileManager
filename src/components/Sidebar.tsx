@@ -30,6 +30,9 @@ export function Sidebar({
   onNew,
   onRename,
   onDelete,
+  onNewInFolder,
+  onRenameFolder,
+  onDeleteFolder,
   onTagFolder,
   onMoveFolder,
 }: {
@@ -42,6 +45,9 @@ export function Sidebar({
   onNew: () => void;
   onRename: () => void;
   onDelete: () => void;
+  onNewInFolder: (parentId: number | null) => void;
+  onRenameFolder: (folderId: number) => void;
+  onDeleteFolder: (folderId: number) => void;
   onTagFolder: (folderId: number | null) => void;
   onMoveFolder: (id: number, parentId: number | null) => void;
 }) {
@@ -377,6 +383,40 @@ export function Sidebar({
               style={{ left: contextMenu.x, top: contextMenu.y }}
               role="menu"
             >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  onNewInFolder(contextMenu.folderId);
+                  setContextMenu(null);
+                }}
+              >
+                New folder
+              </button>
+              {contextMenu.folderId !== null ? (
+                <>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      onRenameFolder(contextMenu.folderId!);
+                      setContextMenu(null);
+                    }}
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      onDeleteFolder(contextMenu.folderId!);
+                      setContextMenu(null);
+                    }}
+                  >
+                    Delete
+                  </button>
+                </>
+              ) : null}
               <button
                 type="button"
                 role="menuitem"

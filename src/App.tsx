@@ -64,6 +64,7 @@ export function App() {
   const [folderTagInput, setFolderTagInput] = useState("");
   const [folderTagFileCount, setFolderTagFileCount] = useState<number | null>(null);
   const [namePrompt, setNamePrompt] = useState<null | { title: string; value: string; onOk: (value: string) => void }>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<null | { id: number; name: string }>(null);
   const [error, setError] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const dragRef = useRef<{ ids: number[]; active: boolean; startedNative: boolean } | null>(null);
@@ -110,6 +111,49 @@ export function App() {
     setMissingCount(boot.missingCount);
     setSettings(boot.settings);
   }, [browse, creator, query, sort, tag]);
+
+  const openNewFolderPrompt = useCallback((parentId: number | null) => {
+    setNamePrompt({
+      title: "New folder",
+      value: "",
+      onOk: (value) => {
+        const expandKey = parentId == null ? "root" : `folder:${parentId}`;
+        void api.createFolder(parentId, value)
+          .then(() => {
+            setFolderExpandHint((hint) => ({ key: expandKey, nonce: (hint?.nonce ?? 0) + 1 }));
+            return refreshLists();
+          })
+          .catch((err) => setError(String(err)));
+      },
+    });
+  }, [refreshLists]);
+
+  const openRenameFolderPrompt = useCallback((folderId: number) => {
+    const folder = folders.find((item) => item.id === folderId);
+    if (!folder) return;
+    setNamePrompt({
+      title: "Rename folder",
+      value: folder.name,
+      onOk: (value) => {
+        void api.renameFolder(folder.id, value).then(() => refreshLists()).catch((err) => setError(String(err)));
+      },
+    });
+  }, [folders, refreshLists]);
+
+  const openDeleteFolderConfirm = useCallback((folderId: number) => {
+    const folder = folders.find((item) => item.id === folderId);
+    if (!folder) return;
+    setDeleteConfirm({ id: folderId, name: folder.name });
+  }, [folders]);
+
+  const performDeleteFolder = useCallback((folderId: number) => {
+    void api.deleteFolder(folderId)
+      .then(() => {
+        setBrowse({ type: "root" });
+        return refreshLists({ type: "root" });
+      })
+      .catch((err) => setError(String(err)));
+  }, [refreshLists]);
 
   const runImportRef = useRef<(paths: string[]) => Promise<void>>(async () => undefined);
 
@@ -159,7 +203,7 @@ export function App() {
   }, [refreshLists, targetFolderId]);
   runImportRef.current = runImport;
 
-  const dialogOpen = Boolean(busy || progress || summary || bulk || namePrompt || missingOpen || error);
+  const dialogOpen = Boolean(busy || progress || summary || bulk || namePrompt || deleteConfirm || missingOpen || error);
 
   useEffect(() => {
     debugLog("dialogs", {
@@ -168,10 +212,11 @@ export function App() {
       summary: summary ? summary.importedCount : null,
       bulk: bulk?.length ?? null,
       namePrompt: namePrompt?.title ?? null,
+      deleteConfirm: deleteConfirm?.name ?? null,
       missingOpen,
       error,
     });
-  }, [busy, progress, summary, bulk, namePrompt, missingOpen, error]);
+  }, [busy, progress, summary, bulk, namePrompt, deleteConfirm, missingOpen, error]);
 
   useEffect(() => {
     if (!ready || !settings?.libraryRoot || dialogOpen) {
@@ -514,41 +559,18 @@ export function App() {
           else setBrowse({ type: "folder", id: Number(key.slice(7)) });
           setSelected([]);
         }}
-        onNew={() => {
-          setNamePrompt({
-            title: "New folder",
-            value: "",
-            onOk: (value) => {
-              const parentId = browse.type === "folder" ? browse.id : null;
-              const expandKey = parentId == null ? "root" : `folder:${parentId}`;
-              void api.createFolder(parentId, value)
-                .then(() => {
-                  setFolderExpandHint((hint) => ({ key: expandKey, nonce: (hint?.nonce ?? 0) + 1 }));
-                  return refreshLists();
-                })
-                .catch((err) => setError(String(err)));
-            },
-          });
-        }}
+        onNew={() => openNewFolderPrompt(browse.type === "folder" ? browse.id : null)}
         onRename={() => {
           if (browse.type !== "folder") return;
-          const folder = folders.find((item) => item.id === browse.id);
-          if (!folder) return;
-          setNamePrompt({
-            title: "Rename folder",
-            value: folder.name,
-            onOk: (value) => {
-              void api.renameFolder(folder.id, value).then(() => refreshLists()).catch((err) => setError(String(err)));
-            },
-          });
+          openRenameFolderPrompt(browse.id);
         }}
         onDelete={() => {
           if (browse.type !== "folder") return;
-          void api.deleteFolder(browse.id).then(() => {
-            setBrowse({ type: "root" });
-            return refreshLists({ type: "root" });
-          }).catch((err) => setError(String(err)));
+          openDeleteFolderConfirm(browse.id);
         }}
+        onNewInFolder={openNewFolderPrompt}
+        onRenameFolder={openRenameFolderPrompt}
+        onDeleteFolder={openDeleteFolderConfirm}
         onTagFolder={(folderId) => {
           const name =
             folderId === null
@@ -807,6 +829,30 @@ export function App() {
               <button type="submit" className="primary">OK</button>
             </div>
           </form>
+        </Modal>
+      ) : null}
+      {deleteConfirm ? (
+        <Modal>
+          <div className="card">
+            <h2>Delete folder?</h2>
+            <p>
+              Delete <strong>{deleteConfirm.name}</strong>? The folder must be empty. This cannot be undone.
+            </p>
+            <div className="row">
+              <button type="button" onClick={() => setDeleteConfirm(null)}>Cancel</button>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => {
+                  const { id } = deleteConfirm;
+                  setDeleteConfirm(null);
+                  performDeleteFolder(id);
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
         </Modal>
       ) : null}
       {missingOpen ? (
