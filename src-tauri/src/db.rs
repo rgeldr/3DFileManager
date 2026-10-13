@@ -503,10 +503,10 @@ impl AppDb {
 
     pub fn import_batch_begin(&mut self) -> Result<(), String> {
         self.conn
-            .execute_batch("BEGIN IMMEDIATE;")
+            .pragma_update(None, "synchronous", "NORMAL")
             .map_err(|e| e.to_string())?;
         self.conn
-            .pragma_update(None, "synchronous", "NORMAL")
+            .execute_batch("BEGIN IMMEDIATE;")
             .map_err(|e| e.to_string())?;
         Ok(())
     }
@@ -514,6 +514,15 @@ impl AppDb {
     pub fn import_batch_commit(&mut self) -> Result<(), String> {
         self.conn.execute_batch("COMMIT;").map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    pub fn import_batch_rollback(&mut self) -> Result<(), String> {
+        self.conn.execute_batch("ROLLBACK;").map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn is_autocommit(&self) -> bool {
+        self.conn.is_autocommit()
     }
 
     pub fn next_unhashed_file(&self) -> Result<Option<UnhashedCandidate>, String> {
@@ -530,6 +539,24 @@ impl AppDb {
             )
             .optional()
             .map_err(|e| e.to_string())
+    }
+
+    pub fn claim_next_unhashed(&self) -> Result<Option<UnhashedCandidate>, String> {
+        let Some(candidate) = self.next_unhashed_file()? else {
+            return Ok(None);
+        };
+        self.set_thumb_status(candidate.id, "hashing")?;
+        Ok(Some(candidate))
+    }
+
+    pub fn reset_hashing_to_unhashed(&self) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE files SET thumb_status = 'unhashed' WHERE thumb_status = 'hashing'",
+                [],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     pub fn set_file_sha_ready(&self, id: i64, sha256: &str) -> Result<(), String> {
@@ -661,9 +688,12 @@ impl AppDb {
             .map_err(|e| e.to_string())?;
         let seeds = rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
         drop(stmt);
+        let ids: Vec<i64> = seeds.iter().map(|s| s.id).collect();
+        let tag_map = self.tags_for_ids(&ids)?;
         let mut out = Vec::new();
         for seed in seeds {
-            out.push(self.hydrate(seed, &root)?);
+            let tags = tag_map.get(&seed.id).cloned().unwrap_or_default();
+            out.push(self.hydrate_with_tags(seed, &root, tags)?);
         }
         Ok(out)
     }
@@ -699,14 +729,28 @@ impl AppDb {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
         drop(stmt);
+        let ids: Vec<i64> = seeds.iter().map(|s| s.id).collect();
+        let tag_map = self.tags_for_ids(&ids)?;
         seeds
             .into_iter()
-            .map(|s| self.hydrate(s, &root))
+            .map(|s| {
+                let tags = tag_map.get(&s.id).cloned().unwrap_or_default();
+                self.hydrate_with_tags(s, &root, tags)
+            })
             .collect()
     }
 
     fn hydrate(&self, seed: FileSeed, root: &Path) -> Result<FileRow, String> {
         let tags = self.tags_for(seed.id)?;
+        self.hydrate_with_tags(seed, root, tags)
+    }
+
+    fn hydrate_with_tags(
+        &self,
+        seed: FileSeed,
+        root: &Path,
+        tags: Vec<String>,
+    ) -> Result<FileRow, String> {
         let absolute = root.join(&seed.stored_relpath);
         let thumb = thumb_path(&self.data_dir, &seed.sha256);
         let thumb_path = if seed.thumb_status == "ok" && thumb.exists() {
@@ -736,18 +780,35 @@ impl AppDb {
     }
 
     fn tags_for(&self, id: i64) -> Result<Vec<String>, String> {
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT t.name FROM tags t JOIN file_tags ft ON ft.tag_id = t.id WHERE ft.file_id = ?1 ORDER BY t.name COLLATE NOCASE",
-            )
-            .map_err(|e| e.to_string())?;
-        let tags = stmt
-            .query_map([id], |r| r.get(0))
+        let mut map = self.tags_for_ids(&[id])?;
+        Ok(map.remove(&id).unwrap_or_default())
+    }
+
+    fn tags_for_ids(&self, ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<String>>, String> {
+        use std::collections::HashMap;
+        let mut out: HashMap<i64, Vec<String>> = HashMap::new();
+        if ids.is_empty() {
+            return Ok(out);
+        }
+        let placeholders = ids
+            .iter()
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT ft.file_id, t.name FROM tags t JOIN file_tags ft ON ft.tag_id = t.id WHERE ft.file_id IN ({placeholders}) ORDER BY t.name COLLATE NOCASE"
+        );
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let params: Vec<&dyn rusqlite::ToSql> = ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+        let rows = stmt
+            .query_map(params.as_slice(), |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
             .map_err(|e| e.to_string())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
-        Ok(tags)
+        for (file_id, name) in rows {
+            out.entry(file_id).or_default().push(name);
+        }
+        Ok(out)
     }
 
     pub fn update_file(
@@ -980,7 +1041,10 @@ impl AppDb {
             }
         }
         self.conn
-            .execute("UPDATE files SET thumb_status = 'none'", [])
+            .execute(
+                "UPDATE files SET thumb_status = 'none' WHERE thumb_status IN ('ok', 'unavailable')",
+                [],
+            )
             .map_err(|e| e.to_string())?;
         Ok(())
     }

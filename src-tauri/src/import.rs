@@ -14,6 +14,19 @@ use crate::names::{extension_of, is_archive, is_supported_file, sanitize_compone
 
 const BATCH_SIZE: u32 = 250;
 const PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(250);
+pub const SUMMARY_ID_CAP: usize = 200;
+
+#[derive(Debug, Clone)]
+pub struct ImportOutcome {
+    pub imported_ids: Vec<i64>,
+    pub imported_count: u32,
+    pub duplicate_count: u32,
+    pub unsupported_count: u32,
+    pub failed: Vec<String>,
+    pub recycle_paths: Vec<String>,
+    pub cancelled: bool,
+    pub pending_hash_count: u32,
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -23,8 +36,26 @@ pub struct ImportSummary {
     pub duplicate_count: u32,
     pub unsupported_count: u32,
     pub failed: Vec<String>,
-    pub recycle_paths: Vec<String>,
+    pub recycle_count: u32,
     pub cancelled: bool,
+    pub pending_hash_count: u32,
+}
+
+pub fn summary_for_api(outcome: &ImportOutcome) -> ImportSummary {
+    ImportSummary {
+        imported_ids: if outcome.imported_ids.len() <= SUMMARY_ID_CAP {
+            outcome.imported_ids.clone()
+        } else {
+            Vec::new()
+        },
+        imported_count: outcome.imported_count,
+        duplicate_count: outcome.duplicate_count,
+        unsupported_count: outcome.unsupported_count,
+        failed: outcome.failed.clone(),
+        recycle_count: outcome.recycle_paths.len() as u32,
+        cancelled: outcome.cancelled,
+        pending_hash_count: outcome.pending_hash_count,
+    }
 }
 
 pub struct ImportProgress {
@@ -97,6 +128,7 @@ impl ImportBatch {
         if self.inserts >= BATCH_SIZE {
             self.commit(db)?;
             db.import_batch_begin()?;
+            self.active = true;
             self.inserts = 0;
         }
         Ok(())
@@ -109,6 +141,14 @@ impl ImportBatch {
             self.inserts = 0;
         }
         Ok(())
+    }
+
+    fn rollback(&mut self, db: &mut AppDb) {
+        if self.active {
+            let _ = db.import_batch_rollback();
+            self.active = false;
+            self.inserts = 0;
+        }
     }
 
     fn finish(&mut self, db: &mut AppDb) -> Result<(), String> {
@@ -207,11 +247,11 @@ pub fn import_paths<F: FnMut(ImportProgress)>(
     target_folder: Option<i64>,
     cancelled: &AtomicBool,
     on_progress: F,
-) -> Result<ImportSummary, String> {
+) -> Result<ImportOutcome, String> {
     let library_root = db.library_root()?;
     let mut folder_cache = FolderCache::new(db)?;
     let mut batch = ImportBatch::begin(db)?;
-    let mut summary = ImportSummary {
+    let mut summary = ImportOutcome {
         imported_ids: Vec::new(),
         imported_count: 0,
         duplicate_count: 0,
@@ -219,6 +259,7 @@ pub fn import_paths<F: FnMut(ImportProgress)>(
         failed: Vec::new(),
         recycle_paths: Vec::new(),
         cancelled: false,
+        pending_hash_count: 0,
     };
     let mut jobs = Vec::new();
     for raw in paths {
@@ -246,65 +287,80 @@ pub fn import_paths<F: FnMut(ImportProgress)>(
     let file_total = count_jobs(&jobs, cancelled)?;
     if cancelled.load(Ordering::SeqCst) {
         summary.cancelled = true;
-        batch.finish(db)?;
+        if batch.finish(db).is_err() {
+            batch.rollback(db);
+            return Err("Import batch commit failed.".into());
+        }
+        summary.pending_hash_count = db.count_unhashed()? as u32;
         progress.emit("Import stopped");
         return Ok(summary);
     }
     progress.total = file_total;
     progress.emit("Importing…");
-    for path in jobs {
-        if cancelled.load(Ordering::SeqCst) {
-            summary.cancelled = true;
-            break;
+    let import_result = (|| -> Result<(), String> {
+        for path in jobs {
+            if cancelled.load(Ordering::SeqCst) {
+                summary.cancelled = true;
+                break;
+            }
+            let ext = extension_of(&path.file_name().unwrap_or_default().to_string_lossy());
+            if path.is_dir() {
+                import_tree(
+                    db,
+                    &library_root,
+                    &mut folder_cache,
+                    &mut batch,
+                    &path,
+                    target_folder,
+                    None,
+                    0,
+                    cancelled,
+                    &mut summary,
+                    &mut progress,
+                )?;
+            } else if is_archive(&ext) {
+                import_archive(
+                    db,
+                    &library_root,
+                    &mut folder_cache,
+                    &mut batch,
+                    &path,
+                    target_folder,
+                    0,
+                    cancelled,
+                    &mut summary,
+                    &mut progress,
+                )?;
+            } else {
+                import_file(
+                    db,
+                    &library_root,
+                    &mut folder_cache,
+                    &mut batch,
+                    &path,
+                    target_folder,
+                    None,
+                    true,
+                    &mut summary,
+                )?;
+                progress.tick(file_name_of(&path));
+            }
+            if cancelled.load(Ordering::SeqCst) {
+                summary.cancelled = true;
+                break;
+            }
         }
-        let ext = extension_of(&path.file_name().unwrap_or_default().to_string_lossy());
-        if path.is_dir() {
-            import_tree(
-                db,
-                &library_root,
-                &mut folder_cache,
-                &mut batch,
-                &path,
-                target_folder,
-                None,
-                0,
-                cancelled,
-                &mut summary,
-                &mut progress,
-            )?;
-        } else if is_archive(&ext) {
-            import_archive(
-                db,
-                &library_root,
-                &mut folder_cache,
-                &mut batch,
-                &path,
-                target_folder,
-                0,
-                cancelled,
-                &mut summary,
-                &mut progress,
-            )?;
-        } else {
-            import_file(
-                db,
-                &library_root,
-                &mut folder_cache,
-                &mut batch,
-                &path,
-                target_folder,
-                None,
-                true,
-                &mut summary,
-            )?;
-            progress.tick(file_name_of(&path));
-        }
-        if cancelled.load(Ordering::SeqCst) {
-            summary.cancelled = true;
-            break;
-        }
+        Ok(())
+    })();
+    if let Err(err) = import_result {
+        batch.rollback(db);
+        return Err(err);
     }
-    batch.finish(db)?;
+    if batch.finish(db).is_err() {
+        batch.rollback(db);
+        return Err("Import batch commit failed.".into());
+    }
+    summary.pending_hash_count = db.count_unhashed()? as u32;
     progress.current = progress.total.max(progress.current);
     progress.flush();
     progress.emit(if summary.cancelled {
@@ -351,7 +407,7 @@ fn import_tree<F: FnMut(ImportProgress)>(
     source_archive: Option<&str>,
     archive_depth: u8,
     cancelled: &AtomicBool,
-    summary: &mut ImportSummary,
+    summary: &mut ImportOutcome,
     progress: &mut ImportProgressCtx<F>,
 ) -> Result<(), String> {
     for entry in WalkDir::new(source_root).follow_links(false) {
@@ -424,7 +480,7 @@ fn import_archive<F: FnMut(ImportProgress)>(
     target_folder: Option<i64>,
     depth: u8,
     cancelled: &AtomicBool,
-    summary: &mut ImportSummary,
+    summary: &mut ImportOutcome,
     progress: &mut ImportProgressCtx<F>,
 ) -> Result<(), String> {
     let stem = archive_path
@@ -497,7 +553,7 @@ fn import_file(
     folder_id: Option<i64>,
     source_archive: Option<&str>,
     can_recycle: bool,
-    summary: &mut ImportSummary,
+    summary: &mut ImportOutcome,
 ) -> Result<(), String> {
     let file_name = source
         .file_name()
@@ -738,7 +794,7 @@ mod flow_tests {
         (data, library, incoming)
     }
 
-    fn finish_import(db: &mut AppDb, summary: ImportSummary) -> ImportSummary {
+    fn finish_import(db: &mut AppDb, summary: ImportOutcome) -> ImportOutcome {
         let _ = drain_unhashed(db).unwrap();
         summary
     }
@@ -990,6 +1046,143 @@ mod flow_tests {
             .list_files(FolderFilter::Id(models), "", "", "", "name")
             .unwrap();
         assert_eq!(rows.len(), 1);
+        let _ = fs::remove_dir_all(data.parent().unwrap());
+    }
+
+    #[test]
+    fn import_commits_more_than_batch_size() {
+        let (data, library, incoming) = scratch();
+        let mut db = open(&data).unwrap();
+        let boot = db.set_library_root(&library).unwrap();
+        let models = boot.folders.iter().find(|f| f.name == "Models").unwrap().id;
+        let bulk = incoming.join("bulk");
+        fs::create_dir_all(&bulk).unwrap();
+        for i in 0..251 {
+            fs::write(bulk.join(format!("f{i}.stl")), b"solid x\nendsolid x\n").unwrap();
+        }
+        let summary = import_paths(
+            &mut db,
+            &[bulk.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(summary.imported_count, 251);
+        assert!(db.is_autocommit());
+        let rows = db
+            .list_files(FolderFilter::Id(models), "", "", "", "name")
+            .unwrap();
+        assert_eq!(rows.len(), 251);
+        let _ = fs::remove_dir_all(data.parent().unwrap());
+    }
+
+    #[test]
+    fn hash_pass_drops_duplicate_hard_link() {
+        let (data, library, incoming) = scratch();
+        let mut db = open(&data).unwrap();
+        let boot = db.set_library_root(&library).unwrap();
+        let models = boot.folders.iter().find(|f| f.name == "Models").unwrap().id;
+        let src = incoming.join("twin.stl");
+        fs::write(&src, b"solid same\nendsolid same\n").unwrap();
+        import_paths(
+            &mut db,
+            &[src.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        import_paths(
+            &mut db,
+            &[src.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        drain_unhashed(&db).unwrap();
+        let rows = db
+            .list_files(FolderFilter::Id(models), "", "", "", "name")
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        let _ = fs::remove_dir_all(data.parent().unwrap());
+    }
+
+    #[test]
+    fn hash_error_keeps_file_and_continues() {
+        let (data, library, incoming) = scratch();
+        let mut db = open(&data).unwrap();
+        let boot = db.set_library_root(&library).unwrap();
+        let models = boot.folders.iter().find(|f| f.name == "Models").unwrap().id;
+        db.insert_file_with_thumb_status(
+            "ghost.stl",
+            "ghost.stl",
+            "stl",
+            1,
+            "",
+            0,
+            Some(models),
+            None,
+            "unhashed",
+        )
+        .unwrap();
+        let good = incoming.join("good.stl");
+        fs::write(&good, b"solid ok\nendsolid ok\n").unwrap();
+        import_paths(
+            &mut db,
+            &[good.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        drain_unhashed(&db).unwrap();
+        let ghost = db
+            .conn
+            .query_row(
+                "SELECT thumb_status FROM files WHERE stored_relpath = 'ghost.stl'",
+                [],
+                |r| r.get::<_, String>(0),
+            )
+            .unwrap();
+        assert_eq!(ghost, "hash_error");
+        assert!(!library.join("ghost.stl").exists());
+        let rows = db
+            .list_files(FolderFilter::Id(models), "", "", "", "name")
+            .unwrap();
+        assert!(rows.iter().any(|r| r.original_name == "good.stl"));
+        let _ = fs::remove_dir_all(data.parent().unwrap());
+    }
+
+    #[test]
+    fn clear_thumbs_leaves_unhashed() {
+        let (data, library, _incoming) = scratch();
+        let db = open(&data).unwrap();
+        let boot = db.set_library_root(&library).unwrap();
+        let models = boot.folders.iter().find(|f| f.name == "Models").unwrap().id;
+        db.insert_file_with_thumb_status(
+            "wait.stl",
+            "Models/wait.stl",
+            "stl",
+            1,
+            "",
+            0,
+            Some(models),
+            None,
+            "unhashed",
+        )
+        .unwrap();
+        db.clear_thumbs().unwrap();
+        let status: String = db
+            .conn
+            .query_row(
+                "SELECT thumb_status FROM files WHERE stored_relpath = 'Models/wait.stl'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(status, "unhashed");
         let _ = fs::remove_dir_all(data.parent().unwrap());
     }
 }

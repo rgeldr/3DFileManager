@@ -46,8 +46,9 @@ export interface ImportSummary {
   duplicateCount: number;
   unsupportedCount: number;
   failed: string[];
-  recyclePaths: string[];
+  recycleCount: number;
   cancelled: boolean;
+  pendingHashCount: number;
 }
 
 export interface ThumbJob {

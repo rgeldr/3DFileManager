@@ -44,6 +44,7 @@ export const api = {
     invoke<ImportSummary>("import_paths", { paths, folderId }),
   cancelImport: () => invoke<void>("cancel_import"),
   recyclePaths: (paths: string[]) => invoke<string[]>("recycle_paths", { paths }),
+  recycleLastImport: () => invoke<string[]>("recycle_last_import"),
   moveFiles: (ids: number[], folderId: number | null) =>
     invoke<void>("move_files", { ids, folderId }),
   deleteFiles: (ids: number[]) => invoke<void>("delete_files", { ids }),

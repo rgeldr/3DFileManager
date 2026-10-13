@@ -577,17 +577,20 @@ export function App() {
             <p>
               Imported {summary.importedCount}. Duplicates skipped {summary.duplicateCount}. Unsupported {summary.unsupportedCount}.
             </p>
+            {summary.pendingHashCount > 0 ? (
+              <p>Duplicate checking continues in the background for {summary.pendingHashCount} files.</p>
+            ) : null}
             {summary.failed.length > 0 ? <p>{summary.failed.slice(0, 5).join(" ")}</p> : null}
-            {summary.recyclePaths.length > 0 ? (
+            {summary.recycleCount > 0 ? (
               <p>Keep the originals, or move them to the Recycle Bin?</p>
             ) : null}
             <div className="row">
               <button type="button" className="primary" onClick={() => setSummary(null)}>Keep originals</button>
-              {summary.recyclePaths.length > 0 ? (
+              {summary.recycleCount > 0 ? (
                 <button
                   type="button"
                   onClick={() => {
-                    void api.recyclePaths(summary.recyclePaths).then((failed) => {
+                    void api.recycleLastImport().then((failed) => {
                       if (failed.length) setError(failed.join("\n"));
                       setSummary(null);
                     });

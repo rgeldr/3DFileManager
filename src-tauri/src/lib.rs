@@ -20,6 +20,7 @@ use settings::Settings;
 struct AppState {
     db: Arc<Mutex<AppDb>>,
     import_cancel: AtomicBool,
+    last_recycle_paths: Mutex<Vec<String>>,
 }
 
 fn data_dir() -> PathBuf {
@@ -195,7 +196,7 @@ async fn import_paths(
     state.import_cancel.store(false, Ordering::SeqCst);
     let mut db = state.db.lock().map_err(|e| e.to_string())?;
     let app_emit = app.clone();
-    let summary = import::import_paths(
+    let outcome = import::import_paths(
         &mut db,
         &paths,
         folder_id,
@@ -212,8 +213,11 @@ async fn import_paths(
         },
     )?;
     drop(db);
+    if let Ok(mut stored) = state.last_recycle_paths.lock() {
+        *stored = outcome.recycle_paths.clone();
+    }
     hash_pass::spawn_hash_pass_if_needed(app.clone(), state.db.clone());
-    Ok(summary)
+    Ok(import::summary_for_api(&outcome))
 }
 
 #[tauri::command]
@@ -223,6 +227,16 @@ fn cancel_import(state: State<AppState>) {
 
 #[tauri::command]
 fn recycle_paths(paths: Vec<String>) -> Result<Vec<String>, String> {
+    import::recycle_paths(&paths)
+}
+
+#[tauri::command]
+fn recycle_last_import(state: State<AppState>) -> Result<Vec<String>, String> {
+    let paths = state
+        .last_recycle_paths
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
     import::recycle_paths(&paths)
 }
 
@@ -354,6 +368,7 @@ pub fn run() {
             let state = AppState {
                 db: Arc::new(Mutex::new(db)),
                 import_cancel: AtomicBool::new(false),
+                last_recycle_paths: Mutex::new(Vec::new()),
             };
             hash_pass::spawn_hash_pass_if_needed(app.handle().clone(), state.db.clone());
             app.manage(state);
@@ -379,6 +394,7 @@ pub fn run() {
             import_paths,
             cancel_import,
             recycle_paths,
+            recycle_last_import,
             move_files,
             delete_files,
             rescan_library,
