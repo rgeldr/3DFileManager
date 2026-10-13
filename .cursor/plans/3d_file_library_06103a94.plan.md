@@ -4,25 +4,25 @@ overview: Lightweight Windows desktop app (Tauri 2, React, TypeScript, SQLite) t
 todos:
   - id: scaffold
     content: Scaffold Tauri 2 + Vite React TypeScript app, NSIS installer with Start menu shortcut
-    status: pending
+    status: completed
   - id: db-library
     content: SQLite schema/migrations (sort_name, folder tree, thumbnail cache), required first-run library-folder picker, create default library folders on disk
-    status: pending
+    status: completed
   - id: import-dnd
     content: Copy-on-drop, Import folder, and Import archive (zip/rar/7z) preserving subfolders; original filenames on disk with collision suffix; hash dedupe; keep-or-recycle-originals prompt
-    status: pending
+    status: completed
   - id: browse-meta
     content: Folder tree UI, move files, file grid with Medium/Large/Extra large sizes, token-based dark/light theme (default dark), FTS search, inspector edits, Rescan library
-    status: pending
+    status: completed
   - id: preview-3d
     content: Thumbnail cache (3MF embedded image or rendered STL/OBJ still), Three.js viewer for .stl/.3mf/.obj, images for .png/.jpg/.jpeg and CTB thumbs; no Lychee rendering
-    status: pending
+    status: completed
   - id: drag-out
     content: Drag files from the grid into OrcaSlicer, Bambu Studio, ChiTuBox, or Explorer
-    status: pending
+    status: completed
   - id: verify-win
     content: Manual Windows verification of install, import, organize, search, preview, drag-out, rescan, and delete
-    status: pending
+    status: completed
 isProject: false
 ---
 
