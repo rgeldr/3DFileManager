@@ -31,7 +31,8 @@ async function flush(): Promise<void> {
   flushing = true;
   try {
     while (queue.length > 0) {
-      const batch = queue.splice(0, 30).join("\n");
+      const batchLines = queue.splice(0, 30);
+      const batch = batchLines.join("\n");
       try {
         const path = await api.debugLog(batch);
         if (!announcedPath && path) {
@@ -40,6 +41,7 @@ async function flush(): Promise<void> {
         }
       } catch (err) {
         console.warn("[debug] log write failed", err);
+        queue.unshift(...batchLines);
         break;
       }
     }
@@ -90,8 +92,9 @@ export function installDebugProbes(): void {
   window.addEventListener(
     "keydown",
     (event) => {
+      const printable = event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey;
       debugLog("keydown", {
-        key: event.key,
+        key: printable ? "text" : event.key,
         target: describe(event.target),
         defaultPrevented: event.defaultPrevented,
       });
@@ -114,11 +117,11 @@ export function installDebugProbes(): void {
     const now = performance.now();
     const gapMs = Math.round(now - last);
     last = now;
-    debugLog(gapMs > 1500 ? "heartbeat-blocked" : "heartbeat", {
+    debugLog(gapMs > 6000 ? "heartbeat-blocked" : "heartbeat", {
       gapMs,
       hasFocus: document.hasFocus(),
       active: describe(document.activeElement),
       modals: document.querySelectorAll(".modal-back").length,
     });
-  }, 1000);
+  }, 5000);
 }

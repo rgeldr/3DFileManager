@@ -131,6 +131,11 @@ pub fn open(data_dir: &Path) -> Result<AppDb, String> {
         conn.pragma_update(None, "user_version", 1)
             .map_err(|e| e.to_string())?;
     }
+    conn.execute(
+        "UPDATE files SET thumb_status = 'none' WHERE thumb_status = 'rendering'",
+        [],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(AppDb {
         conn,
         data_dir: data_dir.to_path_buf(),
@@ -1013,7 +1018,7 @@ impl AppDb {
         Ok(())
     }
 
-    pub fn next_pending_thumb(&self) -> Result<Option<ThumbCandidate>, String> {
+    fn next_pending_thumb_row(&self) -> Result<Option<ThumbCandidate>, String> {
         self.conn
             .query_row(
                 "SELECT id, stored_relpath, ext, size_bytes, sha256 FROM files WHERE thumb_status = 'none' AND missing = 0 ORDER BY id LIMIT 1",
@@ -1032,6 +1037,23 @@ impl AppDb {
             .map_err(|e| e.to_string())
     }
 
+    pub fn claim_next_pending_thumb(&self) -> Result<Option<ThumbCandidate>, String> {
+        let Some(candidate) = self.next_pending_thumb_row()? else {
+            return Ok(None);
+        };
+        let updated = self
+            .conn
+            .execute(
+                "UPDATE files SET thumb_status = 'rendering' WHERE id = ?1 AND thumb_status = 'none'",
+                params![candidate.id],
+            )
+            .map_err(|e| e.to_string())?;
+        if updated == 0 {
+            return Ok(None);
+        }
+        Ok(Some(candidate))
+    }
+
     pub fn clear_thumbs(&self) -> Result<(), String> {
         let dir = self.data_dir.join("thumbs");
         if dir.exists() {
@@ -1042,7 +1064,7 @@ impl AppDb {
         }
         self.conn
             .execute(
-                "UPDATE files SET thumb_status = 'none' WHERE thumb_status IN ('ok', 'unavailable')",
+                "UPDATE files SET thumb_status = 'none' WHERE thumb_status IN ('ok', 'unavailable', 'rendering')",
                 [],
             )
             .map_err(|e| e.to_string())?;

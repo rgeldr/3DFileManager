@@ -68,7 +68,7 @@ export function App() {
   const themeItems = useRef<{ dark?: CheckMenuItem; light?: CheckMenuItem }>({});
   const gridItems = useRef<Partial<Record<GridSize, CheckMenuItem>>>({});
   const [thumbNonce, setThumbNonce] = useState(0);
-  const thumbCancel = useRef(false);
+  const thumbGeneration = useRef(0);
   const gridScrollRef = useRef<HTMLDivElement>(null);
   const [previewIconsEnabled, setPreviewIconsEnabled] = useState(false);
   const [folderExpandHint, setFolderExpandHint] = useState<{ key: string; nonce: number } | null>(null);
@@ -101,24 +101,25 @@ export function App() {
 
   const runImportRef = useRef<(paths: string[]) => Promise<void>>(async () => undefined);
 
-  const pumpThumbs = useCallback(async () => {
+  const pumpThumbs = useCallback(async (generation: number) => {
+    const stale = () => thumbGeneration.current !== generation;
     for (let i = 0; i < 5000; i += 1) {
-      if (thumbCancel.current) return;
+      if (stale()) return;
       await new Promise((resolve) => setTimeout(resolve, 32));
-      if (thumbCancel.current) return;
+      if (stale()) return;
       const job = await api.nextThumbnail();
       if (!job) break;
       if (job.kind === "render") {
         try {
           const png = await renderMeshStill(convertFileSrc(job.absolutePath), job.ext);
-          if (thumbCancel.current) return;
+          if (stale()) return;
           await api.saveRenderedThumb(job.id, Array.from(png));
         } catch {
           await api.markThumbUnavailable(job.id);
         }
       }
     }
-    if (!thumbCancel.current) await refreshLists();
+    if (!stale()) await refreshLists();
   }, [refreshLists]);
 
   const BULK_TAG_LIMIT = 200;
@@ -165,12 +166,12 @@ export function App() {
       debugLog("thumb-pump-idle", { ready, hasLibrary: Boolean(settings?.libraryRoot), dialogOpen });
       return;
     }
-    thumbCancel.current = false;
-    debugLog("thumb-pump-start");
-    void pumpThumbs();
+    const generation = thumbGeneration.current;
+    debugLog("thumb-pump-start", { generation });
+    void pumpThumbs(generation);
     return () => {
-      thumbCancel.current = true;
-      debugLog("thumb-pump-stop");
+      thumbGeneration.current += 1;
+      debugLog("thumb-pump-stop", { generation });
     };
   }, [ready, settings?.libraryRoot, dialogOpen, thumbNonce, pumpThumbs]);
 
@@ -252,7 +253,7 @@ export function App() {
       setProgress(event.payload);
     });
     const hashUnlisten = listen("hash-pass-complete", () => {
-      void refreshLists().then(() => pumpThumbs());
+      void refreshLists().then(() => setThumbNonce((nonce) => nonce + 1));
     });
     void Promise.all([drag, progressUnlisten, hashUnlisten]).then(([a, b, c]) => {
       unlisten = () => {

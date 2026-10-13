@@ -1,8 +1,7 @@
 import * as THREE from "three";
 import { debugLog } from "../debugLog";
-import { STLLoader } from "three/addons/loaders/STLLoader.js";
-import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
-import { ThreeMFLoader } from "three/addons/loaders/3MFLoader.js";
+import { parseMeshInWorker } from "./meshParseClient";
+import type { PackedMesh } from "../workers/meshParse.worker";
 
 function cssVar(name: string): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -28,6 +27,16 @@ function fitCamera(camera: THREE.PerspectiveCamera, object: THREE.Object3D) {
 }
 
 let sharedRenderer: THREE.WebGLRenderer | null = null;
+let renderQueue: Promise<void> = Promise.resolve();
+
+function enqueueRender<T>(work: () => Promise<T>): Promise<T> {
+  const run = renderQueue.then(work, work);
+  renderQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
 
 function rendererForThumbs(): THREE.WebGLRenderer {
   if (sharedRenderer && !sharedRenderer.getContext().isContextLost()) return sharedRenderer;
@@ -41,6 +50,27 @@ function rendererForThumbs(): THREE.WebGLRenderer {
   return sharedRenderer;
 }
 
+function groupFromPackedMeshes(meshes: PackedMesh[], material: THREE.Material): THREE.Group {
+  const root = new THREE.Group();
+  for (const mesh of meshes) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(mesh.position), 3));
+    if (mesh.normal) {
+      geometry.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(mesh.normal), 3));
+    }
+    if (mesh.index) {
+      const index = mesh.index.byteLength % 4 === 0
+        ? new Uint32Array(mesh.index)
+        : new Uint16Array(mesh.index);
+      geometry.setIndex(new THREE.BufferAttribute(index, 1));
+    } else if (!mesh.normal) {
+      geometry.computeVertexNormals();
+    }
+    root.add(new THREE.Mesh(geometry, material));
+  }
+  return root;
+}
+
 function disposeMeshTree(object: THREE.Object3D) {
   object.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;
@@ -48,7 +78,7 @@ function disposeMeshTree(object: THREE.Object3D) {
   });
 }
 
-export async function renderMeshStill(url: string, ext: string): Promise<Uint8Array> {
+async function renderMeshStillInner(url: string, ext: string): Promise<Uint8Array> {
   const renderer = rendererForThumbs();
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(cssVar("--viewer-bg"));
@@ -64,6 +94,7 @@ export async function renderMeshStill(url: string, ext: string): Promise<Uint8Ar
   key.position.set(2, 3, 4);
   scene.add(key);
 
+  let parsed: THREE.Group | null = null;
   try {
     const response = await fetch(url);
     if (!response.ok) {
@@ -72,35 +103,11 @@ export async function renderMeshStill(url: string, ext: string): Promise<Uint8Ar
     const buffer = await response.arrayBuffer();
     const started = performance.now();
     debugLog("thumb-parse-start", { ext, bytes: buffer.byteLength });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const root = new THREE.Group();
     try {
-      if (ext === "stl") {
-        const geometry = new STLLoader().parse(buffer);
-        geometry.computeVertexNormals();
-        root.add(new THREE.Mesh(geometry, material));
-      } else if (ext === "obj") {
-        const text = new TextDecoder().decode(buffer);
-        const loaded = new OBJLoader().parse(text);
-        loaded.traverse((child) => {
-          if (child instanceof THREE.Mesh) {
-            child.material = material;
-          }
-        });
-        root.add(loaded);
-      } else if (ext === "3mf") {
-        const loaded = new ThreeMFLoader().parse(buffer);
-        loaded.traverse((child) => {
-          if (child instanceof THREE.Mesh) {
-            child.material = material;
-          }
-        });
-        root.add(loaded);
-      } else {
-        throw new Error("Not a mesh.");
-      }
-      scene.add(root);
-      fitCamera(camera, root);
+      const meshes = await parseMeshInWorker(ext, buffer);
+      parsed = groupFromPackedMeshes(meshes, material);
+      scene.add(parsed);
+      fitCamera(camera, parsed);
       renderer.render(scene, camera);
       debugLog("thumb-parse-end", { ext, ms: Math.round(performance.now() - started) });
     } catch (err) {
@@ -115,8 +122,12 @@ export async function renderMeshStill(url: string, ext: string): Promise<Uint8Ar
     }
     return new Uint8Array(await blob.arrayBuffer());
   } finally {
-    disposeMeshTree(scene);
+    if (parsed) disposeMeshTree(parsed);
     material.dispose();
     scene.clear();
   }
+}
+
+export function renderMeshStill(url: string, ext: string): Promise<Uint8Array> {
+  return enqueueRender(() => renderMeshStillInner(url, ext));
 }

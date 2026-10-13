@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 
 const versionPattern = /^(\d{2})\.(0[1-9]|1[0-2])\.([1-9]\d*)$/;
 
@@ -60,12 +61,19 @@ function check() {
   console.log(version);
 }
 
-function replaceOnce(text, from, to) {
-  const index = text.indexOf(from);
-  if (index < 0) {
-    fail(`Could not find ${from}`);
+export function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function replaceOnce(text, from, to) {
+  const pattern = from.split("\n").map(escapeRegExp).join("\\r?\\n");
+  const match = new RegExp(pattern).exec(text);
+  if (!match) {
+    throw new Error(`Could not find ${JSON.stringify(from)}`);
   }
-  return text.slice(0, index) + to + text.slice(index + from.length);
+  const newline = match[0].includes("\r\n") ? "\r\n" : "\n";
+  const replacement = to.split("\n").join(newline);
+  return text.slice(0, match.index) + replacement + text.slice(match.index + match[0].length);
 }
 
 function bump() {
@@ -76,25 +84,41 @@ function bump() {
     ? `${prefix}.${Number(match[3]) + 1}`
     : `${prefix}.1`;
 
-  writeFileSync(files.pkg, replaceOnce(read(files.pkg), `"version": "${current}"`, `"version": "${next}"`));
+  let updates;
+  try {
   let lock = read(files.lock);
   lock = replaceOnce(lock, `"name": "3d-file-library",\n  "version": "${current}"`, `"name": "3d-file-library",\n  "version": "${next}"`);
   lock = replaceOnce(lock, `"name": "3d-file-library",\n      "version": "${current}"`, `"name": "3d-file-library",\n      "version": "${next}"`);
-  writeFileSync(files.lock, lock);
-  writeFileSync(files.tauri, replaceOnce(read(files.tauri), `"version": "${current}"`, `"version": "${next}"`));
-  writeFileSync(files.cargo, replaceOnce(read(files.cargo), `version = "${current}"`, `version = "${next}"`));
-  writeFileSync(
-    files.cargoLock,
-    replaceOnce(
+  updates = [
+    [files.pkg, replaceOnce(
+      read(files.pkg),
+      `"name": "3d-file-library",\n  "version": "${current}"`,
+      `"name": "3d-file-library",\n  "version": "${next}"`,
+    )],
+    [files.lock, lock],
+    [files.tauri, replaceOnce(
+      read(files.tauri),
+      `"productName": "3D File Library",\n  "version": "${current}"`,
+      `"productName": "3D File Library",\n  "version": "${next}"`,
+    )],
+    [files.cargo, replaceOnce(read(files.cargo), `version = "${current}"`, `version = "${next}"`)],
+    [files.cargoLock, replaceOnce(
       read(files.cargoLock),
       `name = "file-library"\nversion = "${current}"`,
       `name = "file-library"\nversion = "${next}"`,
-    ),
-  );
+    )],
+  ];
+  } catch (err) {
+    fail(err instanceof Error ? err.message : String(err));
+  }
+  for (const [url, text] of updates) writeFileSync(url, text);
   console.log(`${current} -> ${next}`);
 }
 
-const command = process.argv[2];
-if (command === "check") check();
-else if (command === "bump") bump();
-else fail("Use: node scripts/version.mjs check|bump");
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) {
+  const command = process.argv[2];
+  if (command === "check") check();
+  else if (command === "bump") bump();
+  else fail("Use: node scripts/version.mjs check|bump");
+}

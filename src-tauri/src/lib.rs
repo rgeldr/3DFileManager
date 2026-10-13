@@ -278,7 +278,7 @@ struct ThumbJob {
 #[tauri::command]
 fn next_thumbnail(state: State<AppState>) -> Result<Option<ThumbJob>, String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    let Some(candidate) = db.next_pending_thumb()? else {
+    let Some(candidate) = db.claim_next_pending_thumb()? else {
         return Ok(None);
     };
     let root = db.library_root()?;
@@ -356,6 +356,15 @@ fn debug_log(line: String) -> Result<String, String> {
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join("debug.log");
     let _guard = DEBUG_LOG_LOCK.lock().map_err(|e| e.to_string())?;
+    if path.exists() {
+        let len = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        if len > 1_048_576 {
+            let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+            let keep = 512_000usize;
+            let start = bytes.len().saturating_sub(keep);
+            fs::write(&path, &bytes[start..]).map_err(|e| e.to_string())?;
+        }
+    }
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
