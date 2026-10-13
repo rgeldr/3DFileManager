@@ -330,6 +330,109 @@ impl AppDb {
         Ok(())
     }
 
+    pub fn move_folder(&self, id: i64, new_parent_id: Option<i64>) -> Result<(), String> {
+        let current_parent: Option<i64> = self
+            .conn
+            .query_row("SELECT parent_id FROM folders WHERE id = ?1", [id], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        if current_parent == new_parent_id {
+            return Ok(());
+        }
+        if new_parent_id == Some(id) {
+            return Err("Cannot move a folder into itself or its subfolder.".into());
+        }
+        let mut walk = new_parent_id;
+        while let Some(pid) = walk {
+            if pid == id {
+                return Err("Cannot move a folder into itself or its subfolder.".into());
+            }
+            walk = self
+                .conn
+                .query_row("SELECT parent_id FROM folders WHERE id = ?1", [pid], |r| r.get(0))
+                .map_err(|e| e.to_string())?;
+        }
+
+        let root = self.library_root()?;
+        let old_rel = self.folder_relpath(id)?;
+        let name: String = self
+            .conn
+            .query_row("SELECT name FROM folders WHERE id = ?1", [id], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        let parent_dir = match new_parent_id {
+            Some(pid) => root.join(self.folder_relpath(pid)?),
+            None => root.clone(),
+        };
+        std::fs::create_dir_all(&parent_dir).map_err(|e| e.to_string())?;
+        let unique = unique_dir_name(&parent_dir, &name);
+        let dest_rel_prefix = match new_parent_id {
+            Some(pid) => self.folder_relpath(pid)?,
+            None => String::new(),
+        };
+        let new_rel = if dest_rel_prefix.is_empty() {
+            unique.clone()
+        } else {
+            format!("{dest_rel_prefix}/{unique}")
+        };
+        let from = root.join(&old_rel);
+        let to = root.join(&new_rel);
+        if from != to {
+            std::fs::rename(&from, &to).map_err(|e| e.to_string())?;
+        }
+        let folders = self.list_folders()?;
+        let old_prefix = format!("{old_rel}/");
+        for folder in folders {
+            if folder.relpath == old_rel || folder.relpath.starts_with(&old_prefix) {
+                let updated = if folder.relpath == old_rel {
+                    new_rel.clone()
+                } else {
+                    format!("{new_rel}{}", &folder.relpath[old_rel.len()..])
+                };
+                let row_name = if folder.id == id {
+                    unique.clone()
+                } else {
+                    folder.name
+                };
+                if folder.id == id {
+                    self.conn
+                        .execute(
+                            "UPDATE folders SET parent_id = ?1, relpath = ?2, name = ?3 WHERE id = ?4",
+                            params![new_parent_id, updated, row_name, folder.id],
+                        )
+                        .map_err(|e| e.to_string())?;
+                } else {
+                    self.conn
+                        .execute(
+                            "UPDATE folders SET relpath = ?1, name = ?2 WHERE id = ?3",
+                            params![updated, row_name, folder.id],
+                        )
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+        }
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, stored_relpath FROM files")
+            .map_err(|e| e.to_string())?;
+        let files: Vec<(i64, String)> = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        drop(stmt);
+        for (fid, rel) in files {
+            if rel == old_rel || rel.starts_with(&old_prefix) {
+                let updated = format!("{new_rel}{}", &rel[old_rel.len()..]);
+                self.conn
+                    .execute(
+                        "UPDATE files SET stored_relpath = ?1 WHERE id = ?2",
+                        params![updated, fid],
+                    )
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn delete_folder(&self, id: i64) -> Result<(), String> {
         let child: i64 = self
             .conn
@@ -1383,6 +1486,54 @@ mod tests {
             .unwrap();
         assert_eq!(sibling_row[0].tags, Vec::<String>::new());
         assert_eq!(in_sibling, sibling_row[0].id);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn move_folder_updates_disk_and_paths() {
+        let dir = std::env::temp_dir().join(format!("filelib-movefolder-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = open(&dir).unwrap();
+        let root = dir.join("library");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+
+        let dest = db.create_folder(None, "Dest", 0).unwrap();
+        let source = db.create_folder(None, "Source", 0).unwrap();
+        let nested = db.create_folder(Some(source.id), "Nested", 0).unwrap();
+        let stored = "Source/Nested/part.stl";
+        std::fs::write(root.join(stored), b"x").unwrap();
+        let file_id = db
+            .insert_file("part.stl", stored, "stl", 1, "sha-move", 1, Some(nested.id), None)
+            .unwrap();
+
+        db.move_folder(source.id, Some(dest.id)).unwrap();
+
+        assert!(root.join("Dest/Source").is_dir());
+        assert!(root.join("Dest/Source/Nested").is_dir());
+        assert!(root.join("Dest/Source/Nested/part.stl").is_file());
+        assert!(!root.join(&source.relpath).exists());
+
+        let folders = db.list_folders().unwrap();
+        let moved = folders.iter().find(|f| f.id == source.id).unwrap();
+        assert_eq!(moved.parent_id, Some(dest.id));
+        assert_eq!(moved.relpath, "Dest/Source");
+
+        let nested_row = folders.iter().find(|f| f.id == nested.id).unwrap();
+        assert_eq!(nested_row.relpath, "Dest/Source/Nested");
+
+        let files = db
+            .list_files(FolderFilter::Id(nested.id), "", "", "", "name")
+            .unwrap();
+        assert_eq!(files[0].id, file_id);
+        assert_eq!(files[0].stored_relpath, "Dest/Source/Nested/part.stl");
+
+        assert!(db.move_folder(dest.id, Some(source.id)).is_err());
+        assert!(db.move_folder(source.id, Some(source.id)).is_err());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

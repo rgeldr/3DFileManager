@@ -18,6 +18,8 @@ export const api = {
     invoke<FolderRow>("create_folder", { parentId, name }),
   renameFolder: (id: number, name: string) => invoke<void>("rename_folder", { id, name }),
   deleteFolder: (id: number) => invoke<void>("delete_folder", { id }),
+  moveFolder: (id: number, parentId: number | null) =>
+    invoke<void>("move_folder", { id, parentId }),
   listFiles: (args: {
     folder: string;
     folderId: number | null;

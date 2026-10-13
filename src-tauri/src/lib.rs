@@ -95,6 +95,12 @@ fn delete_folder(state: State<AppState>, id: i64) -> Result<(), String> {
     db.delete_folder(id)
 }
 
+#[tauri::command]
+fn move_folder(state: State<AppState>, id: i64, parent_id: Option<i64>) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.move_folder(id, parent_id)
+}
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ListFilesArgs {
@@ -421,6 +427,7 @@ pub fn run() {
             create_folder,
             rename_folder,
             delete_folder,
+            move_folder,
             list_files,
             missing_files,
             remove_missing,

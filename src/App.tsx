@@ -556,6 +556,15 @@ export function App() {
           setFolderTagInput("");
           setFolderTagTarget({ folderId, name });
         }}
+        onMoveFolder={(id, parentId) => {
+          const expandKey = parentId == null ? "root" : `folder:${parentId}`;
+          void api.moveFolder(id, parentId)
+            .then(() => {
+              setFolderExpandHint((hint) => ({ key: expandKey, nonce: (hint?.nonce ?? 0) + 1 }));
+              return refreshLists();
+            })
+            .catch((err) => setError(String(err)));
+        }}
       />
       <section className="main">
         <div className="toolbar">

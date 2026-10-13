@@ -5,9 +5,19 @@ import type { FolderRow } from "../types";
 type FolderContextMenu = { x: number; y: number; folderId: number | null };
 
 const ROOT_KEY = "root";
+const DRAG_THRESHOLD_PX = 5;
 
 function folderKey(id: number) {
   return `folder:${id}`;
+}
+
+function isFolderUnderAncestor(folders: FolderRow[], ancestorId: number, folderId: number | null): boolean {
+  let current = folderId;
+  while (current != null) {
+    if (current === ancestorId) return true;
+    current = folders.find((f) => f.id === current)?.parentId ?? null;
+  }
+  return false;
 }
 
 export function Sidebar({
@@ -21,6 +31,7 @@ export function Sidebar({
   onRename,
   onDelete,
   onTagFolder,
+  onMoveFolder,
 }: {
   folders: FolderRow[];
   libraryName: string;
@@ -32,11 +43,21 @@ export function Sidebar({
   onRename: () => void;
   onDelete: () => void;
   onTagFolder: (folderId: number | null) => void;
+  onMoveFolder: (id: number, parentId: number | null) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([ROOT_KEY]));
   const [contextMenu, setContextMenu] = useState<FolderContextMenu | null>(null);
+  const [folderDropTarget, setFolderDropTarget] = useState<string | null>(null);
+  const [folderDragging, setFolderDragging] = useState(false);
+  const [draggingFolderId, setDraggingFolderId] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastClickRef = useRef<{ key: string; time: number } | null>(null);
+  const folderDragRef = useRef<{
+    folderId: number;
+    startX: number;
+    startY: number;
+    active: boolean;
+  } | null>(null);
 
   const childrenOf = useCallback(
     (parentId: number | null) => folders.filter((folder) => folder.parentId === parentId),
@@ -47,6 +68,18 @@ export function Sidebar({
     (parentId: number | null) => folders.some((folder) => folder.parentId === parentId),
     [folders],
   );
+
+  const isInvalidFolderDrop = useCallback(
+    (dragFolderId: number, target: string | null) => {
+      if (!target || target === "all") return true;
+      const dropFolderId = target === ROOT_KEY ? null : Number(target);
+      if (dropFolderId === dragFolderId) return true;
+      return isFolderUnderAncestor(folders, dragFolderId, dropFolderId);
+    },
+    [folders],
+  );
+
+  const effectiveDropTarget = folderDragging ? folderDropTarget : dropTarget;
 
   const toggleExpanded = useCallback((key: string) => {
     setExpanded((current) => {
@@ -86,9 +119,9 @@ export function Sidebar({
   }, [expandHint?.nonce, expandHint?.key]);
 
   useEffect(() => {
-    if (!dropTarget || dropTarget === "all") return;
-    const key = dropTarget === ROOT_KEY ? ROOT_KEY : folderKey(Number(dropTarget));
-    const parentId = dropTarget === ROOT_KEY ? null : Number(dropTarget);
+    if (!effectiveDropTarget || effectiveDropTarget === "all") return;
+    const key = effectiveDropTarget === ROOT_KEY ? ROOT_KEY : folderKey(Number(effectiveDropTarget));
+    const parentId = effectiveDropTarget === ROOT_KEY ? null : Number(effectiveDropTarget);
     if (!hasChildren(parentId)) return;
     const timer = window.setTimeout(() => {
       setExpanded((current) => {
@@ -99,7 +132,7 @@ export function Sidebar({
       });
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [dropTarget, hasChildren]);
+  }, [effectiveDropTarget, hasChildren]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -123,6 +156,53 @@ export function Sidebar({
     };
   }, [contextMenu]);
 
+  useEffect(() => {
+    const onMove = (event: PointerEvent) => {
+      const drag = folderDragRef.current;
+      if (!drag) return;
+      if (!drag.active) {
+        const dx = event.clientX - drag.startX;
+        const dy = event.clientY - drag.startY;
+        if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+        drag.active = true;
+        setFolderDragging(true);
+        setDraggingFolderId(drag.folderId);
+      }
+      const element = document.elementFromPoint(event.clientX, event.clientY);
+      const folder = element?.closest("[data-folder-id]")?.getAttribute("data-folder-id") ?? null;
+      if (folder && !isInvalidFolderDrop(drag.folderId, folder)) {
+        setFolderDropTarget(folder);
+      } else {
+        setFolderDropTarget(null);
+      }
+    };
+    const onUp = (event: PointerEvent) => {
+      const drag = folderDragRef.current;
+      folderDragRef.current = null;
+      if (!drag) return;
+      if (!drag.active) {
+        setFolderDragging(false);
+        setDraggingFolderId(null);
+        setFolderDropTarget(null);
+        return;
+      }
+      const element = document.elementFromPoint(event.clientX, event.clientY);
+      const folder = element?.closest("[data-folder-id]")?.getAttribute("data-folder-id") ?? null;
+      setFolderDragging(false);
+      setDraggingFolderId(null);
+      setFolderDropTarget(null);
+      if (!folder || isInvalidFolderDrop(drag.folderId, folder)) return;
+      const parentId = folder === ROOT_KEY ? null : Number(folder);
+      onMoveFolder(drag.folderId, parentId);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [isInvalidFolderDrop, onMoveFolder]);
+
   const openFolderContextMenu = (
     event: React.MouseEvent,
     browse: string,
@@ -132,6 +212,17 @@ export function Sidebar({
     event.stopPropagation();
     onBrowse(browse);
     setContextMenu({ x: event.clientX, y: event.clientY, folderId });
+  };
+
+  const onFolderRowPointerDown = (event: React.PointerEvent, folderId: number) => {
+    if (event.button !== 0) return;
+    if ((event.target as HTMLElement).closest(".tree-twist")) return;
+    folderDragRef.current = {
+      folderId,
+      startX: event.clientX,
+      startY: event.clientY,
+      active: false,
+    };
   };
 
   const visibleRowKeys = useMemo(() => {
@@ -215,20 +306,25 @@ export function Sidebar({
 
   const twistSpacer = () => <span className="tree-twist-spacer" aria-hidden />;
 
+  const dropClass = (targetId: string) =>
+    effectiveDropTarget === targetId ? " drop" : "";
+
   const renderLevel = (parentId: number | null, depth: number, parentKey: string) =>
     childrenOf(parentId).map((folder) => {
       const key = folderKey(folder.id);
       const kids = hasChildren(folder.id);
       const open = expanded.has(key);
       const browse = key;
+      const dragging = draggingFolderId === folder.id;
       return (
         <div key={folder.id}>
           <div
-            className={`folder-row${browseKey === key ? " active" : ""}${dropTarget === String(folder.id) ? " drop" : ""}`}
+            className={`folder-row${browseKey === key ? " active" : ""}${dropClass(String(folder.id))}${dragging ? " dragging" : ""}`}
             style={{ paddingLeft: `${8 + depth * 14}px` }}
             data-folder-id={folder.id}
             data-tree-key={key}
             tabIndex={0}
+            onPointerDown={(event) => onFolderRowPointerDown(event, folder.id)}
             onKeyDown={(event) => onTreeKeyDown(event, key, parentKey, kids)}
             onContextMenu={(event) => openFolderContextMenu(event, browse, folder.id)}
           >
@@ -248,7 +344,7 @@ export function Sidebar({
   const rootKids = hasChildren(null);
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${folderDragging ? " folder-dragging" : ""}`}>
       <div className="sidebar-head">
         <button type="button" onClick={onNew}>New folder</button>
         <button type="button" onClick={onRename}>Rename</button>
@@ -266,7 +362,7 @@ export function Sidebar({
           All files
         </div>
         <div
-          className={`folder-row${browseKey === ROOT_KEY ? " active" : ""}${dropTarget === ROOT_KEY ? " drop" : ""}`}
+          className={`folder-row${browseKey === ROOT_KEY ? " active" : ""}${dropClass(ROOT_KEY)}`}
           data-folder-id="root"
           data-tree-key={ROOT_KEY}
           tabIndex={0}

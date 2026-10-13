@@ -124,6 +124,14 @@ button:focus-visible {
   outline: 1px solid var(--color-accent);
 }
 
+.folder-row.dragging {
+  opacity: 0.45;
+}
+
+.sidebar.folder-dragging {
+  user-select: none;
+}
+
 .folder-context-menu {
   position: fixed;
   z-index: 10000;
