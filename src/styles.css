@@ -336,6 +336,12 @@ button:focus-visible {
   object-fit: contain;
 }
 
+.viewer img,
+.viewer-canvas {
+  position: absolute;
+  inset: 0;
+}
+
 .viewer-message {
   position: absolute;
   inset: 0;

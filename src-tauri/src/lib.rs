@@ -367,6 +367,18 @@ fn clear_thumbnail_cache(state: State<AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn drag_icon_path(app: AppHandle) -> Result<String, String> {
+    let path = app
+        .path()
+        .resolve("icons/drag.png", tauri::path::BaseDirectory::Resource)
+        .map_err(|e| e.to_string())?;
+    if !path.is_file() {
+        return Err(format!("Drag icon was not found at {}.", path.display()));
+    }
+    Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 fn debug_log(line: String) -> Result<String, String> {
     let dir = data_dir();
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -448,6 +460,7 @@ pub fn run() {
             save_rendered_thumb,
             mark_thumb_unavailable,
             clear_thumbnail_cache,
+            drag_icon_path,
             debug_log
         ])
         .run(tauri::generate_context!())

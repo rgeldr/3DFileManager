@@ -677,19 +677,6 @@ impl AppDb {
         Ok(())
     }
 
-    pub fn drop_file_link(&self, id: i64) -> Result<(), String> {
-        let loc = self.file_location(id)?;
-        let root = self.library_root()?;
-        let path = root.join(&loc.stored_relpath);
-        if path.exists() {
-            std::fs::remove_file(&path).map_err(|e| e.to_string())?;
-        }
-        self.conn
-            .execute("DELETE FROM files WHERE id = ?1", [id])
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-
     pub fn count_unhashed(&self) -> Result<i64, String> {
         self.conn
             .query_row(

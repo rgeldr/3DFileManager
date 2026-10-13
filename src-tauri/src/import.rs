@@ -840,17 +840,15 @@ mod flow_tests {
         fs::write(&first, b"solid a\nendsolid a\n").unwrap();
         fs::write(&second, b"solid b\nendsolid b\n").unwrap();
 
-        let summary = finish_import(
+        let imported = import_paths(
             &mut db,
-            import_paths(
-                &mut db,
-                &[first.to_string_lossy().to_string(), second.to_string_lossy().to_string()],
-                Some(models),
-                &NO_CANCEL,
-                |_| {},
-            )
-            .unwrap(),
-        );
+            &[first.to_string_lossy().to_string(), second.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        let summary = finish_import(&mut db, imported);
         assert_eq!(summary.imported_count, 2);
         assert!(summary.failed.is_empty(), "{:?}", summary.failed);
         assert_eq!(summary.recycle_paths.len(), 2);
@@ -905,20 +903,18 @@ mod flow_tests {
         fs::write(seven_src.join("floors").join("Tile.obj"), b"o tile\n").unwrap();
         sevenz_rust::compress_to_path(&seven_src, &seven).unwrap();
 
-        let archived = finish_import(
+        let imported = import_paths(
             &mut db,
-            import_paths(
-                &mut db,
-                &[
-                    zip_path.to_string_lossy().to_string(),
-                    seven.to_string_lossy().to_string(),
-                ],
-                None,
-                &NO_CANCEL,
-                |_| {},
-            )
-            .unwrap(),
-        );
+            &[
+                zip_path.to_string_lossy().to_string(),
+                seven.to_string_lossy().to_string(),
+            ],
+            None,
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        let archived = finish_import(&mut db, imported);
         assert!(archived.failed.is_empty(), "{:?}", archived.failed);
         assert_eq!(archived.imported_count, 2);
         assert!(library.join("Citadel").join("walls").join("Gate.stl").is_file());
@@ -974,17 +970,15 @@ mod flow_tests {
         fs::write(pack.join("notes.txt"), b"skip").unwrap();
 
         let mut events: Vec<(u32, u32)> = Vec::new();
-        let summary = finish_import(
+        let imported = import_paths(
             &mut db,
-            import_paths(
-                &mut db,
-                &[pack.to_string_lossy().to_string()],
-                Some(models),
-                &NO_CANCEL,
-                |p| events.push((p.current, p.total)),
-            )
-            .unwrap(),
-        );
+            &[pack.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |p| events.push((p.current, p.total)),
+        )
+        .unwrap();
+        let summary = finish_import(&mut db, imported);
         assert_eq!(summary.imported_count, 2);
         assert_eq!(summary.unsupported_count, 1);
 

@@ -18,7 +18,7 @@ fn apply_hash_result(db: &AppDb, id: i64, path: &PathBuf) -> Result<(), String> 
         }
     };
     if db.sha_exists_other(&sha, id)? {
-        db.drop_file_link(id)?;
+        db.delete_files(&[id])?;
         return Ok(());
     }
     db.set_file_sha_ready(id, &sha)?;
@@ -82,7 +82,7 @@ pub fn spawn_hash_pass_if_needed(app: AppHandle, db: Arc<Mutex<AppDb>>) {
                 Ok(db) => match sha_result {
                     Ok(sha) => {
                         if db.sha_exists_other(&sha, id).unwrap_or(false) {
-                            db.drop_file_link(id)
+                            db.delete_files(&[id])
                         } else {
                             db.set_file_sha_ready(id, &sha)
                         }

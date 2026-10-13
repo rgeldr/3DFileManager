@@ -21,11 +21,18 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": {
+        "default-src": "'self'",
+        "connect-src": "'self' ipc: http://ipc.localhost asset: http://asset.localhost https://asset.localhost",
+        "img-src": "'self' asset: http://asset.localhost https://asset.localhost blob: data:",
+        "style-src": "'self' 'unsafe-inline'",
+        "script-src": "'self'",
+        "worker-src": "'self' blob:"
+      },
       "assetProtocol": {
         "enable": true,
         "scope": {
-          "allow": ["**"],
+          "allow": [],
           "deny": [],
           "requireLiteralLeadingDot": false
         }
@@ -41,6 +48,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "resources": [
+      "icons/drag.png"
     ],
     "windows": {
       "nsis": {

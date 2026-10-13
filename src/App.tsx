@@ -21,6 +21,18 @@ function Modal({ children }: { children: ReactNode }) {
 
 const ERROR_MESSAGE_MAX = 2000;
 
+let fallbackDragIcon: Promise<string> | null = null;
+
+function fallbackDragIconPath(): Promise<string> {
+  if (!fallbackDragIcon) {
+    fallbackDragIcon = api.dragIconPath().catch((err: unknown) => {
+      fallbackDragIcon = null;
+      throw err;
+    });
+  }
+  return fallbackDragIcon;
+}
+
 function formatErrorForDisplay(message: string): string {
   if (message.length <= ERROR_MESSAGE_MAX) return message;
   return `${message.slice(0, ERROR_MESSAGE_MAX)}\n…(truncated)`;
@@ -301,6 +313,9 @@ export function App() {
       setError(String(err));
       setReady(true);
     });
+    void fallbackDragIconPath().catch((err: unknown) => {
+      debugLog("drag-icon", { error: String(err) });
+    });
     const drag = getCurrentWebview().onDragDropEvent((event) => {
       if (event.payload.type === "drop") {
         void runImportRef.current(event.payload.paths);
@@ -441,9 +456,16 @@ export function App() {
       if (outside && !drag.startedNative) {
         drag.startedNative = true;
         const paths = files.filter((file) => drag.ids.includes(file.id)).map((file) => file.absolutePath);
-        const icon = files.find((file) => drag.ids.includes(file.id) && file.thumbPath)?.thumbPath;
+        const thumb = files.find((file) => drag.ids.includes(file.id) && file.thumbPath)?.thumbPath;
         if (paths.length > 0) {
-          void startDrag({ item: paths, icon: icon ?? paths[0] });
+          void (async () => {
+            try {
+              const icon = thumb ?? (await fallbackDragIconPath());
+              await startDrag({ item: paths, icon });
+            } catch (err) {
+              setError(String(err));
+            }
+          })();
         }
       }
     };

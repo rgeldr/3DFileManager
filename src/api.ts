@@ -62,4 +62,5 @@ export const api = {
   markThumbUnavailable: (id: number) => invoke<void>("mark_thumb_unavailable", { id }),
   clearThumbnailCache: () => invoke<void>("clear_thumbnail_cache"),
   debugLog: (line: string) => invoke<string>("debug_log", { line }),
+  dragIconPath: () => invoke<string>("drag_icon_path"),
 };
