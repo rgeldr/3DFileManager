@@ -9,7 +9,7 @@
     "version:check": "node scripts/version.mjs check",
     "version:bump": "node scripts/version.mjs bump",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "node scripts/with-mingw.mjs"
   },
   "dependencies": {
     "@crabnebula/tauri-plugin-drag": "^2.1.0",
