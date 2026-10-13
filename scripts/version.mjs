@@ -65,6 +65,23 @@ export function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+export function replaceVersionNear(text, anchor, current, next, maxGapLines = 6) {
+  const newline = text.includes("\r\n") ? "\r\n" : "\n";
+  const lines = text.split(/\r?\n/);
+  const anchorIndex = lines.findIndex((line) => line.includes(anchor));
+  if (anchorIndex < 0) {
+    throw new Error(`Could not find ${JSON.stringify(anchor)}`);
+  }
+  const needle = `"version": "${current}"`;
+  const limit = Math.min(lines.length, anchorIndex + maxGapLines + 1);
+  for (let i = anchorIndex; i < limit; i += 1) {
+    if (!lines[i].includes(needle)) continue;
+    lines[i] = lines[i].replace(needle, `"version": "${next}"`);
+    return lines.join(newline);
+  }
+  throw new Error(`Could not find version ${current} near ${JSON.stringify(anchor)}`);
+}
+
 export function replaceOnce(text, from, to) {
   const pattern = from.split("\n").map(escapeRegExp).join("\\r?\\n");
   const match = new RegExp(pattern).exec(text);
@@ -90,11 +107,7 @@ function bump() {
   lock = replaceOnce(lock, `"name": "3d-file-library",\n  "version": "${current}"`, `"name": "3d-file-library",\n  "version": "${next}"`);
   lock = replaceOnce(lock, `"name": "3d-file-library",\n      "version": "${current}"`, `"name": "3d-file-library",\n      "version": "${next}"`);
   updates = [
-    [files.pkg, replaceOnce(
-      read(files.pkg),
-      `"name": "3d-file-library",\n  "version": "${current}"`,
-      `"name": "3d-file-library",\n  "version": "${next}"`,
-    )],
+    [files.pkg, replaceVersionNear(read(files.pkg), `"name": "3d-file-library"`, current, next)],
     [files.lock, lock],
     [files.tauri, replaceOnce(
       read(files.tauri),

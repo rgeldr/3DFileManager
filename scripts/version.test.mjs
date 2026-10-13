@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { replaceOnce } from "./version.mjs";
+import { replaceOnce, replaceVersionNear } from "./version.mjs";
 
 const lf = `{
   "name": "3d-file-library",
@@ -32,5 +32,16 @@ try {
   threw = true;
 }
 assert.equal(threw, true);
+
+const withPrivate = `{
+  "name": "3d-file-library",
+  "private": true,
+  "version": "26.10.4",
+  "dependencies": { "left-pad": "26.10.4" }
+}`;
+const bumpedPrivate = replaceVersionNear(withPrivate, `"name": "3d-file-library"`, "26.10.4", "26.10.5");
+assert.match(bumpedPrivate, /"private": true/);
+assert.match(bumpedPrivate, /"version": "26.10.5"/);
+assert.match(bumpedPrivate, /"left-pad": "26.10.4"/);
 
 console.log("version.test.mjs ok");
