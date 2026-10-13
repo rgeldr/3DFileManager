@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capabilities for the main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:menu:default",
+    "core:event:default",
+    "core:window:default",
+    "core:webview:default",
+    "dialog:default",
+    "opener:default",
+    "drag:default"
+  ]
+}
