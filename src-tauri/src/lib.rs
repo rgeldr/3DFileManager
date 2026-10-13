@@ -1,5 +1,6 @@
 mod ctb;
 mod db;
+mod hash_pass;
 mod import;
 mod names;
 mod preview;
@@ -8,7 +9,8 @@ mod settings;
 
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -16,7 +18,8 @@ use db::{AppDb, FolderFilter};
 use settings::Settings;
 
 struct AppState {
-    db: Mutex<AppDb>,
+    db: Arc<Mutex<AppDb>>,
+    import_cancel: AtomicBool,
 }
 
 fn data_dir() -> PathBuf {
@@ -189,18 +192,33 @@ async fn import_paths(
     folder_id: Option<i64>,
 ) -> Result<import::ImportSummary, String> {
     let state = app.state::<AppState>();
-    let db = state.db.lock().map_err(|e| e.to_string())?;
+    state.import_cancel.store(false, Ordering::SeqCst);
+    let mut db = state.db.lock().map_err(|e| e.to_string())?;
     let app_emit = app.clone();
-    import::import_paths(&db, &paths, folder_id, |progress| {
-        let _ = app_emit.emit(
-            "import-progress",
-            serde_json::json!({
-                "current": progress.current,
-                "total": progress.total,
-                "message": progress.message,
-            }),
-        );
-    })
+    let summary = import::import_paths(
+        &mut db,
+        &paths,
+        folder_id,
+        &state.import_cancel,
+        |progress| {
+            let _ = app_emit.emit(
+                "import-progress",
+                serde_json::json!({
+                    "current": progress.current,
+                    "total": progress.total,
+                    "message": progress.message,
+                }),
+            );
+        },
+    )?;
+    drop(db);
+    hash_pass::spawn_hash_pass_if_needed(app.clone(), state.db.clone());
+    Ok(summary)
+}
+
+#[tauri::command]
+fn cancel_import(state: State<AppState>) {
+    state.import_cancel.store(true, Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -333,7 +351,12 @@ pub fn run() {
                 allow_asset_scope(app.handle(), PathBuf::from(&root).as_path());
             }
             allow_asset_scope(app.handle(), &dir.join("thumbs"));
-            app.manage(AppState { db: Mutex::new(db) });
+            let state = AppState {
+                db: Arc::new(Mutex::new(db)),
+                import_cancel: AtomicBool::new(false),
+            };
+            hash_pass::spawn_hash_pass_if_needed(app.handle().clone(), state.db.clone());
+            app.manage(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -354,6 +377,7 @@ pub fn run() {
             list_creators,
             list_tags,
             import_paths,
+            cancel_import,
             recycle_paths,
             move_files,
             delete_files,

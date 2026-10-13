@@ -41,6 +41,7 @@ export function App() {
   const [missingFiles, setMissingFiles] = useState<FileRow[]>([]);
   const [chosenRoot, setChosenRoot] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number; message: string } | null>(null);
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [bulk, setBulk] = useState<number[] | null>(null);
@@ -105,20 +106,26 @@ export function App() {
     await refreshLists();
   }, [refreshLists]);
 
+  const BULK_TAG_LIMIT = 200;
+
   const runImport = useCallback(async (paths: string[]) => {
     if (paths.length === 0) return;
     setBusy("Importing…");
+    setImporting(true);
     setProgress({ current: 0, total: 0, message: "Counting files…" });
     try {
       const result = await api.importPaths(paths, targetFolderId);
       setSummary(result);
       if (result.importedIds.length === 1) setSelected(result.importedIds);
-      if (result.importedIds.length > 1) setBulk(result.importedIds);
+      if (result.importedIds.length > 1 && result.importedIds.length <= BULK_TAG_LIMIT) {
+        setBulk(result.importedIds);
+      }
       await refreshLists();
       void pumpThumbs();
     } catch (err) {
       setError(String(err));
     } finally {
+      setImporting(false);
       setBusy(null);
       setProgress(null);
     }
@@ -191,10 +198,14 @@ export function App() {
     const progressUnlisten = listen<{ current: number; total: number; message: string }>("import-progress", (event) => {
       setProgress(event.payload);
     });
-    void Promise.all([drag, progressUnlisten]).then(([a, b]) => {
+    const hashUnlisten = listen("hash-pass-complete", () => {
+      void refreshLists().then(() => pumpThumbs());
+    });
+    void Promise.all([drag, progressUnlisten, hashUnlisten]).then(([a, b, c]) => {
       unlisten = () => {
         a();
         b();
+        c();
       };
     });
     return () => unlisten();
@@ -549,13 +560,20 @@ export function App() {
                 style={{ width: progress && progress.total > 0 ? `${(progress.current / progress.total) * 100}%` : "40%" }}
               />
             </div>
+            {importing ? (
+              <div className="row" style={{ marginTop: "1rem" }}>
+                <button type="button" onClick={() => void api.cancelImport()}>
+                  Cancel
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
       {summary ? (
         <div className="modal-back">
           <div className="card">
-            <h2>Import finished</h2>
+            <h2>{summary.cancelled ? "Import stopped" : "Import finished"}</h2>
             <p>
               Imported {summary.importedCount}. Duplicates skipped {summary.duplicateCount}. Unsupported {summary.unsupportedCount}.
             </p>

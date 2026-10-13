@@ -42,6 +42,7 @@ export const api = {
   listTags: () => invoke<string[]>("list_tags"),
   importPaths: (paths: string[], folderId: number | null) =>
     invoke<ImportSummary>("import_paths", { paths, folderId }),
+  cancelImport: () => invoke<void>("cancel_import"),
   recyclePaths: (paths: string[]) => invoke<string[]>("recycle_paths", { paths }),
   moveFiles: (ids: number[], folderId: number | null) =>
     invoke<void>("move_files", { ids, folderId }),

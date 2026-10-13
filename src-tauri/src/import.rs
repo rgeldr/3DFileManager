@@ -1,13 +1,19 @@
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 use zip::ZipArchive;
 
 use crate::db::AppDb;
-use crate::names::{extension_of, is_archive, is_supported_file, unique_file_path};
+use crate::names::{extension_of, is_archive, is_supported_file, sanitize_component, unique_file_path};
+
+const BATCH_SIZE: u32 = 250;
+const PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -18,6 +24,7 @@ pub struct ImportSummary {
     pub unsupported_count: u32,
     pub failed: Vec<String>,
     pub recycle_paths: Vec<String>,
+    pub cancelled: bool,
 }
 
 pub struct ImportProgress {
@@ -30,10 +37,14 @@ struct ImportProgressCtx<F: FnMut(ImportProgress)> {
     current: u32,
     total: u32,
     on_progress: F,
+    last_emit: Instant,
+    pending_message: Option<String>,
 }
 
 impl<F: FnMut(ImportProgress)> ImportProgressCtx<F> {
-    fn emit(&mut self, message: impl Into<String>) {
+    fn emit_now(&mut self, message: impl Into<String>) {
+        self.pending_message = None;
+        self.last_emit = Instant::now();
         self.on_progress(ImportProgress {
             current: self.current,
             total: self.total.max(1),
@@ -41,46 +52,165 @@ impl<F: FnMut(ImportProgress)> ImportProgressCtx<F> {
         });
     }
 
-    fn tick(&mut self, message: impl Into<String>) {
-        self.current += 1;
-        self.emit(message);
+    fn emit(&mut self, message: impl Into<String>) {
+        self.emit_now(message);
     }
 
-    /// An archive is counted as one file during the pre-scan; replace that unit with extracted files.
+    fn tick(&mut self, message: impl Into<String>) {
+        self.current += 1;
+        let msg = message.into();
+        let now = Instant::now();
+        if now.duration_since(self.last_emit) >= PROGRESS_MIN_INTERVAL {
+            self.emit_now(msg);
+        } else {
+            self.pending_message = Some(msg);
+        }
+    }
+
+    fn flush(&mut self) {
+        if let Some(msg) = self.pending_message.take() {
+            self.emit_now(msg);
+        }
+    }
+
     fn adjust_total_for_archive_contents(&mut self, inner_file_count: u32) {
         self.total = self.total.saturating_sub(1) + inner_file_count;
     }
 }
 
-fn count_files_in_dir(source_root: &Path) -> u32 {
-    let mut count = 0u32;
-    for entry in WalkDir::new(source_root).follow_links(false) {
-        if entry
-            .ok()
-            .map(|e| e.file_type().is_file())
-            .unwrap_or(false)
-        {
-            count += 1;
+struct ImportBatch {
+    active: bool,
+    inserts: u32,
+}
+
+impl ImportBatch {
+    fn begin(db: &mut AppDb) -> Result<Self, String> {
+        db.import_batch_begin()?;
+        Ok(Self {
+            active: true,
+            inserts: 0,
+        })
+    }
+
+    fn note_insert(&mut self, db: &mut AppDb) -> Result<(), String> {
+        self.inserts += 1;
+        if self.inserts >= BATCH_SIZE {
+            self.commit(db)?;
+            db.import_batch_begin()?;
+            self.inserts = 0;
+        }
+        Ok(())
+    }
+
+    fn commit(&mut self, db: &mut AppDb) -> Result<(), String> {
+        if self.active {
+            db.import_batch_commit()?;
+            self.active = false;
+            self.inserts = 0;
+        }
+        Ok(())
+    }
+
+    fn finish(&mut self, db: &mut AppDb) -> Result<(), String> {
+        self.commit(db)
+    }
+}
+
+struct FolderCache {
+    relpath_by_id: HashMap<i64, String>,
+    id_by_relpath: HashMap<String, i64>,
+}
+
+impl FolderCache {
+    fn new(db: &AppDb) -> Result<Self, String> {
+        let mut relpath_by_id = HashMap::new();
+        let mut id_by_relpath = HashMap::new();
+        for folder in db.list_folders()? {
+            relpath_by_id.insert(folder.id, folder.relpath.clone());
+            id_by_relpath.insert(folder.relpath, folder.id);
+        }
+        Ok(Self {
+            relpath_by_id,
+            id_by_relpath,
+        })
+    }
+
+    fn ensure_folder_chain(
+        &mut self,
+        db: &mut AppDb,
+        library_root: &Path,
+        parent_id: Option<i64>,
+        relative_dir: &Path,
+    ) -> Result<Option<i64>, String> {
+        let mut current = parent_id;
+        if relative_dir.as_os_str().is_empty() {
+            return Ok(current);
+        }
+        for component in relative_dir.components() {
+            let raw = component.as_os_str().to_string_lossy();
+            if raw == "." || raw.is_empty() {
+                continue;
+            }
+            let name = sanitize_component(&raw);
+            let parent_rel = match current {
+                Some(id) => Some(
+                    self.relpath_by_id
+                        .get(&id)
+                        .cloned()
+                        .ok_or_else(|| format!("Folder {id} was not found."))?,
+                ),
+                None => None,
+            };
+            let relpath = match &parent_rel {
+                Some(rel) => format!("{rel}/{name}"),
+                None => name.clone(),
+            };
+            if let Some(id) = self.id_by_relpath.get(&relpath) {
+                current = Some(*id);
+                continue;
+            }
+            fs::create_dir_all(library_root.join(&relpath)).map_err(|e| e.to_string())?;
+            db.conn
+                .execute(
+                    "INSERT INTO folders (parent_id, name, sort_order, relpath) VALUES (?1, ?2, 0, ?3)",
+                    rusqlite::params![current, name, relpath],
+                )
+                .map_err(|e| e.to_string())?;
+            let id = db.conn.last_insert_rowid();
+            self.relpath_by_id.insert(id, relpath.clone());
+            self.id_by_relpath.insert(relpath, id);
+            current = Some(id);
+        }
+        Ok(current)
+    }
+
+    fn dest_dir(&self, library_root: &Path, folder_id: Option<i64>) -> Result<PathBuf, String> {
+        match folder_id {
+            Some(id) => {
+                let rel = self
+                    .relpath_by_id
+                    .get(&id)
+                    .ok_or_else(|| format!("Folder {id} was not found."))?;
+                Ok(library_root.join(rel))
+            }
+            None => Ok(library_root.to_path_buf()),
         }
     }
-    count
 }
 
-fn count_job_files(path: &Path) -> u32 {
-    if path.is_dir() {
-        count_files_in_dir(path)
-    } else {
-        1
-    }
-}
+#[cfg(test)]
+pub(crate) static FORCE_COPY: AtomicBool = AtomicBool::new(false);
 
 pub fn import_paths<F: FnMut(ImportProgress)>(
-    db: &AppDb,
+    db: &mut AppDb,
     paths: &[String],
     target_folder: Option<i64>,
+    cancelled: &AtomicBool,
     on_progress: F,
 ) -> Result<ImportSummary, String> {
-    let root = db.library_root()?;
+    let library_root = db.library_root()?;
+    let mut folder_cache = FolderCache::new(db)?;
+    let mut batch = ImportBatch::begin(db)?;
     let mut summary = ImportSummary {
         imported_ids: Vec::new(),
         imported_count: 0,
@@ -88,6 +218,7 @@ pub fn import_paths<F: FnMut(ImportProgress)>(
         unsupported_count: 0,
         failed: Vec::new(),
         recycle_paths: Vec::new(),
+        cancelled: false,
     };
     let mut jobs = Vec::new();
     for raw in paths {
@@ -96,7 +227,7 @@ pub fn import_paths<F: FnMut(ImportProgress)>(
             summary.failed.push(format!("Missing path: {raw}"));
             continue;
         }
-        if path_within(&path, &root) {
+        if path_within(&path, &library_root) {
             summary
                 .failed
                 .push(format!("Skipped a path inside the library: {raw}"));
@@ -108,41 +239,126 @@ pub fn import_paths<F: FnMut(ImportProgress)>(
         current: 0,
         total: 0,
         on_progress,
+        last_emit: Instant::now() - PROGRESS_MIN_INTERVAL,
+        pending_message: None,
     };
     progress.emit("Counting files");
-    let file_total = jobs.iter().map(|p| count_job_files(p)).sum::<u32>();
+    let file_total = count_jobs(&jobs, cancelled)?;
+    if cancelled.load(Ordering::SeqCst) {
+        summary.cancelled = true;
+        batch.finish(db)?;
+        progress.emit("Import stopped");
+        return Ok(summary);
+    }
     progress.total = file_total;
     progress.emit("Importing…");
     for path in jobs {
+        if cancelled.load(Ordering::SeqCst) {
+            summary.cancelled = true;
+            break;
+        }
         let ext = extension_of(&path.file_name().unwrap_or_default().to_string_lossy());
         if path.is_dir() {
-            import_tree(db, &path, target_folder, None, 0, &mut summary, &mut progress)?;
+            import_tree(
+                db,
+                &library_root,
+                &mut folder_cache,
+                &mut batch,
+                &path,
+                target_folder,
+                None,
+                0,
+                cancelled,
+                &mut summary,
+                &mut progress,
+            )?;
         } else if is_archive(&ext) {
-            import_archive(db, &path, target_folder, 0, &mut summary, &mut progress)?;
+            import_archive(
+                db,
+                &library_root,
+                &mut folder_cache,
+                &mut batch,
+                &path,
+                target_folder,
+                0,
+                cancelled,
+                &mut summary,
+                &mut progress,
+            )?;
         } else {
-            import_file(db, &path, target_folder, None, true, &mut summary)?;
-            let label = path
-                .file_name()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_else(|| path.display().to_string());
-            progress.tick(label);
+            import_file(
+                db,
+                &library_root,
+                &mut folder_cache,
+                &mut batch,
+                &path,
+                target_folder,
+                None,
+                true,
+                &mut summary,
+            )?;
+            progress.tick(file_name_of(&path));
+        }
+        if cancelled.load(Ordering::SeqCst) {
+            summary.cancelled = true;
+            break;
         }
     }
+    batch.finish(db)?;
     progress.current = progress.total.max(progress.current);
-    progress.emit("Import finished");
+    progress.flush();
+    progress.emit(if summary.cancelled {
+        "Import stopped"
+    } else {
+        "Import finished"
+    });
     Ok(summary)
 }
 
+fn count_jobs(jobs: &[PathBuf], cancelled: &AtomicBool) -> Result<u32, String> {
+    let mut total = 0u32;
+    for path in jobs {
+        if cancelled.load(Ordering::SeqCst) {
+            return Ok(total);
+        }
+        if path.is_dir() {
+            for entry in WalkDir::new(path).follow_links(false) {
+                if cancelled.load(Ordering::SeqCst) {
+                    return Ok(total);
+                }
+                if entry
+                    .ok()
+                    .map(|e| e.file_type().is_file())
+                    .unwrap_or(false)
+                {
+                    total += 1;
+                }
+            }
+        } else {
+            total += 1;
+        }
+    }
+    Ok(total)
+}
+
 fn import_tree<F: FnMut(ImportProgress)>(
-    db: &AppDb,
+    db: &mut AppDb,
+    library_root: &Path,
+    folder_cache: &mut FolderCache,
+    batch: &mut ImportBatch,
     source_root: &Path,
     target_folder: Option<i64>,
     source_archive: Option<&str>,
     archive_depth: u8,
+    cancelled: &AtomicBool,
     summary: &mut ImportSummary,
     progress: &mut ImportProgressCtx<F>,
 ) -> Result<(), String> {
     for entry in WalkDir::new(source_root).follow_links(false) {
+        if cancelled.load(Ordering::SeqCst) {
+            summary.cancelled = true;
+            return Ok(());
+        }
         let entry = match entry {
             Ok(entry) => entry,
             Err(err) => {
@@ -161,10 +377,22 @@ fn import_tree<F: FnMut(ImportProgress)>(
             .strip_prefix(source_root)
             .unwrap_or(Path::new(""))
             .to_path_buf();
-        let folder_id = db.ensure_folder_chain(target_folder, &rel_parent)?;
+        let folder_id =
+            folder_cache.ensure_folder_chain(db, library_root, target_folder, &rel_parent)?;
         if is_archive(&ext) {
             if archive_depth < 1 {
-                import_archive(db, path, folder_id, archive_depth + 1, summary, progress)?;
+                import_archive(
+                    db,
+                    library_root,
+                    folder_cache,
+                    batch,
+                    path,
+                    folder_id,
+                    archive_depth + 1,
+                    cancelled,
+                    summary,
+                    progress,
+                )?;
             } else {
                 summary.unsupported_count += 1;
                 progress.tick(file_name_of(path));
@@ -173,6 +401,9 @@ fn import_tree<F: FnMut(ImportProgress)>(
         }
         import_file(
             db,
+            library_root,
+            folder_cache,
+            batch,
             path,
             folder_id,
             source_archive,
@@ -184,17 +415,15 @@ fn import_tree<F: FnMut(ImportProgress)>(
     Ok(())
 }
 
-fn file_name_of(path: &Path) -> String {
-    path.file_name()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| path.display().to_string())
-}
-
 fn import_archive<F: FnMut(ImportProgress)>(
-    db: &AppDb,
+    db: &mut AppDb,
+    library_root: &Path,
+    folder_cache: &mut FolderCache,
+    batch: &mut ImportBatch,
     archive_path: &Path,
     target_folder: Option<i64>,
     depth: u8,
+    cancelled: &AtomicBool,
     summary: &mut ImportSummary,
     progress: &mut ImportProgressCtx<F>,
 ) -> Result<(), String> {
@@ -229,18 +458,28 @@ fn import_archive<F: FnMut(ImportProgress)>(
     let archive_name = archive_path
         .file_name()
         .map(|s| s.to_string_lossy().to_string());
-    let holder = db.ensure_folder_chain(target_folder, Path::new(&stem))?;
+    let holder = folder_cache.ensure_folder_chain(
+        db,
+        library_root,
+        target_folder,
+        Path::new(&stem),
+    )?;
     import_tree(
         db,
+        library_root,
+        folder_cache,
+        batch,
         &temp,
         holder,
         archive_name.as_deref(),
         depth,
+        cancelled,
         summary,
         progress,
     )?;
     let _ = fs::remove_dir_all(&temp);
-    let imported_something = summary.imported_count > before_imported || summary.duplicate_count > before_dup;
+    let imported_something =
+        summary.imported_count > before_imported || summary.duplicate_count > before_dup;
     if summary.failed.len() == before_failed && imported_something {
         summary
             .recycle_paths
@@ -250,7 +489,10 @@ fn import_archive<F: FnMut(ImportProgress)>(
 }
 
 fn import_file(
-    db: &AppDb,
+    db: &mut AppDb,
+    library_root: &Path,
+    folder_cache: &mut FolderCache,
+    batch: &mut ImportBatch,
     source: &Path,
     folder_id: Option<i64>,
     source_archive: Option<&str>,
@@ -266,6 +508,59 @@ fn import_file(
         summary.unsupported_count += 1;
         return Ok(());
     }
+    let dest_dir = folder_cache.dest_dir(library_root, folder_id)?;
+    fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+    let dest = unique_file_path(&dest_dir, &file_name);
+
+    let force_copy = FORCE_COPY.load(Ordering::SeqCst);
+    let linked = if !force_copy {
+        fs::hard_link(source, &dest).is_ok()
+    } else {
+        false
+    };
+
+    if linked {
+        let meta = dest.metadata().map_err(|e| e.to_string())?;
+        let rel = dest
+            .strip_prefix(library_root)
+            .map_err(|e| e.to_string())?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let mtime = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        match db.insert_file_with_thumb_status(
+            &file_name,
+            &rel,
+            &ext,
+            meta.len() as i64,
+            "",
+            mtime,
+            folder_id,
+            source_archive,
+            "unhashed",
+        ) {
+            Ok(id) => {
+                batch.note_insert(db)?;
+                summary.imported_ids.push(id);
+                summary.imported_count += 1;
+                if can_recycle {
+                    summary
+                        .recycle_paths
+                        .push(source.to_string_lossy().to_string());
+                }
+            }
+            Err(err) => {
+                let _ = fs::remove_file(&dest);
+                summary.failed.push(format!("{file_name}: {err}"));
+            }
+        }
+        return Ok(());
+    }
+
     let sha = match hash_file(source) {
         Ok(sha) => sha,
         Err(err) => {
@@ -277,13 +572,6 @@ fn import_file(
         summary.duplicate_count += 1;
         return Ok(());
     }
-    let root = db.library_root()?;
-    let dest_dir = match folder_id {
-        Some(id) => root.join(db.folder_relpath(id)?),
-        None => root,
-    };
-    fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
-    let dest = unique_file_path(&dest_dir, &file_name);
     if let Err(err) = fs::copy(source, &dest) {
         summary
             .failed
@@ -298,7 +586,7 @@ fn import_file(
         }
     };
     let rel = dest
-        .strip_prefix(db.library_root()?)
+        .strip_prefix(library_root)
         .map_err(|e| e.to_string())?
         .to_string_lossy()
         .replace('\\', "/");
@@ -319,6 +607,7 @@ fn import_file(
         source_archive,
     ) {
         Ok(id) => {
+            batch.note_insert(db)?;
             summary.imported_ids.push(id);
             summary.imported_count += 1;
             if can_recycle {
@@ -333,6 +622,26 @@ fn import_file(
         }
     }
     Ok(())
+}
+
+fn count_files_in_dir(source_root: &Path) -> u32 {
+    let mut count = 0u32;
+    for entry in WalkDir::new(source_root).follow_links(false) {
+        if entry
+            .ok()
+            .map(|e| e.file_type().is_file())
+            .unwrap_or(false)
+        {
+            count += 1;
+        }
+    }
+    count
+}
+
+fn file_name_of(path: &Path) -> String {
+    path.file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| path.display().to_string())
 }
 
 fn extract_any(archive: &Path, dest: &Path) -> Result<(), String> {
@@ -408,6 +717,7 @@ fn path_within(path: &Path, root: &Path) -> bool {
 mod flow_tests {
     use super::*;
     use crate::db::{open, FolderFilter};
+    use crate::hash_pass::drain_unhashed;
     use crate::rescan::rescan;
     use std::io::Write;
     use zip::write::SimpleFileOptions;
@@ -428,10 +738,17 @@ mod flow_tests {
         (data, library, incoming)
     }
 
+    fn finish_import(db: &mut AppDb, summary: ImportSummary) -> ImportSummary {
+        let _ = drain_unhashed(db).unwrap();
+        summary
+    }
+
+    static NO_CANCEL: AtomicBool = AtomicBool::new(false);
+
     #[test]
     fn import_organize_search_rescan_and_recycle() {
         let (data, library, incoming) = scratch();
-        let db = open(&data).unwrap();
+        let mut db = open(&data).unwrap();
         assert!(db.settings().library_root.is_none());
         assert_eq!(db.settings().theme, "dark");
         let boot = db.set_library_root(&library).unwrap();
@@ -456,13 +773,17 @@ mod flow_tests {
         fs::write(&first, b"solid a\nendsolid a\n").unwrap();
         fs::write(&second, b"solid b\nendsolid b\n").unwrap();
 
-        let summary = import_paths(
-            &db,
-            &[first.to_string_lossy().to_string(), second.to_string_lossy().to_string()],
-            Some(models),
-            |_| {},
-        )
-        .unwrap();
+        let summary = finish_import(
+            &mut db,
+            import_paths(
+                &mut db,
+                &[first.to_string_lossy().to_string(), second.to_string_lossy().to_string()],
+                Some(models),
+                &NO_CANCEL,
+                |_| {},
+            )
+            .unwrap(),
+        );
         assert_eq!(summary.imported_count, 2);
         assert!(summary.failed.is_empty(), "{:?}", summary.failed);
         assert_eq!(summary.recycle_paths.len(), 2);
@@ -474,8 +795,20 @@ mod flow_tests {
         assert!(stored.iter().any(|p| p.ends_with("Throne_of_Baal (2).stl")));
         assert!(rows.iter().all(|r| r.sort_name == "Throne of Baal"));
 
-        let again = import_paths(&db, &[first.to_string_lossy().to_string()], Some(models), |_| {}).unwrap();
-        assert_eq!(again.duplicate_count, 1);
+        let again = import_paths(
+            &mut db,
+            &[first.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(again.imported_count, 1);
+        drain_unhashed(&mut db).unwrap();
+        let after_dup = db
+            .list_files(FolderFilter::Id(models), "", "", "", "name")
+            .unwrap();
+        assert_eq!(after_dup.len(), 2);
         assert!(again.recycle_paths.is_empty());
 
         let id = rows[0].id;
@@ -505,16 +838,20 @@ mod flow_tests {
         fs::write(seven_src.join("floors").join("Tile.obj"), b"o tile\n").unwrap();
         sevenz_rust::compress_to_path(&seven_src, &seven).unwrap();
 
-        let archived = import_paths(
-            &db,
-            &[
-                zip_path.to_string_lossy().to_string(),
-                seven.to_string_lossy().to_string(),
-            ],
-            None,
-            |_| {},
-        )
-        .unwrap();
+        let archived = finish_import(
+            &mut db,
+            import_paths(
+                &mut db,
+                &[
+                    zip_path.to_string_lossy().to_string(),
+                    seven.to_string_lossy().to_string(),
+                ],
+                None,
+                &NO_CANCEL,
+                |_| {},
+            )
+            .unwrap(),
+        );
         assert!(archived.failed.is_empty(), "{:?}", archived.failed);
         assert_eq!(archived.imported_count, 2);
         assert!(library.join("Citadel").join("walls").join("Gate.stl").is_file());
@@ -534,7 +871,10 @@ mod flow_tests {
         assert!(scan.relocated >= 1);
         assert!(scan.added_folders >= 1);
         let after = db.file_location(id).unwrap();
-        assert!(after.stored_relpath.replace('\\', "/").ends_with("FoundOnDisk/Throne_of_Baal.stl"));
+        assert!(after
+            .stored_relpath
+            .replace('\\', "/")
+            .ends_with("FoundOnDisk/Throne_of_Baal.stl"));
         let notes = db
             .list_files(FolderFilter::All, "thro", "Jason", "", "name")
             .unwrap();
@@ -556,7 +896,7 @@ mod flow_tests {
     #[test]
     fn folder_import_emits_per_file_progress() {
         let (data, library, incoming) = scratch();
-        let db = open(&data).unwrap();
+        let mut db = open(&data).unwrap();
         let boot = db.set_library_root(&library).unwrap();
         let models = boot.folders.iter().find(|f| f.name == "Models").unwrap().id;
 
@@ -567,13 +907,17 @@ mod flow_tests {
         fs::write(pack.join("notes.txt"), b"skip").unwrap();
 
         let mut events: Vec<(u32, u32)> = Vec::new();
-        let summary = import_paths(
-            &db,
-            &[pack.to_string_lossy().to_string()],
-            Some(models),
-            |p| events.push((p.current, p.total)),
-        )
-        .unwrap();
+        let summary = finish_import(
+            &mut db,
+            import_paths(
+                &mut db,
+                &[pack.to_string_lossy().to_string()],
+                Some(models),
+                &NO_CANCEL,
+                |p| events.push((p.current, p.total)),
+            )
+            .unwrap(),
+        );
         assert_eq!(summary.imported_count, 2);
         assert_eq!(summary.unsupported_count, 1);
 
@@ -585,6 +929,67 @@ mod flow_tests {
         let max_current = events.iter().map(|(c, _)| *c).max().unwrap_or(0);
         assert_eq!(max_current, 3, "progress should advance once per file: {events:?}");
 
+        let _ = fs::remove_dir_all(data.parent().unwrap());
+    }
+
+    #[test]
+    fn copy_path_when_force_copy() {
+        let (data, library, incoming) = scratch();
+        let mut db = open(&data).unwrap();
+        let boot = db.set_library_root(&library).unwrap();
+        let models = boot.folders.iter().find(|f| f.name == "Models").unwrap().id;
+        let src = incoming.join("part.stl");
+        fs::write(&src, b"solid x\nendsolid x\n").unwrap();
+        FORCE_COPY.store(true, Ordering::SeqCst);
+        let summary = import_paths(
+            &mut db,
+            &[src.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        FORCE_COPY.store(false, Ordering::SeqCst);
+        assert_eq!(summary.imported_count, 1);
+        assert_eq!(summary.recycle_paths.len(), 1);
+        let rows = db
+            .list_files(FolderFilter::Id(models), "", "", "", "name")
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(!rows[0].sha256.is_empty());
+        let _ = fs::remove_dir_all(data.parent().unwrap());
+    }
+
+    #[test]
+    fn cancel_stops_after_current_file() {
+        let (data, library, incoming) = scratch();
+        let mut db = open(&data).unwrap();
+        let boot = db.set_library_root(&library).unwrap();
+        let models = boot.folders.iter().find(|f| f.name == "Models").unwrap().id;
+        let pack = incoming.join("pack");
+        fs::create_dir_all(&pack).unwrap();
+        fs::write(pack.join("a.stl"), b"solid a\nendsolid a\n").unwrap();
+        fs::write(pack.join("b.stl"), b"solid b\nendsolid b\n").unwrap();
+        let cancel = AtomicBool::new(false);
+        let summary = import_paths(
+            &mut db,
+            &[pack.to_string_lossy().to_string()],
+            Some(models),
+            &cancel,
+            |p| {
+                if p.current >= 1 {
+                    cancel.store(true, Ordering::SeqCst);
+                }
+            },
+        )
+        .unwrap();
+        let _ = drain_unhashed(&mut db).unwrap();
+        assert!(summary.cancelled);
+        assert_eq!(summary.imported_count, 1);
+        let rows = db
+            .list_files(FolderFilter::Id(models), "", "", "", "name")
+            .unwrap();
+        assert_eq!(rows.len(), 1);
         let _ = fs::remove_dir_all(data.parent().unwrap());
     }
 }

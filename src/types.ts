@@ -27,7 +27,7 @@ export interface FileRow {
   notes: string;
   sourceArchive: string | null;
   importedAt: number;
-  thumbStatus: "none" | "ok" | "unavailable";
+  thumbStatus: "none" | "ok" | "unavailable" | "unhashed";
   missing: boolean;
   tags: string[];
   absolutePath: string;
@@ -47,6 +47,7 @@ export interface ImportSummary {
   unsupportedCount: number;
   failed: string[];
   recyclePaths: string[];
+  cancelled: boolean;
 }
 
 export interface ThumbJob {

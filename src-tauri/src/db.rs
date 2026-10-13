@@ -411,11 +411,29 @@ impl AppDb {
     }
 
     pub fn sha_exists(&self, sha: &str) -> Result<bool, String> {
+        if sha.is_empty() {
+            return Ok(false);
+        }
         let count: i64 = self
             .conn
             .query_row(
                 "SELECT COUNT(*) FROM files WHERE sha256 = ?1 AND missing = 0",
                 [sha],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(count > 0)
+    }
+
+    pub fn sha_exists_other(&self, sha: &str, exclude_id: i64) -> Result<bool, String> {
+        if sha.is_empty() {
+            return Ok(false);
+        }
+        let count: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE sha256 = ?1 AND missing = 0 AND id <> ?2",
+                params![sha, exclude_id],
                 |r| r.get(0),
             )
             .map_err(|e| e.to_string())?;
@@ -433,12 +451,37 @@ impl AppDb {
         folder_id: Option<i64>,
         source_archive: Option<&str>,
     ) -> Result<i64, String> {
+        self.insert_file_with_thumb_status(
+            original_name,
+            stored_relpath,
+            ext,
+            size_bytes,
+            sha256,
+            mtime,
+            folder_id,
+            source_archive,
+            "none",
+        )
+    }
+
+    pub fn insert_file_with_thumb_status(
+        &self,
+        original_name: &str,
+        stored_relpath: &str,
+        ext: &str,
+        size_bytes: i64,
+        sha256: &str,
+        mtime: i64,
+        folder_id: Option<i64>,
+        source_archive: Option<&str>,
+        thumb_status: &str,
+    ) -> Result<i64, String> {
         let sort_name = default_sort_name(original_name);
         let now = chrono_now();
         self.conn
             .execute(
                 "INSERT INTO files (original_name, sort_name, stored_relpath, ext, size_bytes, sha256, mtime, folder_id, creator, notes, source_archive, imported_at, thumb_status, missing)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '', '', ?9, ?10, 'none', 0)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '', '', ?9, ?10, ?11, 0)",
                 params![
                     original_name,
                     sort_name,
@@ -449,12 +492,77 @@ impl AppDb {
                     mtime,
                     folder_id,
                     source_archive,
-                    now
+                    now,
+                    thumb_status
                 ],
             )
             .map_err(|e| e.to_string())?;
         let id = self.conn.last_insert_rowid();
         Ok(id)
+    }
+
+    pub fn import_batch_begin(&mut self) -> Result<(), String> {
+        self.conn
+            .execute_batch("BEGIN IMMEDIATE;")
+            .map_err(|e| e.to_string())?;
+        self.conn
+            .pragma_update(None, "synchronous", "NORMAL")
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn import_batch_commit(&mut self) -> Result<(), String> {
+        self.conn.execute_batch("COMMIT;").map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn next_unhashed_file(&self) -> Result<Option<UnhashedCandidate>, String> {
+        self.conn
+            .query_row(
+                "SELECT id, stored_relpath FROM files WHERE thumb_status = 'unhashed' AND missing = 0 ORDER BY id LIMIT 1",
+                [],
+                |r| {
+                    Ok(UnhashedCandidate {
+                        id: r.get(0)?,
+                        stored_relpath: r.get(1)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn set_file_sha_ready(&self, id: i64, sha256: &str) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE files SET sha256 = ?1, thumb_status = 'none' WHERE id = ?2",
+                params![sha256, id],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn drop_file_link(&self, id: i64) -> Result<(), String> {
+        let loc = self.file_location(id)?;
+        let root = self.library_root()?;
+        let path = root.join(&loc.stored_relpath);
+        if path.exists() {
+            std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+        }
+        self.conn
+            .execute("DELETE FROM files WHERE id = ?1", [id])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn count_unhashed(&self) -> Result<i64, String> {
+        self.conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE thumb_status = 'unhashed' AND missing = 0",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())
     }
 
     pub fn sync_tags_text(&self, id: i64) -> Result<(), String> {
@@ -948,6 +1056,11 @@ pub struct ThumbCandidate {
     pub ext: String,
     pub size_bytes: i64,
     pub sha256: String,
+}
+
+pub struct UnhashedCandidate {
+    pub id: i64,
+    pub stored_relpath: String,
 }
 
 pub struct IndexRow {
