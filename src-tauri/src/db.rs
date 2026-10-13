@@ -789,11 +789,13 @@ impl AppDb {
         Ok(map.remove(&id).unwrap_or_default())
     }
 
-    fn tags_for_ids(&self, ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<String>>, String> {
-        use std::collections::HashMap;
-        let mut out: HashMap<i64, Vec<String>> = HashMap::new();
+    fn tags_for_ids_chunk(
+        &self,
+        ids: &[i64],
+        out: &mut std::collections::HashMap<i64, Vec<String>>,
+    ) -> Result<(), String> {
         if ids.is_empty() {
-            return Ok(out);
+            return Ok(());
         }
         let placeholders = ids
             .iter()
@@ -812,6 +814,19 @@ impl AppDb {
             .map_err(|e| e.to_string())?;
         for (file_id, name) in rows {
             out.entry(file_id).or_default().push(name);
+        }
+        Ok(())
+    }
+
+    fn tags_for_ids(&self, ids: &[i64]) -> Result<std::collections::HashMap<i64, Vec<String>>, String> {
+        use std::collections::HashMap;
+        let mut out: HashMap<i64, Vec<String>> = HashMap::new();
+        if ids.is_empty() {
+            return Ok(out);
+        }
+        const CHUNK: usize = 500;
+        for chunk in ids.chunks(CHUNK) {
+            self.tags_for_ids_chunk(chunk, &mut out)?;
         }
         Ok(out)
     }

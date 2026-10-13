@@ -19,6 +19,13 @@ function Modal({ children }: { children: ReactNode }) {
   return createPortal(<div className="modal-back">{children}</div>, document.body);
 }
 
+const ERROR_MESSAGE_MAX = 2000;
+
+function formatErrorForDisplay(message: string): string {
+  if (message.length <= ERROR_MESSAGE_MAX) return message;
+  return `${message.slice(0, ERROR_MESSAGE_MAX)}\n…(truncated)`;
+}
+
 interface Actions {
   importFolder: () => void;
   importArchive: () => void;
@@ -740,7 +747,7 @@ export function App() {
         <Modal>
           <div className="card">
             <h2>Something went wrong</h2>
-            <p>{error}</p>
+            <p className="card-scroll">{formatErrorForDisplay(error)}</p>
             <div className="row">
               <button type="button" className="primary" onClick={() => setError(null)}>Close</button>
             </div>
