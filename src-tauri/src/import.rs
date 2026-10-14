@@ -1193,15 +1193,47 @@ mod flow_tests {
 }
 
 pub fn recycle_paths(paths: &[String]) -> Result<Vec<String>, String> {
-    let mut failed = Vec::new();
-    for path in paths {
-        let p = PathBuf::from(path);
-        if !p.exists() {
-            continue;
-        }
-        if let Err(err) = trash::delete(&p) {
-            failed.push(format!("{path}: {err}"));
-        }
-    }
+    let (failed, _) = recycle_paths_with(paths, &std::sync::atomic::AtomicBool::new(false), |_| {})?;
     Ok(failed)
+}
+
+pub fn recycle_paths_with<F: FnMut(crate::relocate::DiskProgress)>(
+    paths: &[String],
+    cancel: &std::sync::atomic::AtomicBool,
+    mut progress: F,
+) -> Result<(Vec<String>, bool), String> {
+    let total = paths.len() as u32;
+    let mut failed = Vec::new();
+    for (index, path) in paths.iter().enumerate() {
+        if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+            return Ok((failed, true));
+        }
+        let name = Path::new(path)
+            .file_name()
+            .map(|item| item.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.clone());
+        progress(crate::relocate::DiskProgress {
+            current: index as u32,
+            total,
+            name,
+            bytes_done: 0,
+            bytes_total: 0,
+            cancellable: true,
+        });
+        let file = PathBuf::from(path);
+        if file.exists() {
+            if let Err(err) = trash::delete(&file) {
+                failed.push(format!("{path}: {err}"));
+            }
+        }
+        progress(crate::relocate::DiskProgress {
+            current: (index as u32) + 1,
+            total,
+            name: String::new(),
+            bytes_done: 0,
+            bytes_total: 0,
+            cancellable: true,
+        });
+    }
+    Ok((failed, false))
 }

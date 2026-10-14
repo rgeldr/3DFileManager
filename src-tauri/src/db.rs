@@ -1,9 +1,11 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::names::{default_sort_name, unique_dir_name};
+use crate::relocate::{self, DiskProgress, TreeMove};
 use crate::settings::{self, Settings};
 
 pub struct AppDb {
@@ -265,6 +267,17 @@ impl AppDb {
     }
 
     pub fn rename_folder(&self, id: i64, new_name: &str) -> Result<(), String> {
+        self.rename_folder_with(id, new_name, &AtomicBool::new(false), |_| {})
+            .map(|_| ())
+    }
+
+    pub fn rename_folder_with<F: FnMut(DiskProgress)>(
+        &self,
+        id: i64,
+        new_name: &str,
+        cancel: &AtomicBool,
+        progress: F,
+    ) -> Result<bool, String> {
         let root = self.library_root()?;
         let old_rel = self.folder_relpath(id)?;
         let parent_id: Option<i64> = self
@@ -280,63 +293,38 @@ impl AppDb {
             Some((parent, _)) => format!("{parent}/{unique}"),
             None => unique.clone(),
         };
-        let from = root.join(&old_rel);
-        let to = root.join(&new_rel);
-        if from != to {
-            std::fs::rename(&from, &to).map_err(|e| e.to_string())?;
-        }
-        let folders = self.list_folders()?;
-        for folder in folders {
-            if folder.relpath == old_rel || folder.relpath.starts_with(&(old_rel.clone() + "/")) {
-                let updated = if folder.relpath == old_rel {
-                    new_rel.clone()
-                } else {
-                    format!("{new_rel}{}", &folder.relpath[old_rel.len()..])
-                };
-                let name = if folder.id == id {
-                    unique.clone()
-                } else {
-                    folder.name
-                };
-                self.conn
-                    .execute(
-                        "UPDATE folders SET relpath = ?1, name = ?2 WHERE id = ?3",
-                        params![updated, name, folder.id],
-                    )
-                    .map_err(|e| e.to_string())?;
-            }
-        }
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, stored_relpath FROM files")
-            .map_err(|e| e.to_string())?;
-        let files: Vec<(i64, String)> = stmt
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
-            .map_err(|e| e.to_string())?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
-        drop(stmt);
-        for (fid, rel) in files {
-            if rel == old_rel || rel.starts_with(&(old_rel.clone() + "/")) {
-                let updated = format!("{new_rel}{}", &rel[old_rel.len()..]);
-                self.conn
-                    .execute(
-                        "UPDATE files SET stored_relpath = ?1 WHERE id = ?2",
-                        params![updated, fid],
-                    )
-                    .map_err(|e| e.to_string())?;
-            }
-        }
-        Ok(())
+        self.relocate_folder(
+            id,
+            parent_id,
+            &unique,
+            &root,
+            &old_rel,
+            &new_rel,
+            cancel,
+            false,
+            progress,
+        )
     }
 
     pub fn move_folder(&self, id: i64, new_parent_id: Option<i64>) -> Result<(), String> {
+        self.move_folder_with(id, new_parent_id, &AtomicBool::new(false), false, |_| {})
+            .map(|_| ())
+    }
+
+    pub fn move_folder_with<F: FnMut(DiskProgress)>(
+        &self,
+        id: i64,
+        new_parent_id: Option<i64>,
+        cancel: &AtomicBool,
+        force_copy: bool,
+        progress: F,
+    ) -> Result<bool, String> {
         let current_parent: Option<i64> = self
             .conn
             .query_row("SELECT parent_id FROM folders WHERE id = ?1", [id], |r| r.get(0))
             .map_err(|e| e.to_string())?;
         if current_parent == new_parent_id {
-            return Ok(());
+            return Ok(false);
         }
         if new_parent_id == Some(id) {
             return Err("Cannot move a folder into itself or its subfolder.".into());
@@ -373,64 +361,172 @@ impl AppDb {
         } else {
             format!("{dest_rel_prefix}/{unique}")
         };
-        let from = root.join(&old_rel);
-        let to = root.join(&new_rel);
-        if from != to {
-            std::fs::rename(&from, &to).map_err(|e| e.to_string())?;
+        self.relocate_folder(
+            id,
+            new_parent_id,
+            &unique,
+            &root,
+            &old_rel,
+            &new_rel,
+            cancel,
+            force_copy,
+            progress,
+        )
+    }
+
+    fn relocate_folder<F: FnMut(DiskProgress)>(
+        &self,
+        id: i64,
+        parent_id: Option<i64>,
+        name: &str,
+        root: &Path,
+        old_rel: &str,
+        new_rel: &str,
+        cancel: &AtomicBool,
+        force_copy: bool,
+        mut progress: F,
+    ) -> Result<bool, String> {
+        let from = root.join(old_rel);
+        let to = root.join(new_rel);
+        let kind = relocate::move_tree(&from, &to, cancel, force_copy, &mut progress)?;
+        if kind == TreeMove::Cancelled {
+            return Ok(true);
         }
-        let folders = self.list_folders()?;
+        if kind == TreeMove::Copied && cancel.load(std::sync::atomic::Ordering::SeqCst) {
+            let _ = std::fs::remove_dir_all(&to);
+            return Ok(true);
+        }
+        let rewrite = self.rewrite_moved_tree(old_rel, new_rel, id, parent_id, name, &mut progress);
+        if let Err(err) = rewrite {
+            match kind {
+                TreeMove::Renamed if from != to => {
+                    let _ = std::fs::rename(&to, &from);
+                }
+                TreeMove::Copied => {
+                    let _ = std::fs::remove_dir_all(&to);
+                }
+                _ => {}
+            }
+            return Err(err);
+        }
+        if kind == TreeMove::Copied {
+            std::fs::remove_dir_all(&from).map_err(|e| {
+                format!(
+                    "The folder was copied, but the original could not be removed: {e}"
+                )
+            })?;
+        }
+        Ok(false)
+    }
+
+    fn rewrite_moved_tree<F: FnMut(DiskProgress)>(
+        &self,
+        old_rel: &str,
+        new_rel: &str,
+        folder_id: i64,
+        parent_id: Option<i64>,
+        folder_name: &str,
+        progress: &mut F,
+    ) -> Result<(), String> {
+        progress(DiskProgress {
+            current: 0,
+            total: 0,
+            name: "Updating catalog".into(),
+            bytes_done: 0,
+            bytes_total: 0,
+            cancellable: false,
+        });
         let old_prefix = format!("{old_rel}/");
-        for folder in folders {
-            if folder.relpath == old_rel || folder.relpath.starts_with(&old_prefix) {
+        let folders: Vec<FolderRow> = self
+            .list_folders()?
+            .into_iter()
+            .filter(|folder| folder.relpath == old_rel || folder.relpath.starts_with(&old_prefix))
+            .collect();
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, stored_relpath FROM files")
+            .map_err(|e| e.to_string())?;
+        let files: Vec<(i64, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        drop(stmt);
+        let files: Vec<(i64, String)> = files
+            .into_iter()
+            .filter(|(_, rel)| rel == old_rel || rel.starts_with(&old_prefix))
+            .collect();
+        let total = (folders.len() + files.len()) as u32;
+        self.conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
+        let applied = (|| -> Result<(), String> {
+            let mut current = 0u32;
+            for folder in folders {
                 let updated = if folder.relpath == old_rel {
-                    new_rel.clone()
+                    new_rel.to_string()
                 } else {
                     format!("{new_rel}{}", &folder.relpath[old_rel.len()..])
                 };
-                let row_name = if folder.id == id {
-                    unique.clone()
+                let name = if folder.id == folder_id {
+                    folder_name.to_string()
                 } else {
                     folder.name
                 };
-                if folder.id == id {
+                if folder.id == folder_id {
                     self.conn
                         .execute(
                             "UPDATE folders SET parent_id = ?1, relpath = ?2, name = ?3 WHERE id = ?4",
-                            params![new_parent_id, updated, row_name, folder.id],
+                            params![parent_id, updated, name, folder.id],
                         )
                         .map_err(|e| e.to_string())?;
                 } else {
                     self.conn
                         .execute(
                             "UPDATE folders SET relpath = ?1, name = ?2 WHERE id = ?3",
-                            params![updated, row_name, folder.id],
+                            params![updated, name, folder.id],
                         )
                         .map_err(|e| e.to_string())?;
                 }
+                current += 1;
+                if current == total || current % 25 == 0 {
+                    progress(DiskProgress {
+                        current,
+                        total,
+                        name: "Updating catalog".into(),
+                        bytes_done: 0,
+                        bytes_total: 0,
+                        cancellable: false,
+                    });
+                }
             }
-        }
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, stored_relpath FROM files")
-            .map_err(|e| e.to_string())?;
-        let files: Vec<(i64, String)> = stmt
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
-            .map_err(|e| e.to_string())?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
-        drop(stmt);
-        for (fid, rel) in files {
-            if rel == old_rel || rel.starts_with(&old_prefix) {
+            for (file_id, rel) in files {
                 let updated = format!("{new_rel}{}", &rel[old_rel.len()..]);
                 self.conn
                     .execute(
                         "UPDATE files SET stored_relpath = ?1 WHERE id = ?2",
-                        params![updated, fid],
+                        params![updated, file_id],
                     )
                     .map_err(|e| e.to_string())?;
+                current += 1;
+                if current == total || current % 25 == 0 {
+                    progress(DiskProgress {
+                        current,
+                        total,
+                        name: "Updating catalog".into(),
+                        bytes_done: 0,
+                        bytes_total: 0,
+                        cancellable: false,
+                    });
+                }
+            }
+            Ok(())
+        })();
+        match applied {
+            Ok(()) => self.conn.execute_batch("COMMIT").map_err(|e| e.to_string()),
+            Err(err) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(err)
             }
         }
-        Ok(())
     }
 
     pub fn delete_folder(&self, id: i64) -> Result<(), String> {
@@ -879,9 +975,23 @@ impl AppDb {
         notes: &str,
         folder_id: Option<i64>,
     ) -> Result<(), String> {
+        self.update_file_with(id, sort_name, creator, notes, folder_id, &AtomicBool::new(false), |_| {})
+            .map(|_| ())
+    }
+
+    pub fn update_file_with<F: FnMut(DiskProgress)>(
+        &self,
+        id: i64,
+        sort_name: &str,
+        creator: &str,
+        notes: &str,
+        folder_id: Option<i64>,
+        cancel: &AtomicBool,
+        progress: F,
+    ) -> Result<bool, String> {
         let current = self.file_location(id)?;
-        if current.folder_id != folder_id {
-            self.move_files(&[id], folder_id)?;
+        if current.folder_id != folder_id && self.move_files_with(&[id], folder_id, cancel, progress)? {
+            return Ok(true);
         }
         self.conn
             .execute(
@@ -889,7 +999,7 @@ impl AppDb {
                 params![sort_name.trim(), creator.trim(), notes, id],
             )
             .map_err(|e| e.to_string())?;
-        Ok(())
+        Ok(false)
     }
 
     pub fn set_tags(&self, id: i64, tags: &[String]) -> Result<(), String> {
@@ -1070,6 +1180,17 @@ impl AppDb {
     }
 
     pub fn move_files(&self, ids: &[i64], folder_id: Option<i64>) -> Result<(), String> {
+        self.move_files_with(ids, folder_id, &AtomicBool::new(false), |_| {})
+            .map(|_| ())
+    }
+
+    pub fn move_files_with<F: FnMut(DiskProgress)>(
+        &self,
+        ids: &[i64],
+        folder_id: Option<i64>,
+        cancel: &AtomicBool,
+        mut progress: F,
+    ) -> Result<bool, String> {
         let root = self.library_root()?;
         let dest_dir = match folder_id {
             Some(id) => root.join(self.folder_relpath(id)?),
@@ -1080,22 +1201,50 @@ impl AppDb {
             Some(id) => self.folder_relpath(id)?,
             None => String::new(),
         };
+        let mut planned = Vec::new();
+        let mut bytes_total = 0u64;
         for id in ids {
             let loc = self.file_location(*id)?;
             if loc.folder_id == folder_id {
                 continue;
             }
             let src = root.join(&loc.stored_relpath);
+            let len = src.metadata().map(|meta| meta.len()).unwrap_or(0);
+            bytes_total += len;
+            planned.push((*id, loc, len));
+        }
+        let total = planned.len() as u32;
+        let mut bytes_done = 0u64;
+        for (index, (id, loc, _len)) in planned.into_iter().enumerate() {
+            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                return Ok(true);
+            }
             let file_name = Path::new(&loc.stored_relpath)
                 .file_name()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or(loc.original_name.clone());
+            let current = index as u32;
+            progress(DiskProgress {
+                current,
+                total,
+                name: file_name.clone(),
+                bytes_done,
+                bytes_total,
+                cancellable: true,
+            });
+            let src = root.join(&loc.stored_relpath);
             let dest = crate::names::unique_file_path(&dest_dir, &file_name);
-            if src.exists() {
-                if std::fs::rename(&src, &dest).is_err() {
-                    std::fs::copy(&src, &dest).map_err(|e| e.to_string())?;
-                    std::fs::remove_file(&src).map_err(|e| e.to_string())?;
-                }
+            if relocate::move_file(
+                &src,
+                &dest,
+                cancel,
+                &mut bytes_done,
+                bytes_total,
+                current,
+                total,
+                &mut progress,
+            )? {
+                return Ok(true);
             }
             let dest_name = dest
                 .file_name()
@@ -1106,21 +1255,62 @@ impl AppDb {
             } else {
                 format!("{dest_rel_prefix}/{dest_name}")
             };
-            self.conn
-                .execute(
-                    "UPDATE files SET stored_relpath = ?1, folder_id = ?2, missing = 0 WHERE id = ?3",
-                    params![stored, folder_id, id],
-                )
-                .map_err(|e| e.to_string())?;
+            if let Err(err) = self.conn.execute(
+                "UPDATE files SET stored_relpath = ?1, folder_id = ?2, missing = 0 WHERE id = ?3",
+                params![stored, folder_id, id],
+            ) {
+                if !src.exists() && dest.exists() {
+                    let _ = std::fs::rename(&dest, &src);
+                }
+                return Err(err.to_string());
+            }
+            progress(DiskProgress {
+                current: current + 1,
+                total,
+                name: Path::new(&stored)
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_default(),
+                bytes_done,
+                bytes_total,
+                cancellable: true,
+            });
         }
-        Ok(())
+        Ok(false)
     }
 
     pub fn delete_files(&self, ids: &[i64]) -> Result<(), String> {
+        self.delete_files_with(ids, &AtomicBool::new(false), |_| {})
+            .map(|_| ())
+    }
+
+    pub fn delete_files_with<F: FnMut(DiskProgress)>(
+        &self,
+        ids: &[i64],
+        cancel: &AtomicBool,
+        mut progress: F,
+    ) -> Result<bool, String> {
         let root = self.library_root()?;
-        for id in ids {
+        let total = ids.len() as u32;
+        for (index, id) in ids.iter().enumerate() {
+            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                return Ok(true);
+            }
             let loc = self.file_location(*id)?;
             let path = root.join(&loc.stored_relpath);
+            let name = Path::new(&loc.stored_relpath)
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or(loc.original_name.clone());
+            let len = path.metadata().map(|meta| meta.len()).unwrap_or(0);
+            progress(DiskProgress {
+                current: index as u32,
+                total,
+                name,
+                bytes_done: 0,
+                bytes_total: len,
+                cancellable: true,
+            });
             if path.exists() {
                 trash::delete(&path).map_err(|e| e.to_string())?;
             }
@@ -1139,8 +1329,16 @@ impl AppDb {
             self.conn
                 .execute("DELETE FROM files WHERE id = ?1", [id])
                 .map_err(|e| e.to_string())?;
+            progress(DiskProgress {
+                current: (index as u32) + 1,
+                total,
+                name: String::new(),
+                bytes_done: len,
+                bytes_total: len,
+                cancellable: true,
+            });
         }
-        Ok(())
+        Ok(false)
     }
 
     pub fn remove_missing(&self) -> Result<(), String> {
@@ -1476,6 +1674,97 @@ mod tests {
         assert!(db.move_folder(dest.id, Some(source.id)).is_err());
         assert!(db.move_folder(source.id, Some(source.id)).is_err());
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn move_folder_copy_fallback_then_cancel_keeps_source() {
+        let dir = std::env::temp_dir().join(format!("filelib-movecopy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = open(&dir).unwrap();
+        let root = dir.join("library");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+
+        let dest = db.create_folder(None, "Dest", 0).unwrap();
+        let source = db.create_folder(None, "Source", 0).unwrap();
+        std::fs::write(root.join("Source/a.stl"), b"aaa").unwrap();
+        std::fs::write(root.join("Source/b.stl"), b"bbb").unwrap();
+        db.insert_file("a.stl", "Source/a.stl", "stl", 3, "sha-a", 1, Some(source.id), None)
+            .unwrap();
+        db.insert_file("b.stl", "Source/b.stl", "stl", 3, "sha-b", 1, Some(source.id), None)
+            .unwrap();
+
+        let cancel = AtomicBool::new(false);
+        let cancelled = db
+            .move_folder_with(source.id, Some(dest.id), &cancel, true, |progress| {
+                if progress.current >= 1 {
+                    cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+            })
+            .unwrap();
+        assert!(cancelled);
+        assert!(root.join("Source/a.stl").is_file());
+        assert!(root.join("Source/b.stl").is_file());
+        assert!(!root.join("Dest/Source").exists());
+        let files = db
+            .list_files(FolderFilter::Id(source.id), "", "", "", "name")
+            .unwrap();
+        assert!(files.iter().any(|file| file.stored_relpath == "Source/a.stl"));
+        assert!(files.iter().any(|file| file.stored_relpath == "Source/b.stl"));
+
+        assert!(!db
+            .move_folder_with(source.id, Some(dest.id), &AtomicBool::new(false), true, |_| {})
+            .unwrap());
+        assert!(root.join("Dest/Source/a.stl").is_file());
+        assert!(root.join("Dest/Source/b.stl").is_file());
+        assert!(!root.join("Source").exists());
+        let moved = db
+            .list_files(FolderFilter::Id(source.id), "", "", "", "name")
+            .unwrap();
+        assert!(moved.iter().all(|file| file.stored_relpath.starts_with("Dest/Source/")));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn move_files_cancel_keeps_the_rest() {
+        let dir = std::env::temp_dir().join(format!("filelib-movefiles-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = open(&dir).unwrap();
+        let root = dir.join("library");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        let dest = db.create_folder(None, "Dest", 0).unwrap();
+        std::fs::write(root.join("a.stl"), b"a").unwrap();
+        std::fs::write(root.join("b.stl"), b"b").unwrap();
+        let first = db
+            .insert_file("a.stl", "a.stl", "stl", 1, "sha-1", 1, None, None)
+            .unwrap();
+        let second = db
+            .insert_file("b.stl", "b.stl", "stl", 1, "sha-2", 1, None, None)
+            .unwrap();
+        let cancel = AtomicBool::new(false);
+        let cancelled = db
+            .move_files_with(&[first, second], Some(dest.id), &cancel, |progress| {
+                if progress.current >= 1 {
+                    cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+            })
+            .unwrap();
+        assert!(cancelled);
+        let moved = db.file_location(first).unwrap();
+        let stayed = db.file_location(second).unwrap();
+        assert_eq!(moved.folder_id, Some(dest.id));
+        assert!(root.join(&moved.stored_relpath).is_file());
+        assert_eq!(stayed.folder_id, None);
+        assert!(root.join("b.stl").is_file());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -8,6 +8,8 @@ import type {
   ThumbJob,
 } from "./types";
 
+export type DiskOutcome = { cancelled: boolean };
+
 export const api = {
   bootstrap: () => invoke<Bootstrap>("bootstrap"),
   getSettings: () => invoke<Settings>("get_settings"),
@@ -16,10 +18,10 @@ export const api = {
   setGridSize: (gridSize: string) => invoke<void>("set_grid_size", { gridSize }),
   createFolder: (parentId: number | null, name: string) =>
     invoke<FolderRow>("create_folder", { parentId, name }),
-  renameFolder: (id: number, name: string) => invoke<void>("rename_folder", { id, name }),
-  deleteFolder: (id: number) => invoke<void>("delete_folder", { id }),
+  renameFolder: (id: number, name: string) => invoke<DiskOutcome>("rename_folder", { id, name }),
+  deleteFolder: (id: number) => invoke<DiskOutcome>("delete_folder", { id }),
   moveFolder: (id: number, parentId: number | null) =>
-    invoke<void>("move_folder", { id, parentId }),
+    invoke<DiskOutcome>("move_folder", { id, parentId }),
   listFiles: (args: {
     folder: string;
     folderId: number | null;
@@ -36,7 +38,7 @@ export const api = {
     creator: string;
     notes: string;
     folderId: number | null;
-  }) => invoke<void>("update_file", payload),
+  }) => invoke<DiskOutcome>("update_file", payload),
   setTags: (id: number, tags: string[]) => invoke<void>("set_tags", { id, tags }),
   addTagsUnderFolder: (folderId: number | null, tags: string[]) =>
     invoke<number>("add_tags_under_folder", { folderId, tags }),
@@ -47,15 +49,22 @@ export const api = {
   importPaths: (paths: string[], folderId: number | null) =>
     invoke<ImportSummary>("import_paths", { paths, folderId }),
   cancelImport: () => invoke<void>("cancel_import"),
-  recyclePaths: (paths: string[]) => invoke<string[]>("recycle_paths", { paths }),
-  recycleLastImport: () => invoke<string[]>("recycle_last_import"),
+  cancelDiskOp: () => invoke<void>("cancel_disk_op"),
+  recyclePaths: (paths: string[]) =>
+    invoke<{ failed: string[]; cancelled: boolean }>("recycle_paths", { paths }),
+  recycleLastImport: () =>
+    invoke<{ failed: string[]; cancelled: boolean }>("recycle_last_import"),
   moveFiles: (ids: number[], folderId: number | null) =>
-    invoke<void>("move_files", { ids, folderId }),
-  deleteFiles: (ids: number[]) => invoke<void>("delete_files", { ids }),
+    invoke<DiskOutcome>("move_files", { ids, folderId }),
+  deleteFiles: (ids: number[]) => invoke<DiskOutcome>("delete_files", { ids }),
   rescanLibrary: () =>
-    invoke<{ addedFolders: number; addedFiles: number; relocated: number; missing: number }>(
-      "rescan_library",
-    ),
+    invoke<{
+      addedFolders: number;
+      addedFiles: number;
+      relocated: number;
+      missing: number;
+      cancelled: boolean;
+    }>("rescan_library"),
   nextThumbnail: () => invoke<ThumbJob | null>("next_thumbnail"),
   saveRenderedThumb: (id: number, png: number[]) =>
     invoke<void>("save_rendered_thumb", { id, png }),

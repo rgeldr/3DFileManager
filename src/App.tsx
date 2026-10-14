@@ -19,6 +19,38 @@ function Modal({ children }: { children: ReactNode }) {
   return createPortal(<div className="modal-back">{children}</div>, document.body);
 }
 
+type DiskProgress = {
+  current: number;
+  total: number;
+  name: string;
+  bytesDone: number;
+  bytesTotal: number;
+  cancellable: boolean;
+};
+
+type DiskDialog = DiskProgress & { title: string };
+
+const emptyProgress = (): DiskProgress => ({
+  current: 0,
+  total: 0,
+  name: "",
+  bytesDone: 0,
+  bytesTotal: 0,
+  cancellable: false,
+});
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
+}
+
 const ERROR_MESSAGE_MAX = 2000;
 
 let fallbackDragIcon: Promise<string> | null = null;
@@ -78,6 +110,8 @@ export function App() {
   const [namePrompt, setNamePrompt] = useState<null | { title: string; value: string; onOk: (value: string) => void }>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<null | { id: number; name: string }>(null);
   const [error, setError] = useState<string | null>(null);
+  const [diskDialog, setDiskDialog] = useState<DiskDialog | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const dragRef = useRef<{ ids: number[]; active: boolean; startedNative: boolean } | null>(null);
   const actions = useRef<Actions>({
@@ -95,6 +129,9 @@ export function App() {
   const gridScrollRef = useRef<HTMLDivElement>(null);
   const [previewIconsEnabled, setPreviewIconsEnabled] = useState(false);
   const [folderExpandHint, setFolderExpandHint] = useState<{ key: string; nonce: number } | null>(null);
+  const libraryBusy = useRef(false);
+  const diskProgress = useRef<DiskProgress>(emptyProgress());
+  const toastTimer = useRef<number | null>(null);
 
   const libraryName = useMemo(() => {
     const root = settings?.libraryRoot;
@@ -124,6 +161,53 @@ export function App() {
     setSettings(boot.settings);
   }, [browse, creator, query, sort, tag]);
 
+  const showToast = useCallback((message: string) => {
+    if (toastTimer.current != null) window.clearTimeout(toastTimer.current);
+    setToast(message);
+    toastTimer.current = window.setTimeout(() => setToast(null), 2500);
+  }, []);
+
+  const runDiskOp = useCallback(async (opts: {
+    title: string;
+    cancellable: boolean;
+    success: string;
+    cancelled: string;
+    run: () => Promise<{ cancelled: boolean }>;
+    after?: () => Promise<void> | void;
+  }) => {
+    if (libraryBusy.current) {
+      setError("Another library change is already running.");
+      return;
+    }
+    libraryBusy.current = true;
+    diskProgress.current = { ...emptyProgress(), cancellable: opts.cancellable };
+    let revealed = false;
+    const timer = window.setTimeout(() => {
+      revealed = true;
+      const progress = diskProgress.current;
+      setDiskDialog({
+        ...progress,
+        title: opts.title,
+        cancellable: opts.cancellable && progress.cancellable,
+      });
+    }, 300);
+    try {
+      const outcome = await opts.run();
+      window.clearTimeout(timer);
+      setDiskDialog(null);
+      if (opts.after) await opts.after();
+      else await refreshLists();
+      if (revealed) showToast(outcome.cancelled ? opts.cancelled : opts.success);
+    } catch (err) {
+      window.clearTimeout(timer);
+      setDiskDialog(null);
+      setError(String(err));
+      await refreshLists().catch(() => undefined);
+    } finally {
+      libraryBusy.current = false;
+    }
+  }, [refreshLists, showToast]);
+
   const openNewFolderPrompt = useCallback((parentId: number | null) => {
     setNamePrompt({
       title: "New folder",
@@ -147,10 +231,16 @@ export function App() {
       title: "Rename folder",
       value: folder.name,
       onOk: (value) => {
-        void api.renameFolder(folder.id, value).then(() => refreshLists()).catch((err) => setError(String(err)));
+        void runDiskOp({
+          title: `Renaming "${folder.name}"...`,
+          cancellable: false,
+          success: `Renamed "${value}"`,
+          cancelled: "Rename cancelled",
+          run: () => api.renameFolder(folder.id, value),
+        });
       },
     });
-  }, [folders, refreshLists]);
+  }, [folders, runDiskOp]);
 
   const openDeleteFolderConfirm = useCallback((folderId: number) => {
     const folder = folders.find((item) => item.id === folderId);
@@ -158,14 +248,19 @@ export function App() {
     setDeleteConfirm({ id: folderId, name: folder.name });
   }, [folders]);
 
-  const performDeleteFolder = useCallback((folderId: number) => {
-    void api.deleteFolder(folderId)
-      .then(() => {
+  const performDeleteFolder = useCallback((folderId: number, name: string) => {
+    void runDiskOp({
+      title: `Deleting "${name}"...`,
+      cancellable: false,
+      success: `Deleted "${name}"`,
+      cancelled: "Delete cancelled",
+      run: () => api.deleteFolder(folderId),
+      after: async () => {
         setBrowse({ type: "root" });
-        return refreshLists({ type: "root" });
-      })
-      .catch((err) => setError(String(err)));
-  }, [refreshLists]);
+        await refreshLists({ type: "root" });
+      },
+    });
+  }, [refreshLists, runDiskOp]);
 
   const runImportRef = useRef<(paths: string[]) => Promise<void>>(async () => undefined);
 
@@ -194,6 +289,11 @@ export function App() {
 
   const runImport = useCallback(async (paths: string[]) => {
     if (paths.length === 0) return;
+    if (libraryBusy.current) {
+      setError("Another library change is already running.");
+      return;
+    }
+    libraryBusy.current = true;
     setBusy("Importing…");
     setImporting(true);
     setProgress({ current: 0, total: 0, message: "Counting files…" });
@@ -208,6 +308,7 @@ export function App() {
     } catch (err) {
       setError(String(err));
     } finally {
+      libraryBusy.current = false;
       setImporting(false);
       setBusy(null);
       setProgress(null);
@@ -215,7 +316,7 @@ export function App() {
   }, [refreshLists, targetFolderId]);
   runImportRef.current = runImport;
 
-  const dialogOpen = Boolean(busy || progress || summary || bulk || namePrompt || deleteConfirm || missingOpen || error);
+  const dialogOpen = Boolean(busy || progress || summary || bulk || namePrompt || deleteConfirm || missingOpen || error || diskDialog);
 
   useEffect(() => {
     debugLog("dialogs", {
@@ -273,14 +374,17 @@ export function App() {
         });
       },
       rescan: () => {
-        setBusy("Rescanning library…");
-        void api.rescanLibrary()
-          .then(async () => {
+        void runDiskOp({
+          title: "Rescanning library...",
+          cancellable: true,
+          success: "Rescan finished",
+          cancelled: "Rescan cancelled",
+          run: () => api.rescanLibrary(),
+          after: async () => {
             await refreshLists();
             setThumbNonce((nonce) => nonce + 1);
-          })
-          .catch((err) => setError(String(err)))
-          .finally(() => setBusy(null));
+          },
+        });
       },
       clearThumbs: () => {
         void api.clearThumbnailCache().then(() => setThumbNonce((nonce) => nonce + 1)).catch((err) => setError(String(err)));
@@ -294,7 +398,32 @@ export function App() {
         void api.setGridSize(size);
       },
     };
-  }, [refreshLists, runImport, setTheme]);
+  }, [refreshLists, runDiskOp, runImport, setTheme]);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimer.current != null) window.clearTimeout(toastTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const unlisten = listen<DiskProgress>("disk-progress", (event) => {
+      diskProgress.current = event.payload;
+      setDiskDialog((current) =>
+        current
+          ? {
+              ...current,
+              ...event.payload,
+              title: current.title,
+              cancellable: current.cancellable && event.payload.cancellable,
+            }
+          : current,
+      );
+    });
+    return () => {
+      void unlisten.then((stop) => stop());
+    };
+  }, []);
 
   useEffect(() => {
     let unlisten = () => undefined;
@@ -481,7 +610,17 @@ export function App() {
       setDropTarget(null);
       if (!folder) return;
       const folderId = folder === "root" ? null : Number(folder);
-      void api.moveFiles(drag.ids, folderId).then(() => refreshLists()).catch((err) => setError(String(err)));
+      const moving = files.filter((file) => drag.ids.includes(file.id));
+      const title = moving.length === 1
+        ? `Moving "${moving[0]?.sortName ?? "file"}"...`
+        : `Moving ${moving.length} files...`;
+      void runDiskOp({
+        title,
+        cancellable: true,
+        success: moving.length === 1 ? `Moved "${moving[0]?.sortName ?? "file"}"` : `Moved ${moving.length} files`,
+        cancelled: "Move cancelled",
+        run: () => api.moveFiles(drag.ids, folderId),
+      });
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -489,7 +628,7 @@ export function App() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [files, refreshLists]);
+  }, [files, runDiskOp]);
 
   const browseKey = browse.type === "folder" ? `folder:${browse.id}` : browse.type;
 
@@ -602,13 +741,19 @@ export function App() {
           setFolderTagTarget({ folderId, name });
         }}
         onMoveFolder={(id, parentId) => {
+          const name = folders.find((item) => item.id === id)?.name ?? "folder";
           const expandKey = parentId == null ? "root" : `folder:${parentId}`;
-          void api.moveFolder(id, parentId)
-            .then(() => {
+          void runDiskOp({
+            title: `Moving "${name}"...`,
+            cancellable: true,
+            success: `Moved "${name}"`,
+            cancelled: "Move cancelled",
+            run: () => api.moveFolder(id, parentId),
+            after: async () => {
               setFolderExpandHint((hint) => ({ key: expandKey, nonce: (hint?.nonce ?? 0) + 1 }));
-              return refreshLists();
-            })
-            .catch((err) => setError(String(err)));
+              await refreshLists();
+            },
+          });
         }}
       />
       <section className="main">
@@ -666,19 +811,38 @@ export function App() {
             creators={creators}
             knownTags={tags}
             onSave={(file, nextTags) => {
-              void api.updateFile({
-                id: file.id,
-                sortName: file.sortName,
-                creator: file.creator,
-                notes: file.notes,
-                folderId: file.folderId,
-              }).then(() => api.setTags(file.id, nextTags)).then(() => refreshLists()).catch((err) => setError(String(err)));
+              const moving = file.folderId !== selectedFile?.folderId;
+              void runDiskOp({
+                title: moving ? `Moving "${file.sortName}"...` : "Saving...",
+                cancellable: moving,
+                success: moving ? `Moved "${file.sortName}"` : "Saved",
+                cancelled: "Move cancelled",
+                run: async () => {
+                  const outcome = await api.updateFile({
+                    id: file.id,
+                    sortName: file.sortName,
+                    creator: file.creator,
+                    notes: file.notes,
+                    folderId: file.folderId,
+                  });
+                  if (!outcome.cancelled) await api.setTags(file.id, nextTags);
+                  return outcome;
+                },
+              });
             }}
             onDelete={(id) => {
-              void api.deleteFiles([id]).then(() => {
-                setSelected([]);
-                return refreshLists();
-              }).catch((err) => setError(String(err)));
+              const name = files.find((file) => file.id === id)?.sortName ?? "file";
+              void runDiskOp({
+                title: `Deleting "${name}"...`,
+                cancellable: true,
+                success: `Deleted "${name}"`,
+                cancelled: "Delete cancelled",
+                run: () => api.deleteFiles([id]),
+                after: async () => {
+                  setSelected([]);
+                  await refreshLists();
+                },
+              });
             }}
           />
         </div>
@@ -742,9 +906,19 @@ export function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    void api.recycleLastImport().then((failed) => {
-                      if (failed.length) setError(failed.join("\n"));
-                      setSummary(null);
+                    setSummary(null);
+                    void runDiskOp({
+                      title: "Moving originals to the Recycle Bin...",
+                      cancellable: true,
+                      success: "Originals moved to the Recycle Bin",
+                      cancelled: "Recycle cancelled",
+                      run: async () => {
+                        const outcome = await api.recycleLastImport();
+                        if (!outcome.cancelled && outcome.failed.length > 0) {
+                          throw new Error(outcome.failed.join("\n"));
+                        }
+                        return outcome;
+                      },
                     });
                   }}
                 >
@@ -866,9 +1040,9 @@ export function App() {
                 type="button"
                 className="primary"
                 onClick={() => {
-                  const { id } = deleteConfirm;
+                  const { id, name } = deleteConfirm;
                   setDeleteConfirm(null);
-                  performDeleteFolder(id);
+                  performDeleteFolder(id, name);
                 }}
               >
                 Delete
@@ -896,6 +1070,39 @@ export function App() {
           </div>
         </Modal>
       ) : null}
+      {diskDialog ? (
+        <Modal>
+          <div className="card" role="dialog" aria-busy="true" aria-label={diskDialog.title}>
+            <div className="disk-title">
+              <div className="spinner" />
+              <h2>{diskDialog.title}</h2>
+            </div>
+            <p className="disk-name">
+              {diskDialog.total > 0 ? `${diskDialog.current} of ${diskDialog.total}` : "Working..."}
+              {diskDialog.name ? ` · ${diskDialog.name}` : ""}
+              {diskDialog.bytesTotal > 0
+                ? ` · ${formatBytes(diskDialog.bytesDone)} of ${formatBytes(diskDialog.bytesTotal)}`
+                : ""}
+            </p>
+            <div className="progress-track">
+              <div
+                className={diskDialog.total > 0 ? "progress-bar" : "progress-bar indeterminate"}
+                style={
+                  diskDialog.total > 0
+                    ? { width: `${Math.min(100, (diskDialog.current / diskDialog.total) * 100)}%` }
+                    : undefined
+                }
+              />
+            </div>
+            {diskDialog.cancellable ? (
+              <div className="row">
+                <button type="button" onClick={() => void api.cancelDiskOp()}>Cancel</button>
+              </div>
+            ) : null}
+          </div>
+        </Modal>
+      ) : null}
+      {toast ? <div className="toast" role="status">{toast}</div> : null}
       {error ? (
         <Modal>
           <div className="card">

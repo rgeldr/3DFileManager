@@ -1,11 +1,13 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use walkdir::WalkDir;
 
 use crate::db::AppDb;
 use crate::import::hash_file;
 use crate::names::{extension_of, is_supported_file, sanitize_component};
+use crate::relocate::DiskProgress;
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -14,17 +16,36 @@ pub struct RescanSummary {
     pub added_files: u32,
     pub relocated: u32,
     pub missing: u32,
+    pub cancelled: bool,
 }
 
-pub fn rescan<F: Fn(String)>(db: &AppDb, progress: F) -> Result<RescanSummary, String> {
+pub fn rescan<F: FnMut(DiskProgress)>(db: &AppDb, progress: F) -> Result<RescanSummary, String> {
+    rescan_with(db, &AtomicBool::new(false), progress)
+}
+
+pub fn rescan_with<F: FnMut(DiskProgress)>(
+    db: &AppDb,
+    cancel: &AtomicBool,
+    mut progress: F,
+) -> Result<RescanSummary, String> {
     let root = db.library_root()?;
     if !root.exists() {
         return Err("The library folder is missing.".into());
     }
-    progress("Reading folders".into());
+    progress(DiskProgress {
+        current: 0,
+        total: 0,
+        name: "Counting files".into(),
+        bytes_done: 0,
+        bytes_total: 0,
+        cancellable: true,
+    });
     let mut disk_dirs: Vec<PathBuf> = Vec::new();
-    let mut disk_files: Vec<PathBuf> = Vec::new();
+    let mut disk_files: Vec<(PathBuf, u64)> = Vec::new();
     for entry in WalkDir::new(&root).follow_links(false) {
+        if cancel.load(Ordering::SeqCst) {
+            return Ok(empty_cancelled());
+        }
         let entry = entry.map_err(|e| e.to_string())?;
         if entry.file_type().is_dir() {
             if entry.path() != root {
@@ -33,13 +54,23 @@ pub fn rescan<F: Fn(String)>(db: &AppDb, progress: F) -> Result<RescanSummary, S
         } else if entry.file_type().is_file() {
             let ext = extension_of(&entry.file_name().to_string_lossy());
             if is_supported_file(&ext) {
-                disk_files.push(entry.into_path());
+                let len = entry.metadata().map(|meta| meta.len()).unwrap_or(0);
+                disk_files.push((entry.into_path(), len));
             }
         }
     }
     disk_dirs.sort();
     let mut added_folders = 0u32;
     for dir in &disk_dirs {
+        if cancel.load(Ordering::SeqCst) {
+            return Ok(RescanSummary {
+                added_folders,
+                added_files: 0,
+                relocated: 0,
+                missing: 0,
+                cancelled: true,
+            });
+        }
         let rel = rel_string(&root, dir)?;
         if db.folder_id_by_relpath(&rel)?.is_none() {
             let parent_rel = dir.parent().map(|p| rel_string(&root, p)).transpose()?;
@@ -61,7 +92,16 @@ pub fn rescan<F: Fn(String)>(db: &AppDb, progress: F) -> Result<RescanSummary, S
         }
     }
 
-    progress("Checking files".into());
+    let bytes_total: u64 = disk_files.iter().map(|(_, len)| *len).sum();
+    let file_total = disk_files.len() as u32;
+    progress(DiskProgress {
+        current: 0,
+        total: file_total,
+        name: String::new(),
+        bytes_done: 0,
+        bytes_total,
+        cancellable: true,
+    });
     let indexed = db.all_file_index()?;
     let mut by_path: HashMap<String, i64> = HashMap::new();
     let mut by_sha: HashMap<String, Vec<i64>> = HashMap::new();
@@ -72,7 +112,29 @@ pub fn rescan<F: Fn(String)>(db: &AppDb, progress: F) -> Result<RescanSummary, S
     let mut seen_ids: HashSet<i64> = HashSet::new();
     let mut added_files = 0u32;
     let mut relocated = 0u32;
-    for file in &disk_files {
+    let mut bytes_done = 0u64;
+    for (index, (file, len)) in disk_files.iter().enumerate() {
+        if cancel.load(Ordering::SeqCst) {
+            return Ok(RescanSummary {
+                added_folders,
+                added_files,
+                relocated,
+                missing: 0,
+                cancelled: true,
+            });
+        }
+        let name = file
+            .file_name()
+            .map(|item| item.to_string_lossy().to_string())
+            .unwrap_or_default();
+        progress(DiskProgress {
+            current: index as u32,
+            total: file_total,
+            name: name.clone(),
+            bytes_done,
+            bytes_total,
+            cancellable: true,
+        });
         let rel = rel_string(&root, file)?;
         if let Some(id) = by_path.get(&rel).copied() {
             seen_ids.insert(id);
@@ -85,6 +147,7 @@ pub fn rescan<F: Fn(String)>(db: &AppDb, progress: F) -> Result<RescanSummary, S
                 .unwrap_or(0);
             let folder_id = folder_id_for_file(db, &rel)?;
             db.update_path(id, &rel, folder_id, meta.len() as i64, mtime)?;
+            bytes_done += len;
             continue;
         }
         let sha = hash_file(file)?;
@@ -102,6 +165,7 @@ pub fn rescan<F: Fn(String)>(db: &AppDb, progress: F) -> Result<RescanSummary, S
                 seen_ids.insert(id);
                 by_path.insert(rel, id);
                 relocated += 1;
+                bytes_done += len;
                 continue;
             }
         }
@@ -131,9 +195,19 @@ pub fn rescan<F: Fn(String)>(db: &AppDb, progress: F) -> Result<RescanSummary, S
         seen_ids.insert(id);
         by_sha.entry(sha).or_default().push(id);
         added_files += 1;
+        bytes_done += len;
     }
     let mut missing = 0u32;
     for row in indexed {
+        if cancel.load(Ordering::SeqCst) {
+            return Ok(RescanSummary {
+                added_folders,
+                added_files,
+                relocated,
+                missing,
+                cancelled: true,
+            });
+        }
         if !seen_ids.contains(&row.id) {
             db.mark_missing(row.id, true)?;
             missing += 1;
@@ -141,13 +215,31 @@ pub fn rescan<F: Fn(String)>(db: &AppDb, progress: F) -> Result<RescanSummary, S
             db.mark_missing(row.id, false)?;
         }
     }
-    progress("Rescan finished".into());
+    progress(DiskProgress {
+        current: file_total,
+        total: file_total,
+        name: String::new(),
+        bytes_done,
+        bytes_total,
+        cancellable: false,
+    });
     Ok(RescanSummary {
         added_folders,
         added_files,
         relocated,
         missing,
+        cancelled: false,
     })
+}
+
+fn empty_cancelled() -> RescanSummary {
+    RescanSummary {
+        added_folders: 0,
+        added_files: 0,
+        relocated: 0,
+        missing: 0,
+        cancelled: true,
+    }
 }
 
 fn rel_string(root: &Path, path: &Path) -> Result<String, String> {
