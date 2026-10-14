@@ -52,6 +52,18 @@ describe("Viewer text preview", () => {
     expect(screen.queryByRole("textbox")).toBeNull();
   });
 
+  it("does not expose the preview image as a drag", () => {
+    const view = render(
+      <ThemeProvider>
+        <Viewer file={file({ ext: "png", originalName: "shot.png", absolutePath: "/library/shot.png", thumbPath: "/thumbs/shot.png" })} />
+      </ThemeProvider>,
+    );
+    const img = view.container.querySelector("img");
+    expect(img?.getAttribute("draggable")).toBe("false");
+    expect(img?.getAttribute("src")).toContain("shot.png");
+    expect(img?.getAttribute("src")).not.toContain("/thumbs/");
+  });
+
   it("shows file info when the preview has no printable text", async () => {
     render(
       <ThemeProvider>

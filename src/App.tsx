@@ -7,6 +7,7 @@ import { Menu, MenuItem, PredefinedMenuItem, Submenu, CheckMenuItem } from "@tau
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { api } from "./api";
 import { FileGrid } from "./components/FileGrid";
 import { ImportProgressLines } from "./components/ImportProgress";
@@ -14,7 +15,7 @@ import { Inspector } from "./components/Inspector";
 import { Sidebar } from "./components/Sidebar";
 import { debugLog } from "./debugLog";
 import { deleteKeyCommand, deleteKeyFocus, focusedFolderId, isTypingTarget } from "./lib/deleteKey";
-import { dragSourceKey, dragSources, nativeDragDecision, pointerOutsideWindow, pointerPastSlop, shouldBlockHtmlDrag } from "./lib/dragOut";
+import { dragSourceKey, dragSources, fileDragOptions, nativeDragDecision, pointerOutsideWindow, pointerPastSlop, suppressHtmlDrag } from "./lib/dragOut";
 import { importMetaPayload } from "./lib/importMeta";
 import { clampInspector, clampSidebar } from "./lib/paneWidths";
 import { renderMeshStill, MESH_BYTE_LIMIT } from "./lib/renderThumb";
@@ -89,6 +90,7 @@ type FileDrag = {
   prepKey: string;
   paths: string[] | null;
   pathsReady: boolean;
+  imageDrag: boolean;
   skipped: string[];
   reports: DragReport[];
   prepareError: string | null;
@@ -805,6 +807,7 @@ export function App() {
       outside: pointerOutsideWindow(drag.x, drag.y, window.innerWidth, window.innerHeight),
       started: drag.startedNative,
       pathsReady: drag.pathsReady,
+      imageDrag: drag.imageDrag,
     });
     if (decision === "wait-for-paths") {
       if (!drag.loggedWait) {
@@ -828,14 +831,21 @@ export function App() {
     if (drag.skipped.length > 0) showToast(`Skipped: ${drag.skipped.join(", ")}`);
     const paths = drag.paths.slice();
     const icon = dragIconRef.current ?? "";
-    debugLog("drag-start", { count: paths.length, paths, icon: icon || "missing" });
-    void api.startFileDrag(paths, icon).then(
-      (outcome) => debugLog("drag-result", { result: outcome.result, effect: outcome.effect }),
-      (err: unknown) => {
-        debugLog("drag-result", { result: "error", effect: "none", message: String(err) });
-        setDragFailure({ message: String(err), fileId });
-      },
-    );
+    let options: { item: string[]; icon: string };
+    try {
+      options = fileDragOptions(paths, icon);
+    } catch (err) {
+      debugLog("drag-result", { result: "error", effect: "none", message: String(err) });
+      setDragFailure({ message: String(err), fileId });
+      return;
+    }
+    debugLog("drag-start", { count: options.item.length, paths: options.item, icon: options.icon });
+    void startDrag({ item: options.item, icon: options.icon, mode: "copy" }, (payload) => {
+      debugLog("drag-result", { result: payload.result, effect: "copy", icon: options.icon });
+    }).catch((err: unknown) => {
+      debugLog("drag-result", { result: "error", effect: "none", message: String(err) });
+      setDragFailure({ message: String(err), fileId });
+    });
   };
 
   useEffect(() => {
@@ -889,7 +899,11 @@ export function App() {
       });
     };
     const blockDrag = (event: DragEvent) => {
-      if (shouldBlockHtmlDrag(event.target)) event.preventDefault();
+      if (!suppressHtmlDrag(event)) return;
+      const drag = dragRef.current;
+      if (!drag || drag.startedNative) return;
+      drag.imageDrag = true;
+      tryStartRef.current();
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -1036,6 +1050,7 @@ export function App() {
           prepKey: dragSourceKey(sources),
           paths: null,
           pathsReady: false,
+          imageDrag: false,
           skipped: [],
           reports: [],
           prepareError: null,

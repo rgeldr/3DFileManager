@@ -29,6 +29,11 @@ button {
   cursor: pointer;
 }
 
+img,
+canvas {
+  -webkit-user-drag: none;
+}
+
 button:hover {
   background: var(--color-bg-hover);
 }
@@ -321,6 +326,7 @@ button:focus-visible {
   height: 100%;
   object-fit: contain;
   -webkit-user-drag: none;
+  pointer-events: none;
 }
 
 .type-icon {
@@ -399,6 +405,7 @@ button:focus-visible {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  -webkit-user-drag: none;
 }
 
 .viewer img,
