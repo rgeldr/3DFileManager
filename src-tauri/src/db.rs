@@ -280,6 +280,7 @@ impl AppDb {
         })
     }
 
+    #[cfg(test)]
     pub fn rename_folder(&self, id: i64, new_name: &str) -> Result<(), String> {
         self.rename_folder_with(id, new_name, &AtomicBool::new(false), |_| {})
             .map(|_| ())
@@ -320,6 +321,7 @@ impl AppDb {
         )
     }
 
+    #[cfg(test)]
     pub fn move_folder(&self, id: i64, new_parent_id: Option<i64>) -> Result<(), String> {
         self.move_folder_with(id, new_parent_id, &AtomicBool::new(false), false, |_| {})
             .map(|_| ())
@@ -982,6 +984,7 @@ impl AppDb {
         Ok(out)
     }
 
+    #[cfg(test)]
     pub fn update_file(
         &self,
         id: i64,
@@ -1202,6 +1205,7 @@ impl AppDb {
             .map_err(|_| format!("File {id} was not found."))
     }
 
+    #[cfg(test)]
     pub fn move_files(&self, ids: &[i64], folder_id: Option<i64>) -> Result<(), String> {
         self.move_files_with(ids, folder_id, &AtomicBool::new(false), |_| {})
             .map(|_| ())
@@ -1351,68 +1355,6 @@ impl AppDb {
             )
             .map_err(|e| e.to_string())?;
         Ok(())
-    }
-
-    pub fn delete_files(&self, ids: &[i64]) -> Result<(), String> {
-        self.delete_files_with(ids, &AtomicBool::new(false), |_| {})
-            .map(|_| ())
-    }
-
-    pub fn delete_files_with<F: FnMut(DiskProgress)>(
-        &self,
-        ids: &[i64],
-        cancel: &AtomicBool,
-        mut progress: F,
-    ) -> Result<bool, String> {
-        let root = self.library_root()?;
-        let total = ids.len() as u32;
-        for (index, id) in ids.iter().enumerate() {
-            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
-                return Ok(true);
-            }
-            let loc = self.file_location(*id)?;
-            let path = root.join(&loc.stored_relpath);
-            let name = Path::new(&loc.stored_relpath)
-                .file_name()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or(loc.original_name.clone());
-            let len = path.metadata().map(|meta| meta.len()).unwrap_or(0);
-            progress(DiskProgress {
-                current: index as u32,
-                total,
-                name,
-                bytes_done: 0,
-                bytes_total: len,
-                cancellable: true,
-            });
-            if path.exists() {
-                trash::delete(&path).map_err(|e| e.to_string())?;
-            }
-            let others: i64 = self
-                .conn
-                .query_row(
-                    "SELECT COUNT(*) FROM files WHERE sha256 = ?1 AND id <> ?2",
-                    params![loc.sha256, id],
-                    |r| r.get(0),
-                )
-                .map_err(|e| e.to_string())?;
-            if others == 0 {
-                let thumb = thumb_path(&self.data_dir, &loc.sha256);
-                let _ = std::fs::remove_file(thumb);
-            }
-            self.conn
-                .execute("DELETE FROM files WHERE id = ?1", [id])
-                .map_err(|e| e.to_string())?;
-            progress(DiskProgress {
-                current: (index as u32) + 1,
-                total,
-                name: String::new(),
-                bytes_done: len,
-                bytes_total: len,
-                cancellable: true,
-            });
-        }
-        Ok(false)
     }
 
     pub fn remove_missing(&self) -> Result<(), String> {
@@ -1613,7 +1555,7 @@ impl AppDb {
     fn next_pending_thumb_row(&self) -> Result<Option<ThumbCandidate>, String> {
         self.conn
             .query_row(
-                "SELECT id, stored_relpath, ext, size_bytes, sha256, thumb_attempts FROM files WHERE thumb_status = 'none' AND missing = 0 ORDER BY CASE WHEN ext IN ('png','jpg','jpeg') THEN 0 WHEN ext IN ('stl','obj','3mf') THEN 2 ELSE 1 END, id LIMIT 1",
+                "SELECT id, stored_relpath, ext, size_bytes, sha256 FROM files WHERE thumb_status = 'none' AND missing = 0 ORDER BY CASE WHEN ext IN ('png','jpg','jpeg') THEN 0 WHEN ext IN ('stl','obj','3mf') THEN 2 ELSE 1 END, id LIMIT 1",
                 [],
                 |r| {
                     Ok(ThumbCandidate {
@@ -1622,7 +1564,6 @@ impl AppDb {
                         ext: r.get(2)?,
                         size_bytes: r.get(3)?,
                         sha256: r.get(4)?,
-                        thumb_attempts: r.get(5)?,
                     })
                 },
             )
@@ -1743,7 +1684,6 @@ pub struct ThumbCandidate {
     pub ext: String,
     pub size_bytes: i64,
     pub sha256: String,
-    pub thumb_attempts: i64,
 }
 
 pub struct UnhashedCandidate {
@@ -2082,7 +2022,7 @@ mod tests {
             .unwrap();
         let claimed = db.claim_next_pending_thumb().unwrap().unwrap();
         assert_eq!(claimed.id, png);
-        assert_eq!(claimed.thumb_attempts, 0);
+        assert_eq!(status_of(&db, png).1, 0);
         assert_ne!(claimed.id, stl);
         let _ = std::fs::remove_dir_all(&dir);
     }

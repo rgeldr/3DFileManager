@@ -19,6 +19,7 @@ pub struct RescanSummary {
     pub cancelled: bool,
 }
 
+#[cfg(test)]
 pub fn rescan<F: FnMut(DiskProgress)>(db: &AppDb, progress: F) -> Result<RescanSummary, String> {
     rescan_with(db, &AtomicBool::new(false), progress)
 }

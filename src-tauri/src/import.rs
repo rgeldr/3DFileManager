@@ -881,8 +881,11 @@ mod flow_tests {
     use super::*;
     use crate::db::{open, FolderFilter};
     use crate::hash_pass::drain_unhashed;
+    use crate::recycle_and_drop_files;
     use crate::rescan::rescan;
     use std::io::Write;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Mutex;
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
 
@@ -1048,7 +1051,12 @@ mod flow_tests {
         assert!(db.delete_folder(models).is_err());
 
         let doomed = db.file_location(id).unwrap();
-        db.delete_files(&[id]).unwrap();
+        let items = db.trash_items(&[id]).unwrap();
+        let db = Mutex::new(db);
+        recycle_and_drop_files(&db, &items, &AtomicBool::new(false), |_| {}, |path| {
+            trash::delete(path).map_err(|err| err.to_string())
+        })
+        .unwrap();
         assert!(!library.join(&doomed.stored_relpath).exists());
         let failed = recycle_paths(&[first.to_string_lossy().to_string()]).unwrap();
         assert!(failed.is_empty(), "{failed:?}");
@@ -1609,6 +1617,7 @@ fn remove_empty_created_dirs(library_root: &Path, created: &[(i64, String)]) {
     }
 }
 
+#[cfg(test)]
 pub fn recycle_paths(paths: &[String]) -> Result<Vec<String>, String> {
     let (failed, _) = recycle_paths_with(paths, &[], &std::sync::atomic::AtomicBool::new(false), |_| {})?;
     Ok(failed)

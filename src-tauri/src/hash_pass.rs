@@ -51,6 +51,7 @@ fn drop_if_unmoved(db: &AppDb, id: i64, relpath: &str, sha: &str) -> Result<(), 
     db.remove_catalogued_file(id, sha)
 }
 
+#[cfg(test)]
 pub fn process_one_unhashed(db: &AppDb) -> Result<bool, String> {
     let Some(candidate) = db.claim_next_unhashed()? else {
         return Ok(false);
