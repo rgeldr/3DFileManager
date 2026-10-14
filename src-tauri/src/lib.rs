@@ -4,6 +4,7 @@ mod hash_pass;
 mod import;
 mod names;
 mod preview;
+mod relocate;
 mod rescan;
 mod settings;
 
@@ -21,7 +22,61 @@ use settings::Settings;
 struct AppState {
     db: Arc<Mutex<AppDb>>,
     import_cancel: AtomicBool,
+    disk_cancel: Arc<AtomicBool>,
+    disk_running: AtomicBool,
     last_recycle_paths: Mutex<Vec<String>>,
+    last_recycle_roots: Mutex<Vec<String>>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiskOutcome {
+    cancelled: bool,
+}
+
+struct DiskGuard(AppHandle);
+
+impl Drop for DiskGuard {
+    fn drop(&mut self) {
+        self.0
+            .state::<AppState>()
+            .disk_running
+            .store(false, Ordering::SeqCst);
+    }
+}
+
+fn acquire_disk(app: &AppHandle) -> Result<DiskGuard, String> {
+    let state = app.state::<AppState>();
+    if state
+        .disk_running
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err("Another library change is already running.".into());
+    }
+    state.disk_cancel.store(false, Ordering::SeqCst);
+    Ok(DiskGuard(app.clone()))
+}
+
+fn emit_disk(app: &AppHandle, progress: &relocate::DiskProgress) {
+    let _ = app.emit("disk-progress", progress);
+}
+
+async fn block_on_disk<T, F>(app: AppHandle, work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&AppDb, &AtomicBool, AppHandle) -> Result<T, String> + Send + 'static,
+{
+    let _guard = acquire_disk(&app)?;
+    let cancel = app.state::<AppState>().disk_cancel.clone();
+    let db = app.state::<AppState>().db.clone();
+    let worker = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        work(&db, &cancel, worker)
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 static DEBUG_LOG_LOCK: Mutex<()> = Mutex::new(());
@@ -84,21 +139,32 @@ fn create_folder(state: State<AppState>, parent_id: Option<i64>, name: String) -
 }
 
 #[tauri::command]
-fn rename_folder(state: State<AppState>, id: i64, name: String) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.rename_folder(id, &name)
+async fn rename_folder(app: AppHandle, id: i64, name: String) -> Result<DiskOutcome, String> {
+    block_on_disk(app, move |db, cancel, app| {
+        let cancelled = db.rename_folder_with(id, &name, cancel, |progress| emit_disk(&app, &progress))?;
+        Ok(DiskOutcome { cancelled })
+    })
+    .await
 }
 
 #[tauri::command]
-fn delete_folder(state: State<AppState>, id: i64) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.delete_folder(id)
+async fn delete_folder(app: AppHandle, id: i64) -> Result<DiskOutcome, String> {
+    block_on_disk(app, move |db, _cancel, _app| {
+        db.delete_folder(id)?;
+        Ok(DiskOutcome { cancelled: false })
+    })
+    .await
 }
 
 #[tauri::command]
-fn move_folder(state: State<AppState>, id: i64, parent_id: Option<i64>) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.move_folder(id, parent_id)
+async fn move_folder(app: AppHandle, id: i64, parent_id: Option<i64>) -> Result<DiskOutcome, String> {
+    block_on_disk(app, move |db, cancel, app| {
+        let cancelled = db.move_folder_with(id, parent_id, cancel, false, |progress| {
+            emit_disk(&app, &progress)
+        })?;
+        Ok(DiskOutcome { cancelled })
+    })
+    .await
 }
 
 #[derive(serde::Deserialize)]
@@ -137,16 +203,21 @@ fn remove_missing(state: State<AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn update_file(
-    state: State<AppState>,
+async fn update_file(
+    app: AppHandle,
     id: i64,
     sort_name: String,
     creator: String,
     notes: String,
     folder_id: Option<i64>,
-) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.update_file(id, &sort_name, &creator, &notes, folder_id)
+) -> Result<DiskOutcome, String> {
+    block_on_disk(app, move |db, cancel, handle| {
+        let cancelled = db.update_file_with(id, &sort_name, &creator, &notes, folder_id, cancel, |progress| {
+            emit_disk(&handle, &progress)
+        })?;
+        Ok(DiskOutcome { cancelled })
+    })
+    .await
 }
 
 #[tauri::command]
@@ -211,6 +282,7 @@ async fn import_paths(
     paths: Vec<String>,
     folder_id: Option<i64>,
 ) -> Result<import::ImportSummary, String> {
+    let _guard = acquire_disk(&app)?;
     let state = app.state::<AppState>();
     state.import_cancel.store(false, Ordering::SeqCst);
     let mut db = state.db.lock().map_err(|e| e.to_string())?;
@@ -235,6 +307,9 @@ async fn import_paths(
     if let Ok(mut stored) = state.last_recycle_paths.lock() {
         *stored = outcome.recycle_paths.clone();
     }
+    if let Ok(mut stored) = state.last_recycle_roots.lock() {
+        *stored = outcome.recycle_roots.clone();
+    }
     hash_pass::spawn_hash_pass_if_needed(app.clone(), state.db.clone());
     Ok(import::summary_for_api(&outcome))
 }
@@ -245,40 +320,73 @@ fn cancel_import(state: State<AppState>) {
 }
 
 #[tauri::command]
-fn recycle_paths(paths: Vec<String>) -> Result<Vec<String>, String> {
-    import::recycle_paths(&paths)
+fn cancel_disk_op(state: State<AppState>) {
+    state.disk_cancel.store(true, Ordering::SeqCst);
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecycleOutcome {
+    failed: Vec<String>,
+    cancelled: bool,
 }
 
 #[tauri::command]
-fn recycle_last_import(state: State<AppState>) -> Result<Vec<String>, String> {
+async fn recycle_paths(app: AppHandle, paths: Vec<String>) -> Result<RecycleOutcome, String> {
+    block_on_disk(app, move |_db, cancel, handle| {
+        let (failed, cancelled) =
+            import::recycle_paths_with(&paths, &[], cancel, |progress| emit_disk(&handle, &progress))?;
+        Ok(RecycleOutcome { failed, cancelled })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn recycle_last_import(app: AppHandle) -> Result<RecycleOutcome, String> {
+    let state = app.state::<AppState>();
     let paths = state
         .last_recycle_paths
         .lock()
         .map_err(|e| e.to_string())?
         .clone();
-    import::recycle_paths(&paths)
+    let roots = state
+        .last_recycle_roots
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+    drop(state);
+    block_on_disk(app, move |_db, cancel, handle| {
+        let (failed, cancelled) =
+            import::recycle_paths_with(&paths, &roots, cancel, |progress| emit_disk(&handle, &progress))?;
+        Ok(RecycleOutcome { failed, cancelled })
+    })
+    .await
 }
 
 #[tauri::command]
-fn move_files(state: State<AppState>, ids: Vec<i64>, folder_id: Option<i64>) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.move_files(&ids, folder_id)
+async fn move_files(app: AppHandle, ids: Vec<i64>, folder_id: Option<i64>) -> Result<DiskOutcome, String> {
+    block_on_disk(app, move |db, cancel, handle| {
+        let cancelled = db.move_files_with(&ids, folder_id, cancel, |progress| emit_disk(&handle, &progress))?;
+        Ok(DiskOutcome { cancelled })
+    })
+    .await
 }
 
 #[tauri::command]
-fn delete_files(state: State<AppState>, ids: Vec<i64>) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.delete_files(&ids)
+async fn delete_files(app: AppHandle, ids: Vec<i64>) -> Result<DiskOutcome, String> {
+    block_on_disk(app, move |db, cancel, handle| {
+        let cancelled = db.delete_files_with(&ids, cancel, |progress| emit_disk(&handle, &progress))?;
+        Ok(DiskOutcome { cancelled })
+    })
+    .await
 }
 
 #[tauri::command]
 async fn rescan_library(app: AppHandle) -> Result<rescan::RescanSummary, String> {
-    let state = app.state::<AppState>();
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let app_emit = app.clone();
-    rescan::rescan(&db, |message| {
-        let _ = app_emit.emit("rescan-progress", serde_json::json!({ "message": message }));
+    block_on_disk(app, move |db, cancel, handle| {
+        rescan::rescan_with(db, cancel, |progress| emit_disk(&handle, &progress))
     })
+    .await
 }
 
 #[derive(serde::Serialize)]
@@ -367,6 +475,18 @@ fn clear_thumbnail_cache(state: State<AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn drag_icon_path(app: AppHandle) -> Result<String, String> {
+    let path = app
+        .path()
+        .resolve("icons/drag.png", tauri::path::BaseDirectory::Resource)
+        .map_err(|e| e.to_string())?;
+    if !path.is_file() {
+        return Err(format!("Drag icon was not found at {}.", path.display()));
+    }
+    Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 fn debug_log(line: String) -> Result<String, String> {
     let dir = data_dir();
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -412,7 +532,10 @@ pub fn run() {
             let state = AppState {
                 db: Arc::new(Mutex::new(db)),
                 import_cancel: AtomicBool::new(false),
+                disk_cancel: Arc::new(AtomicBool::new(false)),
+                disk_running: AtomicBool::new(false),
                 last_recycle_paths: Mutex::new(Vec::new()),
+                last_recycle_roots: Mutex::new(Vec::new()),
             };
             hash_pass::spawn_hash_pass_if_needed(app.handle().clone(), state.db.clone());
             app.manage(state);
@@ -439,6 +562,7 @@ pub fn run() {
             list_tags,
             import_paths,
             cancel_import,
+            cancel_disk_op,
             recycle_paths,
             recycle_last_import,
             move_files,
@@ -448,6 +572,7 @@ pub fn run() {
             save_rendered_thumb,
             mark_thumb_unavailable,
             clear_thumbnail_cache,
+            drag_icon_path,
             debug_log
         ])
         .run(tauri::generate_context!())

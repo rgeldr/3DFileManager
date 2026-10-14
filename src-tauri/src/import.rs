@@ -24,6 +24,9 @@ pub struct ImportOutcome {
     pub unsupported_count: u32,
     pub failed: Vec<String>,
     pub recycle_paths: Vec<String>,
+    /// Directory imports whose emptied subfolders may be removed after recycle.
+    /// The directory itself is never recycled or removed.
+    pub recycle_roots: Vec<String>,
     pub cancelled: bool,
     pub pending_hash_count: u32,
 }
@@ -37,6 +40,8 @@ pub struct ImportSummary {
     pub unsupported_count: u32,
     pub failed: Vec<String>,
     pub recycle_count: u32,
+    /// Unsupported files plus files that failed to import. Those stay on disk.
+    pub left_in_place: u32,
     pub cancelled: bool,
     pub pending_hash_count: u32,
 }
@@ -53,6 +58,7 @@ pub fn summary_for_api(outcome: &ImportOutcome) -> ImportSummary {
         unsupported_count: outcome.unsupported_count,
         failed: outcome.failed.clone(),
         recycle_count: outcome.recycle_paths.len() as u32,
+        left_in_place: outcome.unsupported_count.saturating_add(outcome.failed.len() as u32),
         cancelled: outcome.cancelled,
         pending_hash_count: outcome.pending_hash_count,
     }
@@ -269,6 +275,7 @@ pub fn import_paths<F: FnMut(ImportProgress)>(
         unsupported_count: 0,
         failed: Vec::new(),
         recycle_paths: Vec::new(),
+        recycle_roots: Vec::new(),
         cancelled: false,
         pending_hash_count: 0,
     };
@@ -316,6 +323,9 @@ pub fn import_paths<F: FnMut(ImportProgress)>(
             }
             let ext = extension_of(&path.file_name().unwrap_or_default().to_string_lossy());
             if path.is_dir() {
+                summary
+                    .recycle_roots
+                    .push(path.to_string_lossy().to_string());
                 import_tree(
                     db,
                     &library_root,
@@ -547,6 +557,9 @@ fn import_archive<F: FnMut(ImportProgress)>(
     let _ = fs::remove_dir_all(&temp);
     let imported_something =
         summary.imported_count > before_imported || summary.duplicate_count > before_dup;
+    // The archive file is the original. Extracted files live in a temp directory
+    // and are not listed. A failed extract, or any new failure while importing
+    // the contents, leaves the archive where it is.
     if summary.failed.len() == before_failed && imported_something {
         summary
             .recycle_paths
@@ -614,11 +627,7 @@ fn import_file(
                 batch.note_insert(db)?;
                 summary.imported_ids.push(id);
                 summary.imported_count += 1;
-                if can_recycle {
-                    summary
-                        .recycle_paths
-                        .push(source.to_string_lossy().to_string());
-                }
+                remember_recycle(summary, source, can_recycle);
             }
             Err(err) => {
                 let _ = fs::remove_file(&dest);
@@ -637,6 +646,7 @@ fn import_file(
     };
     if db.sha_exists(&sha)? {
         summary.duplicate_count += 1;
+        remember_recycle(summary, source, can_recycle);
         return Ok(());
     }
     if let Err(err) = fs::copy(source, &dest) {
@@ -677,11 +687,7 @@ fn import_file(
             batch.note_insert(db)?;
             summary.imported_ids.push(id);
             summary.imported_count += 1;
-            if can_recycle {
-                summary
-                    .recycle_paths
-                    .push(source.to_string_lossy().to_string());
-            }
+            remember_recycle(summary, source, can_recycle);
         }
         Err(err) => {
             let _ = fs::remove_file(&dest);
@@ -689,6 +695,14 @@ fn import_file(
         }
     }
     Ok(())
+}
+
+fn remember_recycle(summary: &mut ImportOutcome, source: &Path, can_recycle: bool) {
+    if can_recycle {
+        summary
+            .recycle_paths
+            .push(source.to_string_lossy().to_string());
+    }
 }
 
 fn count_files_in_dir(source_root: &Path) -> u32 {
@@ -840,17 +854,15 @@ mod flow_tests {
         fs::write(&first, b"solid a\nendsolid a\n").unwrap();
         fs::write(&second, b"solid b\nendsolid b\n").unwrap();
 
-        let summary = finish_import(
+        let imported = import_paths(
             &mut db,
-            import_paths(
-                &mut db,
-                &[first.to_string_lossy().to_string(), second.to_string_lossy().to_string()],
-                Some(models),
-                &NO_CANCEL,
-                |_| {},
-            )
-            .unwrap(),
-        );
+            &[first.to_string_lossy().to_string(), second.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        let summary = finish_import(&mut db, imported);
         assert_eq!(summary.imported_count, 2);
         assert!(summary.failed.is_empty(), "{:?}", summary.failed);
         assert_eq!(summary.recycle_paths.len(), 2);
@@ -876,7 +888,11 @@ mod flow_tests {
             .list_files(FolderFilter::Id(models), "", "", "", "name")
             .unwrap();
         assert_eq!(after_dup.len(), 2);
-        assert!(again.recycle_paths.is_empty());
+        assert_eq!(
+            again.recycle_paths,
+            vec![first.to_string_lossy().to_string()],
+            "a reimported original is recycled once its copy is in the library"
+        );
 
         let id = rows[0].id;
         db.update_file(id, "Throne of Baal", "Jason", "keep these notes", Some(models))
@@ -905,20 +921,18 @@ mod flow_tests {
         fs::write(seven_src.join("floors").join("Tile.obj"), b"o tile\n").unwrap();
         sevenz_rust::compress_to_path(&seven_src, &seven).unwrap();
 
-        let archived = finish_import(
+        let imported = import_paths(
             &mut db,
-            import_paths(
-                &mut db,
-                &[
-                    zip_path.to_string_lossy().to_string(),
-                    seven.to_string_lossy().to_string(),
-                ],
-                None,
-                &NO_CANCEL,
-                |_| {},
-            )
-            .unwrap(),
-        );
+            &[
+                zip_path.to_string_lossy().to_string(),
+                seven.to_string_lossy().to_string(),
+            ],
+            None,
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        let archived = finish_import(&mut db, imported);
         assert!(archived.failed.is_empty(), "{:?}", archived.failed);
         assert_eq!(archived.imported_count, 2);
         assert!(library.join("Citadel").join("walls").join("Gate.stl").is_file());
@@ -974,17 +988,15 @@ mod flow_tests {
         fs::write(pack.join("notes.txt"), b"skip").unwrap();
 
         let mut events: Vec<(u32, u32)> = Vec::new();
-        let summary = finish_import(
+        let imported = import_paths(
             &mut db,
-            import_paths(
-                &mut db,
-                &[pack.to_string_lossy().to_string()],
-                Some(models),
-                &NO_CANCEL,
-                |p| events.push((p.current, p.total)),
-            )
-            .unwrap(),
-        );
+            &[pack.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |p| events.push((p.current, p.total)),
+        )
+        .unwrap();
+        let summary = finish_import(&mut db, imported);
         assert_eq!(summary.imported_count, 2);
         assert_eq!(summary.unsupported_count, 1);
 
@@ -995,6 +1007,161 @@ mod flow_tests {
         );
         let max_current = events.iter().map(|(c, _)| *c).max().unwrap_or(0);
         assert_eq!(max_current, 3, "progress should advance once per file: {events:?}");
+
+        let _ = fs::remove_dir_all(data.parent().unwrap());
+    }
+
+    #[test]
+    fn folder_recycle_keeps_unsupported_failed_and_nonempty_dirs() {
+        let (data, library, incoming) = scratch();
+        let mut db = open(&data).unwrap();
+        let boot = db.set_library_root(&library).unwrap();
+        let models = boot.folders.iter().find(|f| f.name == "Models").unwrap().id;
+
+        struct ResetForceCopy;
+        impl Drop for ResetForceCopy {
+            fn drop(&mut self) {
+                FORCE_COPY.store(false, Ordering::SeqCst);
+            }
+        }
+        let _reset = ResetForceCopy;
+        FORCE_COPY.store(true, Ordering::SeqCst);
+
+        let dup_bytes = b"solid dup\nendsolid dup\n";
+        let seed = incoming.join("already-in-library.stl");
+        fs::write(&seed, dup_bytes).unwrap();
+        let seeded = import_paths(
+            &mut db,
+            &[seed.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(seeded.imported_count, 1, "{:?}", seeded.failed);
+
+        db.insert_file(
+            "broken.stl",
+            "Models/keep-fail/broken.stl",
+            "stl",
+            1,
+            "not-the-file-hash",
+            0,
+            Some(models),
+            None,
+        )
+        .unwrap();
+
+        let pack = incoming.join("DropMe");
+        let empty_after = incoming.join("EmptyAfter");
+        fs::create_dir_all(pack.join("keep-fail")).unwrap();
+        fs::create_dir_all(pack.join("mixed")).unwrap();
+        fs::create_dir_all(pack.join("only-models").join("deep")).unwrap();
+        fs::create_dir_all(pack.join("has-hidden")).unwrap();
+        fs::create_dir_all(empty_after.join("nested")).unwrap();
+
+        let good = pack.join("good.stl");
+        let dup = pack.join("dup.stl");
+        let notes = pack.join("notes.txt");
+        let broken = pack.join("keep-fail").join("broken.stl");
+        let also = pack.join("keep-fail").join("also.txt");
+        let mixed_stl = pack.join("mixed").join("a.stl");
+        let mixed_notes = pack.join("mixed").join("notes.txt");
+        let deep = pack.join("only-models").join("deep").join("part.stl");
+        let hidden_stl = pack.join("has-hidden").join("part.stl");
+        let hidden = pack.join("has-hidden").join(".keep");
+        let emptied = empty_after.join("nested").join("a.stl");
+
+        fs::write(&good, b"solid good\nendsolid good\n").unwrap();
+        fs::write(&dup, dup_bytes).unwrap();
+        fs::write(&notes, b"leave me").unwrap();
+        fs::write(&broken, b"solid broken\nendsolid broken\n").unwrap();
+        fs::write(&also, b"also leave").unwrap();
+        fs::write(&mixed_stl, b"solid mixed\nendsolid mixed\n").unwrap();
+        fs::write(&mixed_notes, b"stay").unwrap();
+        fs::write(&deep, b"solid deep\nendsolid deep\n").unwrap();
+        fs::write(&hidden_stl, b"solid hid\nendsolid hid\n").unwrap();
+        fs::write(&hidden, b"hidden").unwrap();
+        fs::write(&emptied, b"solid empty\nendsolid empty\n").unwrap();
+
+        let summary = import_paths(
+            &mut db,
+            &[
+                pack.to_string_lossy().to_string(),
+                empty_after.to_string_lossy().to_string(),
+            ],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        assert!(
+            summary.failed.iter().any(|item| item.contains("broken.stl")),
+            "{:?}",
+            summary.failed
+        );
+        assert_eq!(summary.imported_count, 5, "{:?}", summary.failed);
+        assert_eq!(summary.duplicate_count, 1);
+        assert_eq!(summary.unsupported_count, 4);
+        let api = summary_for_api(&summary);
+        assert_eq!(api.left_in_place, 5);
+
+        let recycled = |path: &Path| {
+            summary
+                .recycle_paths
+                .iter()
+                .any(|item| item == &path.to_string_lossy().to_string())
+        };
+        assert!(recycled(&good));
+        assert!(recycled(&dup));
+        assert!(recycled(&mixed_stl));
+        assert!(recycled(&deep));
+        assert!(recycled(&hidden_stl));
+        assert!(recycled(&emptied));
+        assert!(!recycled(&notes));
+        assert!(!recycled(&broken));
+        assert!(!recycled(&also));
+        assert!(!recycled(&mixed_notes));
+        assert!(!recycled(&hidden));
+        assert!(!recycled(&pack));
+        assert!(!recycled(&empty_after));
+        assert!(summary.recycle_paths.iter().all(|path| Path::new(path).is_file()));
+        assert_eq!(summary.recycle_paths.len(), 6);
+        assert!(summary.recycle_roots.iter().any(|root| root == &pack.to_string_lossy().to_string()));
+        assert!(summary
+            .recycle_roots
+            .iter()
+            .any(|root| root == &empty_after.to_string_lossy().to_string()));
+
+        let (failed, cancelled) = recycle_paths_with(
+            &summary.recycle_paths,
+            &summary.recycle_roots,
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        assert!(failed.is_empty(), "{failed:?}");
+        assert!(!cancelled);
+
+        assert!(!good.exists());
+        assert!(!dup.exists());
+        assert!(!mixed_stl.exists());
+        assert!(!deep.exists());
+        assert!(!hidden_stl.exists());
+        assert!(!emptied.exists());
+        assert!(notes.is_file());
+        assert!(broken.is_file());
+        assert!(also.is_file());
+        assert!(mixed_notes.is_file());
+        assert!(hidden.is_file());
+        assert!(pack.is_dir());
+        assert!(pack.join("keep-fail").is_dir());
+        assert!(pack.join("mixed").is_dir());
+        assert!(pack.join("has-hidden").is_dir());
+        assert!(!pack.join("only-models").exists());
+        assert!(empty_after.is_dir());
+        assert!(!empty_after.join("nested").exists());
+        assert!(seed.is_file());
 
         let _ = fs::remove_dir_all(data.parent().unwrap());
     }
@@ -1080,7 +1247,7 @@ mod flow_tests {
         )
         .unwrap();
         assert_eq!(summary.imported_count, 251);
-        assert!(db.is_autocommit());
+        assert!(db.conn.is_autocommit());
         let rows = db
             .list_files(FolderFilter::Id(models), "", "", "", "name")
             .unwrap();
@@ -1199,15 +1366,88 @@ mod flow_tests {
 }
 
 pub fn recycle_paths(paths: &[String]) -> Result<Vec<String>, String> {
+    let (failed, _) = recycle_paths_with(paths, &[], &std::sync::atomic::AtomicBool::new(false), |_| {})?;
+    Ok(failed)
+}
+
+pub fn recycle_paths_with<F: FnMut(crate::relocate::DiskProgress)>(
+    paths: &[String],
+    roots: &[String],
+    cancel: &std::sync::atomic::AtomicBool,
+    mut progress: F,
+) -> Result<(Vec<String>, bool), String> {
+    let total = paths.len() as u32;
     let mut failed = Vec::new();
-    for path in paths {
-        let p = PathBuf::from(path);
-        if !p.exists() {
-            continue;
+    let mut deleted = Vec::new();
+    for (index, path) in paths.iter().enumerate() {
+        if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+            prune_emptied_subfolders(&deleted, roots);
+            return Ok((failed, true));
         }
-        if let Err(err) = trash::delete(&p) {
-            failed.push(format!("{path}: {err}"));
+        let name = Path::new(path)
+            .file_name()
+            .map(|item| item.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.clone());
+        progress(crate::relocate::DiskProgress {
+            current: index as u32,
+            total,
+            name,
+            bytes_done: 0,
+            bytes_total: 0,
+            cancellable: true,
+        });
+        let file = PathBuf::from(path);
+        if file.is_dir() {
+            // Folders are never sent to the Recycle Bin, even when a path list
+            // includes one. Files that remain inside stay where they are.
+        } else if file.is_file() {
+            if let Err(err) = trash::delete(&file) {
+                failed.push(format!("{path}: {err}"));
+            } else {
+                deleted.push(file);
+            }
+        }
+        progress(crate::relocate::DiskProgress {
+            current: (index as u32) + 1,
+            total,
+            name: String::new(),
+            bytes_done: 0,
+            bytes_total: 0,
+            cancellable: true,
+        });
+    }
+    prune_emptied_subfolders(&deleted, roots);
+    Ok((failed, false))
+}
+
+/// Remove source subfolders that became empty because their files were recycled.
+/// The import root stays, and so does any directory that still has an entry,
+/// including a hidden file.
+fn prune_emptied_subfolders(deleted: &[PathBuf], roots: &[String]) {
+    let roots: Vec<PathBuf> = roots.iter().map(PathBuf::from).collect();
+    for file in deleted {
+        let mut current = file.parent().map(Path::to_path_buf);
+        while let Some(dir) = current {
+            if roots.iter().any(|root| root == &dir) {
+                break;
+            }
+            if !roots.iter().any(|root| dir.starts_with(root)) {
+                break;
+            }
+            if !dir_is_completely_empty(&dir) {
+                break;
+            }
+            if fs::remove_dir(&dir).is_err() {
+                break;
+            }
+            current = dir.parent().map(Path::to_path_buf);
         }
     }
-    Ok(failed)
+}
+
+fn dir_is_completely_empty(dir: &Path) -> bool {
+    match fs::read_dir(dir) {
+        Ok(mut entries) => entries.next().is_none(),
+        Err(_) => false,
+    }
 }

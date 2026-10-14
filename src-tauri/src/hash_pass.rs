@@ -18,7 +18,7 @@ fn apply_hash_result(db: &AppDb, id: i64, path: &PathBuf) -> Result<(), String> 
         }
     };
     if db.sha_exists_other(&sha, id)? {
-        db.drop_file_link(id)?;
+        db.delete_files(&[id])?;
         return Ok(());
     }
     db.set_file_sha_ready(id, &sha)?;
@@ -35,6 +35,7 @@ pub fn process_one_unhashed(db: &AppDb) -> Result<bool, String> {
     Ok(true)
 }
 
+#[cfg(test)]
 pub fn drain_unhashed(db: &AppDb) -> Result<u32, String> {
     db.reset_hashing_to_unhashed()?;
     let mut count = 0u32;
@@ -63,36 +64,14 @@ pub fn spawn_hash_pass_if_needed(app: AppHandle, db: Arc<Mutex<AppDb>>) {
             let _ = db.reset_hashing_to_unhashed();
         }
         loop {
-            let job: Option<(i64, PathBuf)> = match db.lock() {
-                Ok(db) => match db.claim_next_unhashed() {
-                    Ok(Some(candidate)) => {
-                        let root = db.library_root().unwrap_or_default();
-                        Some((candidate.id, root.join(candidate.stored_relpath)))
-                    }
-                    Ok(None) => None,
-                    Err(_) => None,
-                },
-                Err(_) => None,
-            };
-            let Some((id, path)) = job else {
-                break;
-            };
-            let sha_result = hash_file(&path);
-            let apply = match db.lock() {
-                Ok(db) => match sha_result {
-                    Ok(sha) => {
-                        if db.sha_exists_other(&sha, id).unwrap_or(false) {
-                            db.drop_file_link(id)
-                        } else {
-                            db.set_file_sha_ready(id, &sha)
-                        }
-                    }
-                    Err(_) => db.set_thumb_status(id, "hash_error"),
-                },
+            let step = match db.lock() {
+                Ok(db) => process_one_unhashed(&db),
                 Err(_) => break,
             };
-            if apply.is_err() {
-                continue;
+            match step {
+                Ok(false) => break,
+                Ok(true) => {}
+                Err(_) => continue,
             }
         }
         HASH_WORKER_RUNNING.store(false, Ordering::SeqCst);

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
@@ -9,7 +9,62 @@ import type { FileRow } from "../types";
 import { useTheme } from "../theme/ThemeProvider";
 
 const MESH = new Set(["stl", "obj", "3mf"]);
+const IMAGE = new Set(["png", "jpg", "jpeg"]);
 const LIMIT = 150 * 1024 * 1024;
+
+function isMeshPreview(file: FileRow | null): file is FileRow {
+  return !!file && MESH.has(file.ext) && file.sizeBytes <= LIMIT;
+}
+
+function previewImage(file: FileRow): string | null {
+  if (IMAGE.has(file.ext)) return convertFileSrc(file.absolutePath);
+  if (file.thumbPath) return convertFileSrc(file.thumbPath);
+  return null;
+}
+
+function staticMessage(file: FileRow): string {
+  if (IMAGE.has(file.ext) || file.thumbPath) return "";
+  if (!MESH.has(file.ext)) return "Preview unavailable";
+  return "File is too large to preview";
+}
+
+function disposeMaterial(material: THREE.Material) {
+  const textured = material as THREE.MeshStandardMaterial;
+  textured.map?.dispose();
+  textured.normalMap?.dispose();
+  textured.roughnessMap?.dispose();
+  textured.metalnessMap?.dispose();
+  textured.aoMap?.dispose();
+  textured.emissiveMap?.dispose();
+  material.dispose();
+}
+
+function assignSharedMaterial(root: THREE.Object3D, material: THREE.Material) {
+  const previous = new Set<THREE.Material>();
+  root.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    const current = child.material;
+    child.material = material;
+    if (Array.isArray(current)) current.forEach((item) => previous.add(item));
+    else previous.add(current);
+  });
+  for (const item of previous) {
+    if (item !== material) disposeMaterial(item);
+  }
+}
+
+function releaseScene(root: THREE.Object3D, shared: THREE.Material) {
+  root.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    child.geometry?.dispose();
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    for (const material of materials) {
+      if (material && material !== shared) disposeMaterial(material);
+    }
+  });
+  shared.dispose();
+  root.clear();
+}
 
 function cssVar(name: string): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -17,40 +72,24 @@ function cssVar(name: string): string {
   return value;
 }
 
+type MeshPhase = "loading" | "ready" | "error";
+
 export function Viewer({ file }: { file: FileRow | null }) {
   const { theme } = useTheme();
-  const mountRef = useRef<HTMLDivElement>(null);
-  const [message, setMessage] = useState("Select a file");
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [host, setHost] = useState<HTMLDivElement | null>(null);
+  const mesh = isMeshPreview(file);
+  const loadKey = mesh ? `${file.id}:${file.absolutePath}:${theme}` : "";
+  const [load, setLoad] = useState<{ key: string; phase: MeshPhase }>({ key: "", phase: "loading" });
+  if (load.key !== loadKey) {
+    setLoad({ key: loadKey, phase: "loading" });
+  }
+  const phase = load.key === loadKey ? load.phase : "loading";
 
   useEffect(() => {
-    if (!file) {
-      setImageUrl(null);
-      setMessage("Select a file");
-      return;
-    }
-    const imageExt = new Set(["png", "jpg", "jpeg"]);
-    if (imageExt.has(file.ext)) {
-      setImageUrl(convertFileSrc(file.absolutePath));
-      setMessage("");
-      return;
-    }
-    if (!MESH.has(file.ext)) {
-      setImageUrl(file.thumbPath ? convertFileSrc(file.thumbPath) : null);
-      setMessage(file.thumbPath ? "" : "Preview unavailable");
-      return;
-    }
-    if (file.sizeBytes > LIMIT) {
-      setImageUrl(file.thumbPath ? convertFileSrc(file.thumbPath) : null);
-      setMessage(file.thumbPath ? "" : "File is too large to preview");
-      return;
-    }
-    setImageUrl(null);
-    setMessage("Loading preview…");
-    const host = mountRef.current;
-    if (!host) return;
+    if (!mesh || !file || !host) return;
 
     let disposed = false;
+    const controller = new AbortController();
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     const scene = new THREE.Scene();
@@ -63,15 +102,10 @@ export function Viewer({ file }: { file: FileRow | null }) {
     const key = new THREE.DirectionalLight(light, 1.05);
     key.position.set(3, 4, 5);
     scene.add(key);
-    host.appendChild(renderer.domElement);
+    host.replaceChildren(renderer.domElement);
 
-    const applyTheme = () => {
-      const bg = cssVar("--viewer-bg");
-      const mesh = cssVar("--viewer-mesh");
-      scene.background = new THREE.Color(bg);
-      material.color = new THREE.Color(mesh);
-    };
-    applyTheme();
+    scene.background = new THREE.Color(cssVar("--viewer-bg"));
+    material.color = new THREE.Color(cssVar("--viewer-mesh"));
 
     const resize = () => {
       const width = host.clientWidth || 1;
@@ -93,7 +127,8 @@ export function Viewer({ file }: { file: FileRow | null }) {
     animate();
 
     const url = convertFileSrc(file.absolutePath);
-    fetch(url)
+    const activeKey = loadKey;
+    fetch(url, { signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error("Could not read the file.");
         return response.arrayBuffer();
@@ -107,15 +142,11 @@ export function Viewer({ file }: { file: FileRow | null }) {
           group.add(new THREE.Mesh(geometry, material));
         } else if (file.ext === "obj") {
           const loaded = new OBJLoader().parse(new TextDecoder().decode(buffer));
-          loaded.traverse((child) => {
-            if (child instanceof THREE.Mesh) child.material = material;
-          });
+          assignSharedMaterial(loaded, material);
           group.add(loaded);
         } else {
           const loaded = new ThreeMFLoader().parse(buffer);
-          loaded.traverse((child) => {
-            if (child instanceof THREE.Mesh) child.material = material;
-          });
+          assignSharedMaterial(loaded, material);
           group.add(loaded);
         }
         scene.add(group);
@@ -130,26 +161,42 @@ export function Viewer({ file }: { file: FileRow | null }) {
         camera.lookAt(0, 0, 0);
         controls.target.set(0, 0, 0);
         controls.update();
-        setMessage("");
+        setLoad({ key: activeKey, phase: "ready" });
       })
-      .catch(() => {
-        if (!disposed) setMessage("Preview unavailable");
+      .catch((err: unknown) => {
+        if (disposed) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setLoad({ key: activeKey, phase: "error" });
       });
 
     return () => {
       disposed = true;
+      controller.abort();
       cancelAnimationFrame(frame);
       observer.disconnect();
       controls.dispose();
-      material.dispose();
+      releaseScene(scene, material);
+      renderer.forceContextLoss();
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [file, theme]);
+  }, [file, host, loadKey, mesh]);
+
+  const imageUrl = file && !mesh ? previewImage(file) : null;
+  const message = !file
+    ? "Select a file"
+    : mesh
+      ? phase === "error"
+        ? "Preview unavailable"
+        : phase === "loading"
+          ? "Loading preview…"
+          : ""
+      : staticMessage(file);
 
   return (
     <div className="viewer">
-      {imageUrl ? <img src={imageUrl} alt="" /> : <div ref={mountRef} className="viewer-canvas" />}
+      <div ref={setHost} className="viewer-canvas" hidden={!mesh} />
+      {imageUrl ? <img src={imageUrl} alt="" /> : null}
       {message ? <p className="viewer-message">{message}</p> : null}
     </div>
   );
