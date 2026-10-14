@@ -108,6 +108,7 @@ pub fn is_supported_file(ext: &str) -> bool {
             | "png"
             | "jpg"
             | "jpeg"
+            | "pdf"
     )
 }
 
@@ -133,5 +134,15 @@ mod tests {
     #[test]
     fn sort_name_replaces_underscores() {
         assert_eq!(default_sort_name("Throne_of_Baal.stl"), "Throne of Baal");
+    }
+
+    #[test]
+    fn pdf_is_a_supported_file_and_not_a_mesh_or_archive() {
+        assert_eq!(extension_of("Assembly Guide.PDF"), "pdf");
+        assert!(is_supported_file("pdf"));
+        assert!(is_supported_file(&extension_of("instructions.PDF")));
+        assert!(!is_mesh("pdf"));
+        assert!(!is_archive("pdf"));
+        assert!(!is_supported_file("txt"));
     }
 }

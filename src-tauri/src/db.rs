@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::Serialize;
@@ -124,6 +125,8 @@ pub fn open(data_dir: &Path) -> Result<AppDb, String> {
     conn.pragma_update(None, "journal_mode", "WAL")
         .map_err(|e| e.to_string())?;
     conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(|e| e.to_string())?;
+    conn.busy_timeout(Duration::from_secs(5))
         .map_err(|e| e.to_string())?;
     let version: i32 = conn
         .pragma_query_value(None, "user_version", |r| r.get(0))
@@ -277,6 +280,7 @@ impl AppDb {
         })
     }
 
+    #[cfg(test)]
     pub fn rename_folder(&self, id: i64, new_name: &str) -> Result<(), String> {
         self.rename_folder_with(id, new_name, &AtomicBool::new(false), |_| {})
             .map(|_| ())
@@ -317,6 +321,7 @@ impl AppDb {
         )
     }
 
+    #[cfg(test)]
     pub fn move_folder(&self, id: i64, new_parent_id: Option<i64>) -> Result<(), String> {
         self.move_folder_with(id, new_parent_id, &AtomicBool::new(false), false, |_| {})
             .map(|_| ())
@@ -909,9 +914,10 @@ impl AppDb {
         tags: Vec<String>,
     ) -> Result<FileRow, String> {
         let absolute = root.join(&seed.stored_relpath);
-        let thumb = thumb_path(&self.data_dir, &seed.sha256);
-        let thumb_path = if seed.thumb_status == "ok" && thumb.exists() {
-            Some(thumb.to_string_lossy().to_string())
+        // Trust thumb_status. A per-file exists() check holds the database lock
+        // across a syscall for every row while the window is waiting on a list.
+        let thumb_path = if seed.thumb_status == "ok" && !seed.sha256.is_empty() {
+            Some(thumb_path(&self.data_dir, &seed.sha256).to_string_lossy().to_string())
         } else {
             None
         };
@@ -978,6 +984,7 @@ impl AppDb {
         Ok(out)
     }
 
+    #[cfg(test)]
     pub fn update_file(
         &self,
         id: i64,
@@ -1173,6 +1180,14 @@ impl AppDb {
         Ok(rows)
     }
 
+    pub fn file_row_exists(&self, id: i64) -> Result<bool, String> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM files WHERE id = ?1", [id], |row| row.get(0))
+            .map_err(|err| err.to_string())?;
+        Ok(count > 0)
+    }
+
     pub fn file_location(&self, id: i64) -> Result<FileLoc, String> {
         self.conn
             .query_row(
@@ -1190,6 +1205,7 @@ impl AppDb {
             .map_err(|_| format!("File {id} was not found."))
     }
 
+    #[cfg(test)]
     pub fn move_files(&self, ids: &[i64], folder_id: Option<i64>) -> Result<(), String> {
         self.move_files_with(ids, folder_id, &AtomicBool::new(false), |_| {})
             .map(|_| ())
@@ -1290,66 +1306,55 @@ impl AppDb {
         Ok(false)
     }
 
-    pub fn delete_files(&self, ids: &[i64]) -> Result<(), String> {
-        self.delete_files_with(ids, &AtomicBool::new(false), |_| {})
-            .map(|_| ())
-    }
-
-    pub fn delete_files_with<F: FnMut(DiskProgress)>(
-        &self,
-        ids: &[i64],
-        cancel: &AtomicBool,
-        mut progress: F,
-    ) -> Result<bool, String> {
+    pub fn trash_items(&self, ids: &[i64]) -> Result<Vec<TrashItem>, String> {
         let root = self.library_root()?;
-        let total = ids.len() as u32;
-        for (index, id) in ids.iter().enumerate() {
-            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
-                return Ok(true);
-            }
+        let mut items = Vec::with_capacity(ids.len());
+        for id in ids {
             let loc = self.file_location(*id)?;
             let path = root.join(&loc.stored_relpath);
             let name = Path::new(&loc.stored_relpath)
                 .file_name()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or(loc.original_name.clone());
-            let len = path.metadata().map(|meta| meta.len()).unwrap_or(0);
-            progress(DiskProgress {
-                current: index as u32,
-                total,
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or(loc.original_name);
+            let bytes = path.metadata().map(|meta| meta.len()).unwrap_or(0);
+            items.push(TrashItem {
+                id: *id,
+                path,
+                sha256: loc.sha256,
                 name,
-                bytes_done: 0,
-                bytes_total: len,
-                cancellable: true,
-            });
-            if path.exists() {
-                trash::delete(&path).map_err(|e| e.to_string())?;
-            }
-            let others: i64 = self
-                .conn
-                .query_row(
-                    "SELECT COUNT(*) FROM files WHERE sha256 = ?1 AND id <> ?2",
-                    params![loc.sha256, id],
-                    |r| r.get(0),
-                )
-                .map_err(|e| e.to_string())?;
-            if others == 0 {
-                let thumb = thumb_path(&self.data_dir, &loc.sha256);
-                let _ = std::fs::remove_file(thumb);
-            }
-            self.conn
-                .execute("DELETE FROM files WHERE id = ?1", [id])
-                .map_err(|e| e.to_string())?;
-            progress(DiskProgress {
-                current: (index as u32) + 1,
-                total,
-                name: String::new(),
-                bytes_done: len,
-                bytes_total: len,
-                cancellable: true,
+                bytes,
             });
         }
-        Ok(false)
+        Ok(items)
+    }
+
+    /// Drop the catalog row and an unshared thumbnail. The caller deletes the library file.
+    pub fn remove_catalogued_file(&self, id: i64, sha256: &str) -> Result<(), String> {
+        let others: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE sha256 = ?1 AND id <> ?2",
+                params![sha256, id],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if others == 0 && !sha256.is_empty() {
+            let _ = std::fs::remove_file(thumb_path(&self.data_dir, sha256));
+        }
+        self.conn
+            .execute("DELETE FROM files WHERE id = ?1", [id])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn release_rendering_thumb(&self, id: i64) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE files SET thumb_status = 'none' WHERE id = ?1 AND thumb_status = 'rendering'",
+                [id],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     pub fn remove_missing(&self) -> Result<(), String> {
@@ -1550,7 +1555,7 @@ impl AppDb {
     fn next_pending_thumb_row(&self) -> Result<Option<ThumbCandidate>, String> {
         self.conn
             .query_row(
-                "SELECT id, stored_relpath, ext, size_bytes, sha256, thumb_attempts FROM files WHERE thumb_status = 'none' AND missing = 0 ORDER BY CASE WHEN ext IN ('png','jpg','jpeg') THEN 0 WHEN ext IN ('stl','obj','3mf') THEN 2 ELSE 1 END, id LIMIT 1",
+                "SELECT id, stored_relpath, ext, size_bytes, sha256 FROM files WHERE thumb_status = 'none' AND missing = 0 ORDER BY CASE WHEN ext IN ('png','jpg','jpeg') THEN 0 WHEN ext IN ('stl','obj','3mf') THEN 2 ELSE 1 END, id LIMIT 1",
                 [],
                 |r| {
                     Ok(ThumbCandidate {
@@ -1559,7 +1564,6 @@ impl AppDb {
                         ext: r.get(2)?,
                         size_bytes: r.get(3)?,
                         sha256: r.get(4)?,
-                        thumb_attempts: r.get(5)?,
                     })
                 },
             )
@@ -1642,6 +1646,14 @@ impl AppDb {
 }
 
 #[derive(Clone)]
+pub struct TrashItem {
+    pub id: i64,
+    pub path: PathBuf,
+    pub sha256: String,
+    pub name: String,
+    pub bytes: u64,
+}
+
 pub struct FileLoc {
     pub stored_relpath: String,
     pub folder_id: Option<i64>,
@@ -1672,7 +1684,6 @@ pub struct ThumbCandidate {
     pub ext: String,
     pub size_bytes: i64,
     pub sha256: String,
-    pub thumb_attempts: i64,
 }
 
 pub struct UnhashedCandidate {
@@ -1752,6 +1763,38 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].id, id);
         assert_eq!(found[0].sort_name, "Throne of Baal");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn release_rendering_thumb_only_clears_rendering_rows() {
+        let dir = std::env::temp_dir().join(format!("filelib-release-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = open(&dir).unwrap();
+        let root = dir.join("library");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        let rendering = db
+            .insert_file_with_thumb_status("a.stl", "a.stl", "stl", 1, "sha-a", 1, None, None, "rendering")
+            .unwrap();
+        let ready = db
+            .insert_file_with_thumb_status("b.stl", "b.stl", "stl", 1, "sha-b", 1, None, None, "ok")
+            .unwrap();
+        db.release_rendering_thumb(rendering).unwrap();
+        db.release_rendering_thumb(ready).unwrap();
+        let rendering_status: String = db
+            .conn
+            .query_row("SELECT thumb_status FROM files WHERE id = ?1", [rendering], |row| row.get(0))
+            .unwrap();
+        let ready_status: String = db
+            .conn
+            .query_row("SELECT thumb_status FROM files WHERE id = ?1", [ready], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rendering_status, "none");
+        assert_eq!(ready_status, "ok");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1979,7 +2022,7 @@ mod tests {
             .unwrap();
         let claimed = db.claim_next_pending_thumb().unwrap().unwrap();
         assert_eq!(claimed.id, png);
-        assert_eq!(claimed.thumb_attempts, 0);
+        assert_eq!(status_of(&db, png).1, 0);
         assert_ne!(claimed.id, stl);
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -1,7 +1,9 @@
 import * as THREE from "three";
 import { debugLog } from "../debugLog";
-import { parseMeshInWorker } from "./meshParseClient";
+import { parseMeshInWorker, renderMeshInWorker } from "./meshParseClient";
 import type { PackedMesh } from "../workers/meshParse.worker";
+
+export const MESH_BYTE_LIMIT = 150 * 1024 * 1024;
 
 function cssVar(name: string): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -40,7 +42,7 @@ function enqueueRender<T>(work: () => Promise<T>): Promise<T> {
 
 function rendererForThumbs(): THREE.WebGLRenderer {
   if (sharedRenderer && !sharedRenderer.getContext().isContextLost()) return sharedRenderer;
-  sharedRenderer?.dispose();
+  discardMainRenderer();
   sharedRenderer = new THREE.WebGLRenderer({
     antialias: true,
     alpha: false,
@@ -48,6 +50,14 @@ function rendererForThumbs(): THREE.WebGLRenderer {
   });
   sharedRenderer.setSize(256, 256);
   return sharedRenderer;
+}
+
+function discardMainRenderer() {
+  if (!sharedRenderer) return;
+  const gl = sharedRenderer.getContext() as WebGLRenderingContext & { forceContextLoss?: () => void };
+  sharedRenderer.dispose();
+  gl.forceContextLoss?.();
+  sharedRenderer = null;
 }
 
 function groupFromPackedMeshes(meshes: PackedMesh[], material: THREE.Material): THREE.Group {
@@ -78,7 +88,51 @@ function disposeMeshTree(object: THREE.Object3D) {
   });
 }
 
+function webglUnavailable(err: unknown): boolean {
+  return String(err).toLowerCase().includes("webgl-unavailable");
+}
+
 async function renderMeshStillInner(url: string, ext: string): Promise<Uint8Array> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error("Could not read the file for a thumbnail.");
+  }
+  const buffer = await response.arrayBuffer();
+  if (buffer.byteLength > MESH_BYTE_LIMIT) {
+    throw new Error("Mesh is over the thumbnail size limit.");
+  }
+  const started = performance.now();
+  const colors = {
+    background: cssVar("--viewer-bg"),
+    mesh: cssVar("--viewer-mesh"),
+    light: cssVar("--color-accent-contrast"),
+  };
+  let thread = typeof OffscreenCanvas === "undefined" ? "main" : "worker";
+  debugLog("thumb-parse-start", { ext, bytes: buffer.byteLength, thread });
+  try {
+    let png: Uint8Array;
+    if (thread === "main") {
+      png = await renderOnMainThread(buffer, ext);
+    } else {
+      const copy = buffer.slice(0);
+      try {
+        png = await renderMeshInWorker(ext, buffer, colors);
+      } catch (err) {
+        if (!webglUnavailable(err)) throw err;
+        thread = "main";
+        png = await renderOnMainThread(copy, ext);
+      }
+    }
+    debugLog("thumb-parse-end", { ext, ms: Math.round(performance.now() - started), thread });
+    return png;
+  } catch (err) {
+    debugLog("thumb-parse-fail", { ext, ms: Math.round(performance.now() - started), error: String(err), thread });
+    throw err;
+  }
+}
+
+async function renderOnMainThread(buffer: ArrayBuffer, ext: string): Promise<Uint8Array> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
   const renderer = rendererForThumbs();
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(cssVar("--viewer-bg"));
@@ -96,24 +150,12 @@ async function renderMeshStillInner(url: string, ext: string): Promise<Uint8Arra
 
   let parsed: THREE.Group | null = null;
   try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error("Could not read the file for a thumbnail.");
-    }
-    const buffer = await response.arrayBuffer();
-    const started = performance.now();
-    debugLog("thumb-parse-start", { ext, bytes: buffer.byteLength });
-    try {
-      const meshes = await parseMeshInWorker(ext, buffer);
-      parsed = groupFromPackedMeshes(meshes, material);
-      scene.add(parsed);
-      fitCamera(camera, parsed);
-      renderer.render(scene, camera);
-      debugLog("thumb-parse-end", { ext, ms: Math.round(performance.now() - started) });
-    } catch (err) {
-      debugLog("thumb-parse-fail", { ext, ms: Math.round(performance.now() - started), error: String(err) });
-      throw err;
-    }
+    const meshes = await parseMeshInWorker(ext, buffer);
+    parsed = groupFromPackedMeshes(meshes, material);
+    scene.add(parsed);
+    fitCamera(camera, parsed);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    renderer.render(scene, camera);
     const blob = await new Promise<Blob | null>((resolve) => {
       renderer.domElement.toBlob((result) => resolve(result), "image/png");
     });

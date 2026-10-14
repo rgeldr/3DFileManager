@@ -13,10 +13,11 @@ import { FileGrid } from "./components/FileGrid";
 import { Inspector } from "./components/Inspector";
 import { Sidebar } from "./components/Sidebar";
 import { debugLog } from "./debugLog";
+import { deleteKeyCommand, deleteKeyFocus, focusedFolderId, isTypingTarget } from "./lib/deleteKey";
 import { iconForDrag } from "./lib/dragPaths";
 import { importMetaPayload } from "./lib/importMeta";
 import { clampInspector, clampSidebar } from "./lib/paneWidths";
-import { renderMeshStill } from "./lib/renderThumb";
+import { renderMeshStill, MESH_BYTE_LIMIT } from "./lib/renderThumb";
 import { useTheme } from "./theme/ThemeProvider";
 import type { Browse, FileRow, FolderRow, GridSize, ImportSummary, Settings } from "./types";
 
@@ -287,6 +288,9 @@ export function App() {
 
   const runImportRef = useRef<(paths: string[]) => Promise<void>>(async () => undefined);
 
+  const refreshListsRef = useRef(refreshLists);
+  refreshListsRef.current = refreshLists;
+
   const pumpThumbs = useCallback(async (generation: number) => {
     const stale = () => thumbGeneration.current !== generation;
     let done = 0;
@@ -295,23 +299,36 @@ export function App() {
       await new Promise((resolve) => setTimeout(resolve, 32));
       if (stale()) return;
       const job = await api.nextThumbnail();
+      if (stale()) {
+        if (job?.kind === "render") await api.releaseRenderingThumb(job.id).catch(() => undefined);
+        return;
+      }
       if (!job) break;
       if (job.kind === "render") {
         try {
-          const png = await renderMeshStill(convertFileSrc(job.absolutePath), job.ext);
-          if (stale()) return;
-          await api.saveRenderedThumb(job.id, Array.from(png));
+          if (job.sizeBytes > MESH_BYTE_LIMIT) {
+            await api.markThumbUnavailable(job.id);
+          } else {
+            const png = await renderMeshStill(convertFileSrc(job.absolutePath), job.ext);
+            if (stale()) {
+              await api.releaseRenderingThumb(job.id);
+              return;
+            }
+            await api.saveRenderedThumb(job.id, Array.from(png));
+          }
         } catch {
-          await api.markThumbUnavailable(job.id);
+          if (stale()) await api.releaseRenderingThumb(job.id).catch(() => undefined);
+          else await api.markThumbUnavailable(job.id);
+          if (stale()) return;
         }
       }
       if (job.kind === "done") {
         done += 1;
-        if (done % 10 === 0 && !stale()) await refreshLists();
+        if (done % 10 === 0 && !stale()) await refreshListsRef.current();
       }
     }
-    if (!stale()) await refreshLists();
-  }, [refreshLists]);
+    if (!stale()) await refreshListsRef.current();
+  }, []);
 
   const runImport = useCallback(async (paths: string[]) => {
     if (paths.length === 0) return;
@@ -345,6 +362,59 @@ export function App() {
   const dialogOpen = Boolean(
     busy || progress || summary || namePrompt || deleteConfirm || missingOpen || error || diskDialog || aboutOpen || creatorTarget || dragFailure,
   );
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const focus = deleteKeyFocus(event.target);
+      const folderId = focus === "sidebar"
+        ? (focusedFolderId(event.target) ?? (browse.type === "folder" ? browse.id : null))
+        : null;
+      const command = deleteKeyCommand({
+        key: event.key,
+        typing: isTypingTarget(event.target),
+        dialogOpen: Boolean(
+          dialogOpen || folderTagTarget || fileMenu,
+        ),
+        focus,
+        selectedCount: selected.length,
+        folderId,
+      });
+      if (!command) return;
+      event.preventDefault();
+      if (command === "folder" && folderId != null) {
+        openDeleteFolderConfirm(folderId);
+        return;
+      }
+      const ids = selected;
+      if (ids.length === 0) return;
+      const one = ids.length === 1 ? files.find((file) => file.id === ids[0]) : null;
+      const title = one ? `Deleting "${one.sortName}"...` : `Deleting ${ids.length} files...`;
+      const success = one ? `Deleted "${one.sortName}"` : `Deleted ${ids.length} files`;
+      void runDiskOp({
+        title,
+        cancellable: true,
+        success,
+        cancelled: "Delete cancelled",
+        run: () => api.deleteFiles(ids),
+        after: async () => {
+          setSelected([]);
+          await refreshLists();
+        },
+      });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [
+    browse,
+    dialogOpen,
+    fileMenu,
+    files,
+    folderTagTarget,
+    openDeleteFolderConfirm,
+    refreshLists,
+    runDiskOp,
+    selected,
+  ]);
 
   useEffect(() => {
     debugLog("dialogs", {
@@ -965,7 +1035,7 @@ export function App() {
           </div>
         ) : null}
         <div className="workspace">
-          <div className="grid-wrap" ref={gridScrollRef}>
+          <div className="grid-wrap" ref={gridScrollRef} tabIndex={-1}>
             <FileGrid
               files={files}
               gridSize={settings.gridSize}
@@ -973,6 +1043,10 @@ export function App() {
               previewIconsEnabled={previewIconsEnabled}
               scrollRootRef={gridScrollRef}
               onSelect={onSelect}
+              onSelectionChange={setSelected}
+              onOpen={(file) => {
+                void openPath(file.absolutePath).catch((err) => setError(String(err)));
+              }}
               onContextMenu={(event, file) => {
                 setFileMenu({ x: event.clientX, y: event.clientY, path: file.absolutePath });
               }}
