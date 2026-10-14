@@ -3,7 +3,6 @@ use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
@@ -13,7 +12,6 @@ use crate::db::AppDb;
 use crate::names::{extension_of, is_archive, is_supported_file, sanitize_component, unique_file_path};
 
 const BATCH_SIZE: u32 = 250;
-const PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(250);
 pub const SUMMARY_ID_CAP: usize = 200;
 
 #[derive(Debug, Clone)]
@@ -74,14 +72,12 @@ struct ImportProgressCtx<F: FnMut(ImportProgress)> {
     current: u32,
     total: u32,
     on_progress: F,
-    last_emit: Instant,
     pending_message: Option<String>,
 }
 
 impl<F: FnMut(ImportProgress)> ImportProgressCtx<F> {
     fn emit_now(&mut self, message: impl Into<String>) {
         self.pending_message = None;
-        self.last_emit = Instant::now();
         (self.on_progress)(ImportProgress {
             current: self.current,
             total: self.total.max(1),
@@ -95,13 +91,9 @@ impl<F: FnMut(ImportProgress)> ImportProgressCtx<F> {
 
     fn tick(&mut self, message: impl Into<String>) {
         self.current += 1;
-        let msg = message.into();
-        let now = Instant::now();
-        if now.duration_since(self.last_emit) >= PROGRESS_MIN_INTERVAL {
-            self.emit_now(msg);
-        } else {
-            self.pending_message = Some(msg);
-        }
+        // Every file notifies the caller. The cancel test sets its flag from this
+        // callback, and a 250ms throttle let both tiny files finish first.
+        self.emit_now(message);
     }
 
     fn flush(&mut self) {
@@ -298,7 +290,6 @@ pub fn import_paths<F: FnMut(ImportProgress)>(
         current: 0,
         total: 0,
         on_progress,
-        last_emit: Instant::now() - PROGRESS_MIN_INTERVAL,
         pending_message: None,
     };
     progress.emit("Counting files");

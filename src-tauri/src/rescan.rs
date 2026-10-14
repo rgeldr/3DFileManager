@@ -247,6 +247,39 @@ fn rel_string(root: &Path, path: &Path) -> Result<String, String> {
     Ok(rel.to_string_lossy().replace('\\', "/"))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{self, FolderFilter};
+    use crate::settings::Settings;
+    use std::sync::atomic::AtomicBool;
+
+    #[test]
+    fn rescan_adds_a_file_on_disk_and_marks_a_missing_catalog_row() {
+        let dir = std::env::temp_dir().join(format!("filelib-rescan-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        std::fs::write(root.join("new.stl"), b"solid new").unwrap();
+        db.insert_file("gone.stl", "gone.stl", "stl", 1, "sha-gone", 1, None, None)
+            .unwrap();
+        let summary = rescan_with(&db, &AtomicBool::new(false), |_| {}).unwrap();
+        assert!(!summary.cancelled);
+        assert_eq!(summary.added_files, 1);
+        assert_eq!(summary.missing, 1);
+        let rows = db.list_files(FolderFilter::All, "", "", "", "name").unwrap();
+        assert!(rows.iter().any(|file| file.original_name == "new.stl"));
+        let missing = db.missing_files().unwrap();
+        assert_eq!(missing.len(), 1);
+        assert_eq!(missing[0].original_name, "gone.stl");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 fn folder_id_for_file(db: &AppDb, file_rel: &str) -> Result<Option<i64>, String> {
     match file_rel.rsplit_once('/') {
         Some((dir, _)) if !dir.is_empty() => db.folder_id_by_relpath(dir),

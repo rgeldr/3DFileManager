@@ -4,6 +4,28 @@ export interface Settings {
   libraryRoot: string | null;
   theme: "dark" | "light";
   gridSize: GridSize;
+  sidebarWidth: number;
+  inspectorWidth: number;
+  thumbRetry: number;
+}
+
+export interface DragReport {
+  original: string;
+  simplified: string;
+  length: number;
+  extendedPrefix: boolean;
+  hasForwardSlash: boolean;
+  exists: boolean;
+  staged: boolean;
+  dragPath: string;
+  error: string | null;
+}
+
+export interface PreparedDrag {
+  paths: string[];
+  skipped: string[];
+  reports: DragReport[];
+  iconBytes: number;
 }
 
 export interface FolderRow {

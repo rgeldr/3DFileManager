@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::names::{default_sort_name, unique_dir_name};
@@ -128,9 +128,20 @@ pub fn open(data_dir: &Path) -> Result<AppDb, String> {
     let version: i32 = conn
         .pragma_query_value(None, "user_version", |r| r.get(0))
         .map_err(|e| e.to_string())?;
+    let mut version = version;
     if version < 1 {
         conn.execute_batch(SCHEMA).map_err(|e| e.to_string())?;
         conn.pragma_update(None, "user_version", 1)
+            .map_err(|e| e.to_string())?;
+        version = 1;
+    }
+    if version < 2 {
+        conn.execute(
+            "ALTER TABLE files ADD COLUMN thumb_attempts INTEGER NOT NULL DEFAULT 0",
+            [],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.pragma_update(None, "user_version", 2)
             .map_err(|e| e.to_string())?;
     }
     conn.execute(
@@ -1362,6 +1373,170 @@ impl AppDb {
         Ok(())
     }
 
+    pub fn mark_thumb_ok(&self, id: i64) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE files SET thumb_status = 'ok', thumb_attempts = 0 WHERE id = ?1",
+                [id],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn note_thumb_io_failure(&self, id: i64) -> Result<(), String> {
+        let attempts: i64 = self
+            .conn
+            .query_row("SELECT thumb_attempts FROM files WHERE id = ?1", [id], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        let next = attempts + 1;
+        let status = if next >= 3 { "unavailable" } else { "none" };
+        self.conn
+            .execute(
+                "UPDATE files SET thumb_status = ?1, thumb_attempts = ?2 WHERE id = ?3",
+                params![status, next, id],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn requeue_unavailable_images(&self) -> Result<usize, String> {
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE files SET thumb_status = 'none', thumb_attempts = 0 WHERE thumb_status = 'unavailable' AND ext IN ('png', 'jpg', 'jpeg')",
+                [],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(changed)
+    }
+
+    pub fn set_pane_widths(&self, sidebar_width: u32, inspector_width: u32) -> Result<(), String> {
+        settings::check_pane_widths(sidebar_width, inspector_width)?;
+        let mut settings = self.settings();
+        settings.sidebar_width = sidebar_width;
+        settings.inspector_width = inspector_width;
+        self.save_settings(&settings)
+    }
+
+    pub fn file_ids_for_creator_scope(
+        &self,
+        folder_id: Option<i64>,
+        include_subfolders: bool,
+    ) -> Result<Vec<i64>, String> {
+        if include_subfolders {
+            return self.file_ids_under_folder(folder_id);
+        }
+        match folder_id {
+            None => {
+                let mut stmt = self
+                    .conn
+                    .prepare("SELECT id FROM files WHERE missing = 0 AND folder_id IS NULL")
+                    .map_err(|e| e.to_string())?;
+                let ids = stmt
+                    .query_map([], |r| r.get(0))
+                    .map_err(|e| e.to_string())?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| e.to_string())?;
+                Ok(ids)
+            }
+            Some(id) => {
+                let mut stmt = self
+                    .conn
+                    .prepare("SELECT id FROM files WHERE missing = 0 AND folder_id = ?1")
+                    .map_err(|e| e.to_string())?;
+                let ids = stmt
+                    .query_map([id], |r| r.get(0))
+                    .map_err(|e| e.to_string())?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| e.to_string())?;
+                Ok(ids)
+            }
+        }
+    }
+
+    pub fn set_creator_under_folder(
+        &self,
+        folder_id: Option<i64>,
+        creator: &str,
+        include_subfolders: bool,
+    ) -> Result<i64, String> {
+        let creator = creator.trim();
+        if creator.is_empty() {
+            return Err("Creator is required.".into());
+        }
+        let ids = self.file_ids_for_creator_scope(folder_id, include_subfolders)?;
+        let tx = self.conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        for chunk in ids.chunks(500) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let mut sql = String::from("UPDATE files SET creator = ?1 WHERE missing = 0 AND id IN (");
+            for (index, _) in chunk.iter().enumerate() {
+                if index > 0 {
+                    sql.push(',');
+                }
+                sql.push('?');
+                sql.push_str(&(index + 2).to_string());
+            }
+            sql.push(')');
+            let mut values = Vec::with_capacity(chunk.len() + 1);
+            values.push(rusqlite::types::Value::Text(creator.to_string()));
+            for id in chunk {
+                values.push(rusqlite::types::Value::Integer(*id));
+            }
+            tx.execute(&sql, params_from_iter(values.iter()))
+                .map_err(|e| e.to_string())?;
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(ids.len() as i64)
+    }
+
+    pub fn apply_import_meta(
+        &self,
+        ids: &[i64],
+        creator: Option<&str>,
+        tags: Option<&[String]>,
+    ) -> Result<(), String> {
+        let creator = creator.map(str::trim).filter(|value| !value.is_empty());
+        let tag_list: Vec<String> = tags
+            .unwrap_or(&[])
+            .iter()
+            .map(|tag| tag.trim().to_string())
+            .filter(|tag| !tag.is_empty())
+            .collect();
+        let apply_tags = tags.is_some() && !tag_list.is_empty();
+        if creator.is_none() && !apply_tags {
+            return Ok(());
+        }
+        let tx = self.conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        for id in ids {
+            let present: bool = tx
+                .query_row(
+                    "SELECT 1 FROM files WHERE id = ?1 AND missing = 0",
+                    [id],
+                    |_| Ok(true),
+                )
+                .optional()
+                .map_err(|e| e.to_string())?
+                .unwrap_or(false);
+            if !present {
+                continue;
+            }
+            if let Some(creator) = creator {
+                tx.execute(
+                    "UPDATE files SET creator = ?1 WHERE id = ?2",
+                    params![creator, id],
+                )
+                .map_err(|e| e.to_string())?;
+            }
+            if apply_tags {
+                self.set_tags(*id, &tag_list)?;
+            }
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     pub fn set_thumb_status(&self, id: i64, status: &str) -> Result<(), String> {
         self.conn
             .execute(
@@ -1375,7 +1550,7 @@ impl AppDb {
     fn next_pending_thumb_row(&self) -> Result<Option<ThumbCandidate>, String> {
         self.conn
             .query_row(
-                "SELECT id, stored_relpath, ext, size_bytes, sha256 FROM files WHERE thumb_status = 'none' AND missing = 0 ORDER BY id LIMIT 1",
+                "SELECT id, stored_relpath, ext, size_bytes, sha256, thumb_attempts FROM files WHERE thumb_status = 'none' AND missing = 0 ORDER BY CASE WHEN ext IN ('png','jpg','jpeg') THEN 0 WHEN ext IN ('stl','obj','3mf') THEN 2 ELSE 1 END, id LIMIT 1",
                 [],
                 |r| {
                     Ok(ThumbCandidate {
@@ -1384,6 +1559,7 @@ impl AppDb {
                         ext: r.get(2)?,
                         size_bytes: r.get(3)?,
                         sha256: r.get(4)?,
+                        thumb_attempts: r.get(5)?,
                     })
                 },
             )
@@ -1418,7 +1594,7 @@ impl AppDb {
         }
         self.conn
             .execute(
-                "UPDATE files SET thumb_status = 'none' WHERE thumb_status IN ('ok', 'unavailable', 'rendering')",
+                "UPDATE files SET thumb_status = 'none', thumb_attempts = 0 WHERE thumb_status IN ('ok', 'unavailable', 'rendering')",
                 [],
             )
             .map_err(|e| e.to_string())?;
@@ -1496,6 +1672,7 @@ pub struct ThumbCandidate {
     pub ext: String,
     pub size_bytes: i64,
     pub sha256: String,
+    pub thumb_attempts: i64,
 }
 
 pub struct UnhashedCandidate {
@@ -1765,6 +1942,157 @@ mod tests {
         assert!(root.join(&moved.stored_relpath).is_file());
         assert_eq!(stayed.folder_id, None);
         assert!(root.join("b.stl").is_file());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn scratch_db(name: &str) -> (std::path::PathBuf, AppDb) {
+        let dir = std::env::temp_dir().join(format!("filelib-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = open(&dir).unwrap();
+        let root = dir.join("library");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        (dir, db)
+    }
+
+    fn status_of(db: &AppDb, id: i64) -> (String, i64) {
+        db.conn
+            .query_row(
+                "SELECT thumb_status, thumb_attempts FROM files WHERE id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn image_thumb_is_claimed_before_an_earlier_stl() {
+        let (dir, db) = scratch_db("thumb-order");
+        let stl = db
+            .insert_file("a.stl", "a.stl", "stl", 1, "sha-stl", 1, None, None)
+            .unwrap();
+        let png = db
+            .insert_file("b.png", "b.png", "png", 1, "sha-png", 1, None, None)
+            .unwrap();
+        let claimed = db.claim_next_pending_thumb().unwrap().unwrap();
+        assert_eq!(claimed.id, png);
+        assert_eq!(claimed.thumb_attempts, 0);
+        assert_ne!(claimed.id, stl);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn requeue_retries_unavailable_images_only() {
+        let (dir, db) = scratch_db("thumb-requeue");
+        let png = db
+            .insert_file_with_thumb_status("a.png", "a.png", "png", 1, "sha-png", 1, None, None, "unavailable")
+            .unwrap();
+        let jpg = db
+            .insert_file_with_thumb_status("b.jpg", "b.jpg", "jpg", 1, "sha-jpg", 1, None, None, "unavailable")
+            .unwrap();
+        let ok = db
+            .insert_file_with_thumb_status("c.png", "c.png", "png", 1, "sha-ok", 1, None, None, "ok")
+            .unwrap();
+        let unhashed = db
+            .insert_file_with_thumb_status("d.png", "d.png", "png", 1, "", 1, None, None, "unhashed")
+            .unwrap();
+        let stl = db
+            .insert_file_with_thumb_status("e.stl", "e.stl", "stl", 1, "sha-stl", 1, None, None, "unavailable")
+            .unwrap();
+        assert_eq!(db.requeue_unavailable_images().unwrap(), 2);
+        assert_eq!(status_of(&db, png).0, "none");
+        assert_eq!(status_of(&db, jpg).0, "none");
+        assert_eq!(status_of(&db, ok).0, "ok");
+        assert_eq!(status_of(&db, unhashed).0, "unhashed");
+        assert_eq!(status_of(&db, stl).0, "unavailable");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn thumb_io_failure_retries_twice_then_unavailable() {
+        let (dir, db) = scratch_db("thumb-io");
+        let id = db
+            .insert_file("a.png", "a.png", "png", 1, "sha", 1, None, None)
+            .unwrap();
+        db.note_thumb_io_failure(id).unwrap();
+        assert_eq!(status_of(&db, id), ("none".into(), 1));
+        db.note_thumb_io_failure(id).unwrap();
+        assert_eq!(status_of(&db, id), ("none".into(), 2));
+        db.note_thumb_io_failure(id).unwrap();
+        assert_eq!(status_of(&db, id), ("unavailable".into(), 3));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn set_creator_respects_subfolders_and_skips_siblings() {
+        let (dir, db) = scratch_db("creator");
+        let parent = db.create_folder(None, "Parent", 0).unwrap();
+        let child = db.create_folder(Some(parent.id), "Child", 0).unwrap();
+        let sibling = db.create_folder(None, "Sibling", 0).unwrap();
+        let in_parent = db
+            .insert_file("a.stl", "Parent/a.stl", "stl", 1, "sha1", 1, Some(parent.id), None)
+            .unwrap();
+        let in_child = db
+            .insert_file("b.stl", "Parent/Child/b.stl", "stl", 1, "sha2", 1, Some(child.id), None)
+            .unwrap();
+        let in_sibling = db
+            .insert_file("c.stl", "Sibling/c.stl", "stl", 1, "sha3", 1, Some(sibling.id), None)
+            .unwrap();
+        let direct = db
+            .set_creator_under_folder(Some(parent.id), "Direct", false)
+            .unwrap();
+        assert_eq!(direct, 1);
+        let creator = |id| {
+            db.list_files(FolderFilter::All, "", "", "", "name")
+                .unwrap()
+                .into_iter()
+                .find(|file| file.id == id)
+                .unwrap()
+                .creator
+        };
+        assert_eq!(creator(in_parent), "Direct");
+        assert_eq!(creator(in_child), "");
+        assert_eq!(creator(in_sibling), "");
+        let nested = db
+            .set_creator_under_folder(Some(parent.id), "Nested", true)
+            .unwrap();
+        assert_eq!(nested, 2);
+        assert_eq!(creator(in_parent), "Nested");
+        assert_eq!(creator(in_child), "Nested");
+        assert_eq!(creator(in_sibling), "");
+        assert_eq!(db.file_location(in_parent).unwrap().stored_relpath, "Parent/a.stl");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn apply_import_meta_updates_only_the_given_ids() {
+        let (dir, db) = scratch_db("import-meta");
+        let imported = db
+            .insert_file("new.stl", "new.stl", "stl", 1, "sha-new", 1, None, None)
+            .unwrap();
+        let other = db
+            .insert_file("old.stl", "old.stl", "stl", 1, "sha-old", 1, None, None)
+            .unwrap();
+        db.set_tags(other, &["keep".into()]).unwrap();
+        db.apply_import_meta(
+            &[imported, 999_999],
+            Some("Ada"),
+            Some(&["Terrain".into(), "FDM".into()]),
+        )
+        .unwrap();
+        let rows = db.list_files(FolderFilter::All, "", "", "", "name").unwrap();
+        let imported_row = rows.iter().find(|file| file.id == imported).unwrap();
+        let other_row = rows.iter().find(|file| file.id == other).unwrap();
+        assert_eq!(imported_row.creator, "Ada");
+        assert_eq!(imported_row.tags, vec!["FDM", "Terrain"]);
+        assert_eq!(other_row.creator, "");
+        assert_eq!(other_row.tags, vec!["keep"]);
+        db.apply_import_meta(&[imported], Some("  "), Some(&[])).unwrap();
+        let again = db.list_files(FolderFilter::All, "", "", "", "name").unwrap();
+        assert_eq!(again.iter().find(|file| file.id == imported).unwrap().creator, "Ada");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

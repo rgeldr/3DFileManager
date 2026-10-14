@@ -78,3 +78,70 @@ pub fn spawn_hash_pass_if_needed(app: AppHandle, db: Arc<Mutex<AppDb>>) {
         let _ = app.emit("hash-pass-complete", ());
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db;
+    use crate::settings::Settings;
+    use rusqlite::OptionalExtension;
+
+    fn scratch(name: &str) -> (std::path::PathBuf, db::AppDb) {
+        let dir = std::env::temp_dir().join(format!("filelib-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        (dir, db)
+    }
+
+    #[test]
+    fn missing_path_becomes_hash_error() {
+        let (dir, db) = scratch("hash-miss");
+        let id = db
+            .insert_file_with_thumb_status("gone.stl", "gone.stl", "stl", 1, "", 1, None, None, "unhashed")
+            .unwrap();
+        assert!(process_one_unhashed(&db).unwrap());
+        let status: String = db
+            .conn
+            .query_row("SELECT thumb_status FROM files WHERE id = ?1", [id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(status, "hash_error");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn duplicate_content_drops_the_second_file() {
+        let (dir, db) = scratch("hash-dup");
+        let root = db.library_root().unwrap();
+        std::fs::write(root.join("a.stl"), b"same-bytes").unwrap();
+        std::fs::write(root.join("b.stl"), b"same-bytes").unwrap();
+        let first = db
+            .insert_file_with_thumb_status("a.stl", "a.stl", "stl", 10, "", 1, None, None, "unhashed")
+            .unwrap();
+        let second = db
+            .insert_file_with_thumb_status("b.stl", "b.stl", "stl", 10, "", 1, None, None, "unhashed")
+            .unwrap();
+        assert!(process_one_unhashed(&db).unwrap());
+        assert!(process_one_unhashed(&db).unwrap());
+        let count: i64 = db.conn.query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 1);
+        let kept: i64 = db.conn.query_row("SELECT id FROM files", [], |row| row.get(0)).unwrap();
+        assert_eq!(kept, first);
+        let status: String = db
+            .conn
+            .query_row("SELECT thumb_status FROM files WHERE id = ?1", [kept], |row| row.get(0))
+            .unwrap();
+        assert_eq!(status, "none");
+        let gone = db
+            .conn
+            .query_row::<i64, _, _>("SELECT id FROM files WHERE id = ?1", [second], |row| row.get(0))
+            .optional()
+            .unwrap();
+        assert!(gone.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

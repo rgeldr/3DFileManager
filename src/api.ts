@@ -4,6 +4,7 @@ import type {
   FileRow,
   FolderRow,
   ImportSummary,
+  PreparedDrag,
   Settings,
   ThumbJob,
 } from "./types";
@@ -16,6 +17,8 @@ export const api = {
   setLibraryRoot: (path: string) => invoke<Bootstrap>("set_library_root", { path }),
   setTheme: (theme: string) => invoke<void>("set_theme", { theme }),
   setGridSize: (gridSize: string) => invoke<void>("set_grid_size", { gridSize }),
+  setPaneWidths: (sidebarWidth: number, inspectorWidth: number) =>
+    invoke<void>("set_pane_widths", { sidebarWidth, inspectorWidth }),
   createFolder: (parentId: number | null, name: string) =>
     invoke<FolderRow>("create_folder", { parentId, name }),
   renameFolder: (id: number, name: string) => invoke<DiskOutcome>("rename_folder", { id, name }),
@@ -44,6 +47,10 @@ export const api = {
     invoke<number>("add_tags_under_folder", { folderId, tags }),
   applyBulkMeta: (ids: number[], creator: string | null, tags: string[] | null) =>
     invoke<void>("apply_bulk_meta", { ids, creator, tags }),
+  countFilesForScope: (folderId: number | null, includeSubfolders: boolean) =>
+    invoke<number>("count_files_for_scope", { folderId, includeSubfolders }),
+  setCreatorUnderFolder: (folderId: number | null, creator: string, includeSubfolders: boolean) =>
+    invoke<number>("set_creator_under_folder", { folderId, creator, includeSubfolders }),
   listCreators: () => invoke<string[]>("list_creators"),
   listTags: () => invoke<string[]>("list_tags"),
   importPaths: (paths: string[], folderId: number | null) =>
@@ -72,4 +79,6 @@ export const api = {
   clearThumbnailCache: () => invoke<void>("clear_thumbnail_cache"),
   debugLog: (line: string) => invoke<string>("debug_log", { line }),
   dragIconPath: () => invoke<string>("drag_icon_path"),
+  prepareDragPaths: (paths: string[], iconPath: string) =>
+    invoke<PreparedDrag>("prepare_drag_paths", { paths, iconPath }),
 };
