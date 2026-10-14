@@ -1044,6 +1044,9 @@ export function App() {
               scrollRootRef={gridScrollRef}
               onSelect={onSelect}
               onSelectionChange={setSelected}
+              onOpen={(file) => {
+                void openPath(file.absolutePath).catch((err) => setError(String(err)));
+              }}
               onContextMenu={(event, file) => {
                 setFileMenu({ x: event.clientX, y: event.clientY, path: file.absolutePath });
               }}

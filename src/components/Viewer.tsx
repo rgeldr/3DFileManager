@@ -23,6 +23,7 @@ function previewImage(file: FileRow): string | null {
 }
 
 function staticMessage(file: FileRow): string {
+  if (file.ext === "pdf") return "PDF document";
   if (IMAGE.has(file.ext) || file.thumbPath) return "";
   if (!MESH.has(file.ext)) return "Preview unavailable";
   return "File is too large to preview";

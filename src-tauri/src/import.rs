@@ -1485,6 +1485,122 @@ mod flow_tests {
     }
 
     #[test]
+    fn pdf_imports_from_a_file_folder_and_archive_and_dedupes() {
+        let (data, library, incoming) = scratch();
+        let mut db = open(&data).unwrap();
+        let boot = db.set_library_root(&library).unwrap();
+        let models = boot.folders.iter().find(|f| f.name == "Models").unwrap().id;
+
+        struct ResetForceCopy;
+        impl Drop for ResetForceCopy {
+            fn drop(&mut self) {
+                FORCE_COPY.store(false, Ordering::SeqCst);
+            }
+        }
+        let _reset = ResetForceCopy;
+        FORCE_COPY.store(true, Ordering::SeqCst);
+
+        let guide_bytes = b"%PDF-1.4\nguide\n%%EOF\n";
+        let guide = incoming.join("Assembly Guide.PDF");
+        fs::write(&guide, guide_bytes).unwrap();
+        let first = import_paths(
+            &mut db,
+            &[guide.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(first.imported_count, 1, "{:?}", first.failed);
+        assert_eq!(first.unsupported_count, 0);
+        assert_eq!(first.duplicate_count, 0);
+        assert!(first
+            .recycle_paths
+            .iter()
+            .any(|path| path == &guide.to_string_lossy().to_string()));
+        assert!(library.join("Models/Assembly Guide.PDF").is_file());
+        let rows = db
+            .list_files(FolderFilter::Id(models), "", "", "", "name")
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].ext, "pdf");
+
+        let again = import_paths(
+            &mut db,
+            &[guide.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(again.imported_count, 0);
+        assert_eq!(again.duplicate_count, 1);
+        assert_eq!(again.unsupported_count, 0);
+        assert_eq!(
+            db.list_files(FolderFilter::Id(models), "", "", "", "name")
+                .unwrap()
+                .len(),
+            1
+        );
+
+        let pack = incoming.join("pack");
+        fs::create_dir_all(pack.join("docs")).unwrap();
+        fs::write(pack.join("notes.txt"), b"leave me").unwrap();
+        fs::write(pack.join("docs").join("Assembly Guide.PDF"), guide_bytes).unwrap();
+        let fresh = b"%PDF-1.4\nother\n%%EOF\n";
+        fs::write(pack.join("docs").join("other.pdf"), fresh).unwrap();
+        let folder_import = import_paths(
+            &mut db,
+            &[pack.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(folder_import.imported_count, 1, "{:?}", folder_import.failed);
+        assert_eq!(folder_import.duplicate_count, 1);
+        assert_eq!(folder_import.unsupported_count, 1);
+        let recycled = |path: &Path| {
+            folder_import
+                .recycle_paths
+                .iter()
+                .any(|item| item == &path.to_string_lossy().to_string())
+        };
+        assert!(recycled(&pack.join("docs").join("other.pdf")));
+        assert!(recycled(&pack.join("docs").join("Assembly Guide.PDF")));
+        assert!(!recycled(&pack.join("notes.txt")));
+        assert!(library.join("Models/docs/other.pdf").is_file());
+        assert!(!library.join("Models/docs/notes.txt").exists());
+
+        let zip_path = incoming.join("Manual.zip");
+        {
+            let file = File::create(&zip_path).unwrap();
+            let mut zip = ZipWriter::new(file);
+            zip.start_file("steps/build.pdf", SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(b"%PDF-1.4\nbuild\n%%EOF\n").unwrap();
+            zip.finish().unwrap();
+        }
+        let archived = import_paths(
+            &mut db,
+            &[zip_path.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(archived.imported_count, 1, "{:?}", archived.failed);
+        assert_eq!(archived.unsupported_count, 0);
+        assert!(library.join("Models/Manual/steps/build.pdf").is_file());
+        assert!(archived
+            .recycle_paths
+            .iter()
+            .any(|path| path.ends_with("Manual.zip")));
+
+        let _ = fs::remove_dir_all(data.parent().unwrap());
+    }
+
+    #[test]
     fn hash_error_keeps_file_and_continues() {
         let (data, library, incoming) = scratch();
         let mut db = open(&data).unwrap();
