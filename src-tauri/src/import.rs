@@ -1562,6 +1562,7 @@ mod flow_tests {
     }
 }
 
+#[cfg(test)]
 /// Drop folders this import created when nothing was stored in them or in a
 /// descendant. Folders that already existed are not in `created` and stay,
 /// even when they are empty.
