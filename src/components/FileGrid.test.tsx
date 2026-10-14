@@ -87,6 +87,7 @@ describe("FileGrid", () => {
         previewIconsEnabled={false}
         scrollRootRef={ref}
         onSelect={() => undefined}
+        onSelectionChange={() => undefined}
       />,
       { container: scroller },
     );

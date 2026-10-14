@@ -260,6 +260,18 @@ button:focus-visible {
   padding: var(--space-3);
 }
 
+.grid-wrap:focus {
+  outline: none;
+}
+
+.selection-marquee {
+  position: fixed;
+  z-index: 4;
+  border: 1px solid var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 25%, transparent);
+  pointer-events: none;
+}
+
 .grid-virtual {
   position: relative;
   width: 100%;
