@@ -1177,6 +1177,14 @@ impl AppDb {
         Ok(rows)
     }
 
+    pub fn file_row_exists(&self, id: i64) -> Result<bool, String> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM files WHERE id = ?1", [id], |row| row.get(0))
+            .map_err(|err| err.to_string())?;
+        Ok(count > 0)
+    }
+
     pub fn file_location(&self, id: i64) -> Result<FileLoc, String> {
         self.conn
             .query_row(
@@ -1815,6 +1823,38 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].id, id);
         assert_eq!(found[0].sort_name, "Throne of Baal");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn release_rendering_thumb_only_clears_rendering_rows() {
+        let dir = std::env::temp_dir().join(format!("filelib-release-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = open(&dir).unwrap();
+        let root = dir.join("library");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        let rendering = db
+            .insert_file_with_thumb_status("a.stl", "a.stl", "stl", 1, "sha-a", 1, None, None, "rendering")
+            .unwrap();
+        let ready = db
+            .insert_file_with_thumb_status("b.stl", "b.stl", "stl", 1, "sha-b", 1, None, None, "ok")
+            .unwrap();
+        db.release_rendering_thumb(rendering).unwrap();
+        db.release_rendering_thumb(ready).unwrap();
+        let rendering_status: String = db
+            .conn
+            .query_row("SELECT thumb_status FROM files WHERE id = ?1", [rendering], |row| row.get(0))
+            .unwrap();
+        let ready_status: String = db
+            .conn
+            .query_row("SELECT thumb_status FROM files WHERE id = ?1", [ready], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rendering_status, "none");
+        assert_eq!(ready_status, "ok");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

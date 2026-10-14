@@ -90,6 +90,10 @@ fn command_log_line(name: &str, ms: u128) -> String {
     format!("command {name} {ms}ms")
 }
 
+fn command_should_log(ms: u128) -> bool {
+    ms >= 50
+}
+
 struct CommandTimer {
     name: &'static str,
     started: Instant,
@@ -106,10 +110,11 @@ impl CommandTimer {
 
 impl Drop for CommandTimer {
     fn drop(&mut self) {
-        let _ = write_debug_log(command_log_line(
-            self.name,
-            self.started.elapsed().as_millis(),
-        ));
+        let ms = self.started.elapsed().as_millis();
+        if !command_should_log(ms) {
+            return;
+        }
+        let _ = write_debug_log(command_log_line(self.name, ms));
     }
 }
 
@@ -124,6 +129,47 @@ where
         .map_err(|err| err.to_string())?;
     drop(timer);
     result
+}
+
+fn recycle_and_drop_files(
+    db: &Mutex<AppDb>,
+    items: &[db::TrashItem],
+    cancel: &AtomicBool,
+    mut progress: impl FnMut(relocate::DiskProgress),
+    mut recycle: impl FnMut(&std::path::Path) -> Result<(), String>,
+) -> Result<bool, String> {
+    let total = items.len() as u32;
+    for (index, item) in items.iter().enumerate() {
+        if cancel.load(Ordering::SeqCst) {
+            return Ok(true);
+        }
+        progress(relocate::DiskProgress {
+            current: index as u32,
+            total,
+            name: item.name.clone(),
+            bytes_done: 0,
+            bytes_total: item.bytes,
+            cancellable: true,
+        });
+        if item.path.exists() {
+            recycle(&item.path)?;
+        }
+        {
+            let db = db.lock().map_err(|err| err.to_string())?;
+            if db.file_row_exists(item.id)? {
+                db.remove_catalogued_file(item.id, &item.sha256)?;
+            }
+        }
+        progress(relocate::DiskProgress {
+            current: (index as u32) + 1,
+            total,
+            name: String::new(),
+            bytes_done: item.bytes,
+            bytes_total: item.bytes,
+            cancellable: true,
+        });
+    }
+    Ok(false)
 }
 
 fn data_dir() -> PathBuf {
@@ -533,42 +579,10 @@ async fn delete_files(app: AppHandle, ids: Vec<i64>) -> Result<DiskOutcome, Stri
             let db = db.lock().map_err(|e| e.to_string())?;
             db.trash_items(&ids)?
         };
-        let total = items.len() as u32;
-        for (index, item) in items.iter().enumerate() {
-            if cancel.load(Ordering::SeqCst) {
-                return Ok(DiskOutcome { cancelled: true });
-            }
-            emit_disk(
-                &handle,
-                &relocate::DiskProgress {
-                    current: index as u32,
-                    total,
-                    name: item.name.clone(),
-                    bytes_done: 0,
-                    bytes_total: item.bytes,
-                    cancellable: true,
-                },
-            );
-            if item.path.exists() {
-                trash::delete(&item.path).map_err(|e| e.to_string())?;
-            }
-            {
-                let db = db.lock().map_err(|e| e.to_string())?;
-                db.remove_catalogued_file(item.id, &item.sha256)?;
-            }
-            emit_disk(
-                &handle,
-                &relocate::DiskProgress {
-                    current: (index as u32) + 1,
-                    total,
-                    name: String::new(),
-                    bytes_done: item.bytes,
-                    bytes_total: item.bytes,
-                    cancellable: true,
-                },
-            );
-        }
-        Ok(DiskOutcome { cancelled: false })
+        let cancelled = recycle_and_drop_files(&db, &items, &cancel, |progress| emit_disk(&handle, &progress), |path| {
+            trash::delete(path).map_err(|err| err.to_string())
+        })?;
+        Ok(DiskOutcome { cancelled })
     })
     .await
     .map_err(|err| err.to_string())?
@@ -637,6 +651,35 @@ fn classify_thumb(root: &std::path::Path, candidate: &db::ThumbCandidate) -> Thu
     }
 }
 
+fn row_exists(db: &AppDb, id: i64) -> Result<bool, String> {
+    db.file_row_exists(id)
+}
+
+fn publish_thumb(
+    db: &AppDb,
+    id: i64,
+    sha: &str,
+    bytes: &[u8],
+    mut after_write: impl FnMut(&AppDb),
+) -> Result<bool, String> {
+    if !row_exists(db, id)? {
+        return Ok(false);
+    }
+    let dest = db::thumb_path(&db.data_dir, sha);
+    if let Err(err) = fs::write(&dest, bytes) {
+        let _ = write_debug_log(format!("thumb-write id={id} error={err}"));
+        db.note_thumb_io_failure(id)?;
+        return Ok(false);
+    }
+    after_write(db);
+    if !row_exists(db, id)? {
+        let _ = fs::remove_file(&dest);
+        return Ok(false);
+    }
+    db.mark_thumb_ok(id)?;
+    Ok(true)
+}
+
 fn apply_thumb_action(db: &AppDb, candidate: &db::ThumbCandidate, action: ThumbAction) -> Result<ThumbJob, String> {
     let absolute = db.library_root()?.join(&candidate.stored_relpath);
     let job = |kind: &str| ThumbJob {
@@ -661,14 +704,11 @@ fn apply_thumb_action(db: &AppDb, candidate: &db::ThumbCandidate, action: ThumbA
         }
         ThumbAction::Render => Ok(job("render")),
         ThumbAction::Ok(png) => {
-            let dest = db::thumb_path(&db.data_dir, &candidate.sha256);
-            if let Err(err) = fs::write(&dest, png) {
-                let _ = write_debug_log(format!("thumb-write id={} error={err}", candidate.id));
-                db.note_thumb_io_failure(candidate.id)?;
-                return Ok(job("skip"));
+            if publish_thumb(db, candidate.id, &candidate.sha256, &png, |_| {})? {
+                Ok(job("done"))
+            } else {
+                Ok(job("skip"))
             }
-            db.mark_thumb_ok(candidate.id)?;
-            Ok(job("done"))
         }
     }
 }
@@ -706,13 +746,8 @@ async fn save_rendered_thumb(app: AppHandle, id: i64, png: Vec<u8>) -> Result<()
             db.set_thumb_status(id, "unavailable")?;
             return Ok(());
         };
-        let dest = db::thumb_path(&db.data_dir, &loc.sha256);
-        if let Err(err) = fs::write(&dest, png) {
-            let _ = write_debug_log(format!("thumb-write id={id} error={err}"));
-            db.note_thumb_io_failure(id)?;
-            return Ok(());
-        }
-        db.mark_thumb_ok(id)
+        let _ = publish_thumb(&db, id, &loc.sha256, &png, |_| {})?;
+        Ok(())
     })
     .await
 }
@@ -938,7 +973,68 @@ mod tests {
             .query_row("SELECT thumb_status FROM files WHERE id = ?1", [empty], |row| row.get(0))
             .unwrap();
         assert_eq!(status, "unhashed");
-        assert_eq!(command_log_line("list_files", 12), "command list_files 12ms");
+        assert!(command_should_log(50));
+        assert!(!command_should_log(49));
+        assert_eq!(command_log_line("list_files", 50), "command list_files 50ms");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn delete_files_keeps_the_row_when_recycle_fails_and_drops_it_when_recycle_succeeds() {
+        let dir = std::env::temp_dir().join(format!("filelib-delete-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        fs::write(root.join("keep.stl"), b"keep").unwrap();
+        fs::write(root.join("drop.stl"), b"drop").unwrap();
+        let keep = db
+            .insert_file("keep.stl", "keep.stl", "stl", 4, "sha-keep", 1, None, None)
+            .unwrap();
+        let drop_id = db
+            .insert_file("drop.stl", "drop.stl", "stl", 4, "sha-drop", 1, None, None)
+            .unwrap();
+        let items = db.trash_items(&[keep, drop_id]).unwrap();
+        let db = Mutex::new(db);
+        let cancel = AtomicBool::new(false);
+        let failed = recycle_and_drop_files(&db, &items[..1], &cancel, |_| {}, |_| Err("denied".into()));
+        assert!(failed.is_err());
+        assert!(db.lock().unwrap().file_row_exists(keep).unwrap());
+        let removed = recycle_and_drop_files(&db, &items[1..], &cancel, |_| {}, |_| Ok(()));
+        assert!(!removed.unwrap());
+        assert!(!db.lock().unwrap().file_row_exists(drop_id).unwrap());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn thumbnail_write_skips_a_deleted_row_and_removes_an_orphan() {
+        let dir = std::env::temp_dir().join(format!("filelib-orphan-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        let gone = db
+            .insert_file("gone.png", "gone.png", "png", 4, "sha-gone", 1, None, None)
+            .unwrap();
+        db.conn.execute("DELETE FROM files WHERE id = ?1", [gone]).unwrap();
+        assert!(!publish_thumb(&db, gone, "sha-gone", b"png", |_| {}).unwrap());
+        assert!(!db::thumb_path(&dir, "sha-gone").exists());
+
+        let id = db
+            .insert_file("stay.png", "stay.png", "png", 4, "sha-stay", 1, None, None)
+            .unwrap();
+        let wrote = publish_thumb(&db, id, "sha-stay", b"png", |db| {
+            db.conn.execute("DELETE FROM files WHERE id = ?1", [id]).unwrap();
+        })
+        .unwrap();
+        assert!(!wrote);
+        assert!(!db::thumb_path(&dir, "sha-stay").exists());
         let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -42,7 +42,7 @@ function enqueueRender<T>(work: () => Promise<T>): Promise<T> {
 
 function rendererForThumbs(): THREE.WebGLRenderer {
   if (sharedRenderer && !sharedRenderer.getContext().isContextLost()) return sharedRenderer;
-  sharedRenderer?.dispose();
+  discardMainRenderer();
   sharedRenderer = new THREE.WebGLRenderer({
     antialias: true,
     alpha: false,
@@ -50,6 +50,14 @@ function rendererForThumbs(): THREE.WebGLRenderer {
   });
   sharedRenderer.setSize(256, 256);
   return sharedRenderer;
+}
+
+function discardMainRenderer() {
+  if (!sharedRenderer) return;
+  const gl = sharedRenderer.getContext() as WebGLRenderingContext & { forceContextLoss?: () => void };
+  sharedRenderer.dispose();
+  gl.forceContextLoss?.();
+  sharedRenderer = null;
 }
 
 function groupFromPackedMeshes(meshes: PackedMesh[], material: THREE.Material): THREE.Group {
@@ -80,6 +88,10 @@ function disposeMeshTree(object: THREE.Object3D) {
   });
 }
 
+function webglUnavailable(err: unknown): boolean {
+  return String(err).toLowerCase().includes("webgl-unavailable");
+}
+
 async function renderMeshStillInner(url: string, ext: string): Promise<Uint8Array> {
   const response = await fetch(url);
   if (!response.ok) {
@@ -90,16 +102,27 @@ async function renderMeshStillInner(url: string, ext: string): Promise<Uint8Arra
     throw new Error("Mesh is over the thumbnail size limit.");
   }
   const started = performance.now();
-  const thread = typeof OffscreenCanvas === "undefined" ? "main" : "worker";
+  const colors = {
+    background: cssVar("--viewer-bg"),
+    mesh: cssVar("--viewer-mesh"),
+    light: cssVar("--color-accent-contrast"),
+  };
+  let thread = typeof OffscreenCanvas === "undefined" ? "main" : "worker";
   debugLog("thumb-parse-start", { ext, bytes: buffer.byteLength, thread });
   try {
-    const png = thread === "worker"
-      ? await renderMeshInWorker(ext, buffer, {
-          background: cssVar("--viewer-bg"),
-          mesh: cssVar("--viewer-mesh"),
-          light: cssVar("--color-accent-contrast"),
-        })
-      : await enqueueRender(() => renderOnMainThread(buffer, ext));
+    let png: Uint8Array;
+    if (thread === "main") {
+      png = await renderOnMainThread(buffer, ext);
+    } else {
+      const copy = buffer.slice(0);
+      try {
+        png = await renderMeshInWorker(ext, buffer, colors);
+      } catch (err) {
+        if (!webglUnavailable(err)) throw err;
+        thread = "main";
+        png = await renderOnMainThread(copy, ext);
+      }
+    }
     debugLog("thumb-parse-end", { ext, ms: Math.round(performance.now() - started), thread });
     return png;
   } catch (err) {

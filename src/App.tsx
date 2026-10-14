@@ -316,7 +316,9 @@ export function App() {
             await api.saveRenderedThumb(job.id, Array.from(png));
           }
         } catch {
-          if (!stale()) await api.markThumbUnavailable(job.id);
+          if (stale()) await api.releaseRenderingThumb(job.id).catch(() => undefined);
+          else await api.markThumbUnavailable(job.id);
+          if (stale()) return;
         }
       }
       if (job.kind === "done") {

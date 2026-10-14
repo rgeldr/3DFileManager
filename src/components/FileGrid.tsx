@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { debugLog } from "../debugLog";
-import { TILE_PX, visibleGridWindow } from "../lib/gridWindow";
+import { TILE_CHROME, TILE_PX, contentWidth, visibleGridWindow } from "../lib/gridWindow";
 import type { FileRow, GridSize } from "../types";
 
 export function LazyThumb({
@@ -86,11 +86,17 @@ export function FileGrid({
     setScrollRoot(scrollRootRef.current);
   }, [scrollRootRef, files.length]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const node = scrollRootRef.current;
     if (!node) return;
     const update = () => {
-      setFrame({ width: node.clientWidth, height: node.clientHeight, scrollTop: node.scrollTop });
+      const style = getComputedStyle(node);
+      const paddingX = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+      setFrame({
+        width: contentWidth(node.clientWidth, paddingX),
+        height: node.clientHeight,
+        scrollTop: node.scrollTop,
+      });
     };
     update();
     node.addEventListener("scroll", update, { passive: true });
@@ -110,7 +116,10 @@ export function FileGrid({
   const visible = files.slice(page.start, page.end);
   return (
     <div className="grid-virtual" style={{ height: page.totalHeight }}>
-      <div className={`grid ${gridSize}`} style={{ top: page.padTop }}>
+      <div
+        className={`grid ${gridSize}`}
+        style={{ top: page.padTop, ["--grid-row" as string]: `${tile + TILE_CHROME}px` }}
+      >
         {visible.map((file) => {
         const title = [file.sortName, file.creator, file.tags.join(", ")].filter(Boolean).join(" · ");
         return (
