@@ -1074,7 +1074,7 @@ mod flow_tests {
         )
         .unwrap();
         assert_eq!(summary.imported_count, 251);
-        assert!(db.is_autocommit());
+        assert!(db.conn.is_autocommit());
         let rows = db
             .list_files(FolderFilter::Id(models), "", "", "", "name")
             .unwrap();

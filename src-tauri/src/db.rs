@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
-use crate::names::{default_sort_name, sanitize_component, unique_dir_name};
+use crate::names::{default_sort_name, unique_dir_name};
 use crate::settings::{self, Settings};
 
 pub struct AppDb {
@@ -482,42 +482,6 @@ impl AppDb {
             .map_err(|e| e.to_string())
     }
 
-    pub fn ensure_folder_chain(&self, parent_id: Option<i64>, relative_dir: &Path) -> Result<Option<i64>, String> {
-        let mut current = parent_id;
-        if relative_dir.as_os_str().is_empty() {
-            return Ok(current);
-        }
-        for component in relative_dir.components() {
-            let raw = component.as_os_str().to_string_lossy();
-            if raw == "." || raw.is_empty() {
-                continue;
-            }
-            let name = sanitize_component(&raw);
-            let parent_rel = match current {
-                Some(id) => Some(self.folder_relpath(id)?),
-                None => None,
-            };
-            let relpath = match &parent_rel {
-                Some(rel) => format!("{rel}/{name}"),
-                None => name.clone(),
-            };
-            if let Some(id) = self.folder_id_by_relpath(&relpath)? {
-                current = Some(id);
-                continue;
-            }
-            let root = self.library_root()?;
-            std::fs::create_dir_all(root.join(&relpath)).map_err(|e| e.to_string())?;
-            self.conn
-                .execute(
-                    "INSERT INTO folders (parent_id, name, sort_order, relpath) VALUES (?1, ?2, 0, ?3)",
-                    params![current, name, relpath],
-                )
-                .map_err(|e| e.to_string())?;
-            current = Some(self.conn.last_insert_rowid());
-        }
-        Ok(current)
-    }
-
     pub fn sha_exists(&self, sha: &str) -> Result<bool, String> {
         if sha.is_empty() {
             return Ok(false);
@@ -627,10 +591,6 @@ impl AppDb {
     pub fn import_batch_rollback(&mut self) -> Result<(), String> {
         self.conn.execute_batch("ROLLBACK;").map_err(|e| e.to_string())?;
         Ok(())
-    }
-
-    pub fn is_autocommit(&self) -> bool {
-        self.conn.is_autocommit()
     }
 
     pub fn next_unhashed_file(&self) -> Result<Option<UnhashedCandidate>, String> {
@@ -835,11 +795,6 @@ impl AppDb {
             .collect()
     }
 
-    fn hydrate(&self, seed: FileSeed, root: &Path) -> Result<FileRow, String> {
-        let tags = self.tags_for(seed.id)?;
-        self.hydrate_with_tags(seed, root, tags)
-    }
-
     fn hydrate_with_tags(
         &self,
         seed: FileSeed,
@@ -872,11 +827,6 @@ impl AppDb {
             absolute_path: absolute.to_string_lossy().to_string(),
             thumb_path,
         })
-    }
-
-    fn tags_for(&self, id: i64) -> Result<Vec<String>, String> {
-        let mut map = self.tags_for_ids(&[id])?;
-        Ok(map.remove(&id).unwrap_or_default())
     }
 
     fn tags_for_ids_chunk(
