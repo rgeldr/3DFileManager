@@ -96,6 +96,8 @@ export function LazyThumb({
       <img
         src={src}
         alt=""
+        draggable={false}
+        onDragStart={(event) => event.preventDefault()}
         onError={() => {
           debugLog("thumb-img-error", { id: file.id, src });
           setFailed(true);
@@ -310,6 +312,8 @@ export function FileGrid({
                   className={`tile${selected.includes(file.id) ? " selected" : ""}`}
                   data-file-id={file.id}
                   title={title}
+                  draggable={false}
+                  onDragStart={(event) => event.preventDefault()}
                   onClick={(event) => {
                     const mode = event.shiftKey ? "range" : event.ctrlKey || event.metaKey ? "toggle" : "replace";
                     onSelect(file.id, mode);

@@ -1,6 +1,9 @@
 mod ctb;
 mod db;
 mod drag_out;
+mod drag_session;
+#[cfg(windows)]
+mod drag_win;
 mod hash_pass;
 mod import;
 mod names;
@@ -496,6 +499,46 @@ async fn prepare_drag_paths(files: Vec<drag_out::DragSource>, icon_path: String)
     prepared
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DragOutcome {
+    result: String,
+    effect: String,
+}
+
+/// Synchronous on purpose: Tauri runs a sync command on the UI thread, and
+/// Windows `DoDragDrop` has to run on that STA while the button is still down.
+#[tauri::command]
+fn start_file_drag(app: AppHandle, paths: Vec<String>, icon_path: String) -> Result<DragOutcome, String> {
+    let _ = write_debug_log(drag_out::drag_start_line(&paths, &icon_path));
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window is not available.".to_string())?;
+    match drag_session::start(&window, &paths, &icon_path) {
+        Ok(started) => {
+            if started.finished {
+                let mut line = drag_out::drag_result_line(&started.result, &started.effect);
+                if !started.detail.is_empty() {
+                    line.push(' ');
+                    line.push_str(&started.detail);
+                }
+                let _ = write_debug_log(line);
+            }
+            Ok(DragOutcome {
+                result: started.result,
+                effect: started.effect,
+            })
+        }
+        Err(err) => {
+            let _ = write_debug_log(format!(
+                "{} message={err}",
+                drag_out::drag_result_line("error", "none")
+            ));
+            Err(err)
+        }
+    }
+}
+
 #[tauri::command]
 async fn list_creators(app: AppHandle) -> Result<Vec<String>, String> {
     let db = app.state::<AppState>().db.clone();
@@ -861,7 +904,7 @@ async fn debug_log(line: String) -> Result<String, String> {
         .map_err(|err| err.to_string())?
 }
 
-fn write_debug_log(line: String) -> Result<String, String> {
+pub(crate) fn write_debug_log(line: String) -> Result<String, String> {
     let dir = data_dir();
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join("debug.log");
@@ -1010,6 +1053,7 @@ pub fn run() {
             clear_thumbnail_cache,
             drag_icon_path,
             prepare_drag_paths,
+            start_file_drag,
             open_in_default_app,
             reveal_file,
             text_preview,

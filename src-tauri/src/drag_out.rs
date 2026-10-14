@@ -9,12 +9,10 @@ use crate::names::sanitize_component;
 const MAX_LEGACY: usize = 259;
 const STAGE_MAX_AGE_SECS: u64 = 24 * 60 * 60;
 
-// tauri-plugin-drag 2.1.1 on Windows does not use its CF_HDROP DataObject
-// (that type is dead code). start_drag builds an IShellItemArray, binds
-// BHID_DataObject, and then attaches the drag bitmap with InitializeFromBitmap.
-// ChiTuBox accepts a classic file drop whose path ends in a lowercase
-// extension, so a stored `Hero.STL` or an extensionless name is staged here
-// as a hard link named `Hero.stl` before that shell object is built.
+// Drag-out hands slicers a wide CF_HDROP of real paths (see drag_win). A stored
+// `Hero.STL` or an extensionless name is staged as a hard link named `Hero.stl`
+// so the path in that drop ends with the catalog extension. Paths that already
+// have that name are dragged in place.
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -112,6 +110,76 @@ pub fn drag_log_line(paths: &[String]) -> String {
     } else {
         format!("drag-paths {}", paths.join(" | "))
     }
+}
+
+pub fn drag_start_line(paths: &[String], icon: &str) -> String {
+    let listed = if paths.is_empty() {
+        "(none)".to_string()
+    } else {
+        paths.join(" | ")
+    };
+    let icon = if icon.is_empty() { "missing" } else { icon };
+    format!("drag-start count={} icon={icon} paths={listed}", paths.len())
+}
+
+pub fn drag_result_line(result: &str, effect: &str) -> String {
+    format!("drag-result result={result} effect={effect}")
+}
+
+/// Wide `CF_HDROP` / `DROPFILES` payload. Header is 20 bytes, `fWide = 1`,
+/// then UTF-16LE paths each terminated by NUL, then an extra NUL.
+#[cfg(any(windows, test))]
+pub fn hdrop_bytes(paths: &[String]) -> Vec<u8> {
+    let mut units = Vec::<u16>::new();
+    for path in paths {
+        units.extend(path.encode_utf16());
+        units.push(0);
+    }
+    units.push(0);
+    let mut bytes = Vec::with_capacity(20 + units.len() * 2);
+    bytes.extend_from_slice(&20u32.to_le_bytes());
+    bytes.extend_from_slice(&0i32.to_le_bytes());
+    bytes.extend_from_slice(&0i32.to_le_bytes());
+    bytes.extend_from_slice(&0i32.to_le_bytes());
+    bytes.extend_from_slice(&1i32.to_le_bytes());
+    for unit in units {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    bytes
+}
+
+#[cfg(any(windows, test))]
+pub fn hdrop_paths(bytes: &[u8]) -> Result<Vec<String>, String> {
+    if bytes.len() < 20 {
+        return Err("CF_HDROP is shorter than DROPFILES.".into());
+    }
+    let pfiles = u32::from_le_bytes(bytes[0..4].try_into().unwrap()) as usize;
+    let wide = i32::from_le_bytes(bytes[16..20].try_into().unwrap());
+    if wide == 0 {
+        return Err("CF_HDROP is not wide.".into());
+    }
+    if pfiles > bytes.len() || (bytes.len() - pfiles) % 2 != 0 {
+        return Err("CF_HDROP wide paths are misaligned.".into());
+    }
+    let mut units = Vec::with_capacity((bytes.len() - pfiles) / 2);
+    for chunk in bytes[pfiles..].chunks_exact(2) {
+        units.push(u16::from_le_bytes([chunk[0], chunk[1]]));
+    }
+    let mut paths = Vec::new();
+    let mut start = 0;
+    while start < units.len() {
+        if units[start] == 0 {
+            break;
+        }
+        let Some(rel) = units[start..].iter().position(|unit| *unit == 0) else {
+            return Err("CF_HDROP path is missing a terminator.".into());
+        };
+        let end = start + rel;
+        let path = String::from_utf16(&units[start..end]).map_err(|err| err.to_string())?;
+        paths.push(path);
+        start = end + 1;
+    }
+    Ok(paths)
 }
 
 fn stored_file_name(path: &str) -> String {
@@ -379,6 +447,25 @@ mod tests {
         assert_eq!(drag_file_name("Read Me.TXT", "txt"), "Read Me.txt");
         assert_eq!(drag_file_name("a:b.stl", "stl"), "a_b.stl");
         assert_eq!(drag_log_line(&["C:\\drag\\Hero.stl".into()]), "drag-paths C:\\drag\\Hero.stl");
+        assert_eq!(
+            drag_start_line(&[r"C:\drag\Hero.stl".into(), r"C:\drag\Base.stl".into()], ""),
+            "drag-start count=2 icon=missing paths=C:\\drag\\Hero.stl | C:\\drag\\Base.stl"
+        );
+        assert_eq!(drag_result_line("drop", "copy"), "drag-result result=drop effect=copy");
+    }
+
+    #[test]
+    fn hdrop_lists_every_real_path_with_its_extension() {
+        let paths = vec![
+            r"C:\Library\Hero.stl".to_string(),
+            r"C:\Library\Base Mini.obj".to_string(),
+        ];
+        let bytes = hdrop_bytes(&paths);
+        assert_eq!(u32::from_le_bytes(bytes[0..4].try_into().unwrap()), 20);
+        assert_eq!(i32::from_le_bytes(bytes[16..20].try_into().unwrap()), 1);
+        assert_eq!(hdrop_paths(&bytes).unwrap(), paths);
+        assert!(bytes.len() % 2 == 0);
+        assert_eq!(hdrop_paths(&hdrop_bytes(&[])).unwrap(), Vec::<String>::new());
     }
 
     #[test]
