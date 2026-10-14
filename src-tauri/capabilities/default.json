@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capabilities for the main window",
+  "description": "Capabilities for the main window. Library files are opened from Rust by catalog id, so the webview cannot pass an arbitrary path to open_path.",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -9,8 +9,12 @@
     "core:event:default",
     "core:window:default",
     "core:webview:default",
+    "core:webview:allow-set-webview-focus",
     "dialog:default",
-    "opener:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://github.com/rgeldr/3DFileManager#readme" }]
+    },
     "drag:default"
   ]
 }

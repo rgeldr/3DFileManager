@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_opener::OpenerExt;
 
 use db::{AppDb, FolderFilter};
 use settings::Settings;
@@ -65,6 +66,30 @@ fn acquire_disk(app: &AppHandle) -> Result<DiskGuard, String> {
 
 fn emit_disk(app: &AppHandle, progress: &relocate::DiskProgress) {
     let _ = app.emit("disk-progress", progress);
+}
+
+/// Resolve a catalog row to a real file that stays inside the library root.
+/// `stored_relpath` comes from the database, so a `..` segment or an absolute
+/// path must not escape the root.
+pub(crate) fn contained_library_file(root: &std::path::Path, stored_relpath: &str) -> Result<PathBuf, String> {
+    if stored_relpath.is_empty() || stored_relpath.contains('\0') {
+        return Err("That file is outside the library.".into());
+    }
+    let root = root.canonicalize().map_err(|err| err.to_string())?;
+    let joined = root.join(stored_relpath);
+    let path = joined
+        .canonicalize()
+        .map_err(|_| "That file is missing from the library.".to_string())?;
+    if !path.starts_with(&root) || !path.is_file() {
+        return Err("That file is outside the library.".into());
+    }
+    Ok(path)
+}
+
+fn catalog_file_path(db: &AppDb, file_id: i64) -> Result<PathBuf, String> {
+    let loc = db.file_location(file_id)?;
+    let root = db.library_root()?;
+    contained_library_file(&root, &loc.stored_relpath)
 }
 
 async fn block_on_disk<T, F>(app: AppHandle, work: F) -> Result<T, String>
@@ -829,6 +854,38 @@ fn write_debug_log(line: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+async fn open_in_default_app(app: AppHandle, file_id: i64) -> Result<(), String> {
+    let db = app.state::<AppState>().db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = {
+            let db = db.lock().map_err(|err| err.to_string())?;
+            catalog_file_path(&db, file_id)?
+        };
+        app.opener()
+            .open_path(path.to_string_lossy().to_string(), None::<&str>)
+            .map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+async fn reveal_file(app: AppHandle, file_id: i64) -> Result<(), String> {
+    let db = app.state::<AppState>().db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = {
+            let db = db.lock().map_err(|err| err.to_string())?;
+            catalog_file_path(&db, file_id)?
+        };
+        app.opener()
+            .reveal_item_in_dir(&path)
+            .map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
 async fn get_settings(app: AppHandle) -> Result<Settings, String> {
     let db = app.state::<AppState>().db.clone();
     off_ui("get_settings", move || {
@@ -902,6 +959,8 @@ pub fn run() {
             clear_thumbnail_cache,
             drag_icon_path,
             prepare_drag_paths,
+            open_in_default_app,
+            reveal_file,
             debug_log
         ])
         .run(tauri::generate_context!())
@@ -976,6 +1035,34 @@ mod tests {
         assert!(command_should_log(50));
         assert!(!command_should_log(49));
         assert_eq!(command_log_line("list_files", 50), "command list_files 50ms");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn contained_library_file_stays_inside_the_root() {
+        let dir = std::env::temp_dir().join(format!("filelib-open-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let root = dir.join("library");
+        fs::create_dir_all(root.join("Models")).unwrap();
+        fs::write(root.join("Models").join("guide.pdf"), b"%PDF-1.4\n").unwrap();
+        fs::write(dir.join("secret.pdf"), b"nope").unwrap();
+
+        let opened = contained_library_file(&root, "Models/guide.pdf").unwrap();
+        assert!(opened.is_file());
+        assert!(opened.ends_with("guide.pdf"));
+        let secret = dir.join("secret.pdf");
+        assert!(contained_library_file(&root, "../secret.pdf").is_err());
+        assert!(contained_library_file(&root, "Models/../../secret.pdf").is_err());
+        assert!(contained_library_file(&root, &secret.to_string_lossy()).is_err());
+        assert!(contained_library_file(&root, "").is_err());
+        assert!(contained_library_file(&root, "Models").is_err());
+        assert!(contained_library_file(&root, "Models/missing.pdf").is_err());
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&secret, root.join("Models").join("link.pdf")).unwrap();
+            assert!(contained_library_file(&root, "Models/link.pdf").is_err());
+        }
+
         let _ = fs::remove_dir_all(&dir);
     }
 
