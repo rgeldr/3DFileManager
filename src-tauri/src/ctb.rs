@@ -85,3 +85,32 @@ fn rgb565(word: u16) -> (u8, u8, u8) {
     let b = (word & 0x1f) as u8;
     (r << 3, g << 3, b << 3)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rgb565_expands_five_bit_channels() {
+        assert_eq!(rgb565(0xF800), (0xF8, 0, 0));
+        assert_eq!(rgb565(0x07E0), (0, 0xF8, 0));
+        assert_eq!(rgb565(0x001F), (0, 0, 0xF8));
+    }
+
+    #[test]
+    fn synthetic_header_extracts_one_rgb565_pixel() {
+        let mut bytes = vec![0u8; 90];
+        bytes[0..4].copy_from_slice(&MAGIC_CTB.to_le_bytes());
+        bytes[56..60].copy_from_slice(&72u32.to_le_bytes());
+        bytes[72..76].copy_from_slice(&1u32.to_le_bytes());
+        bytes[76..80].copy_from_slice(&1u32.to_le_bytes());
+        bytes[80..84].copy_from_slice(&88u32.to_le_bytes());
+        bytes[84..88].copy_from_slice(&2u32.to_le_bytes());
+        // Bit 5 clear means a run of one pixel.
+        bytes[88..90].copy_from_slice(&0xF800u16.to_le_bytes());
+        let png = extract_preview_png(&bytes).expect("preview png");
+        assert!(png.starts_with(&[0x89, b'P', b'N', b'G']));
+        let img = image::load_from_memory(&png).unwrap();
+        assert_eq!((img.width(), img.height()), (1, 1));
+    }
+}

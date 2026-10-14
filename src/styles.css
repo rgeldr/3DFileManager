@@ -63,16 +63,29 @@ button:focus-visible {
 
 .app {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: var(--sidebar-width, 240px) 4px minmax(0, 1fr);
   height: 100%;
 }
 
 .sidebar {
   background: var(--color-bg-sidebar);
-  border-right: 1px solid var(--color-divider);
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
+}
+
+.pane-splitter {
+  cursor: col-resize;
+  background: var(--color-divider);
+  padding: 0;
+  border: none;
+  touch-action: none;
+}
+
+.pane-splitter:hover,
+.pane-splitter:focus {
+  background: var(--color-accent);
 }
 
 .sidebar-head,
@@ -132,7 +145,8 @@ button:focus-visible {
   user-select: none;
 }
 
-.folder-context-menu {
+.folder-context-menu,
+.file-context-menu {
   position: fixed;
   z-index: 10000;
   min-width: 10rem;
@@ -143,7 +157,8 @@ button:focus-visible {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
-.folder-context-menu button {
+.folder-context-menu button,
+.file-context-menu button {
   display: block;
   width: 100%;
   text-align: left;
@@ -155,7 +170,8 @@ button:focus-visible {
   cursor: pointer;
 }
 
-.folder-context-menu button:hover {
+.folder-context-menu button:hover,
+.file-context-menu button:hover {
   background: var(--color-bg-hover);
 }
 
@@ -235,7 +251,7 @@ button:focus-visible {
 
 .workspace {
   display: grid;
-  grid-template-columns: 1fr 320px;
+  grid-template-columns: minmax(0, 1fr) 4px var(--inspector-width, 320px);
   min-height: 0;
 }
 
@@ -299,7 +315,6 @@ button:focus-visible {
 
 .inspector {
   background: var(--color-bg-sidebar);
-  border-left: 1px solid var(--color-divider);
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -445,6 +460,13 @@ button:focus-visible {
   display: flex;
   gap: var(--space-2);
   justify-content: flex-end;
+}
+
+.check-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .banner {

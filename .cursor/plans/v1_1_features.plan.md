@@ -1,40 +1,40 @@
 ---
 name: v1.1 features
-overview: Plan for Help/About, resizable panes, folder creator, import tags and creator, drag-out and image-thumbnail bugfixes, a current README, and test coverage. No app code in this change.
+overview: Help/About, resizable panes, folder creator, import tags and creator, drag-out and image-thumbnail bugfixes, a current README, and test coverage.
 todos:
   - id: cancel-test
     content: Make cancel_stops_after_current_file deterministic by not depending on the 250ms progress throttle
-    status: pending
+    status: completed
   - id: image-thumbs
     content: Log image decode failures, prioritize PNG/JPG thumbs, requeue unavailable images, and show a generated thumb in the grid
-    status: pending
+    status: completed
   - id: drag-out
     content: Log drag paths and fix Windows no-drop for long or \\?\ paths, with Open and Show in Explorer fallbacks
-    status: pending
+    status: completed
   - id: pane-widths
     content: Add a sidebar splitter and an inspector splitter and persist both widths in settings.json
-    status: pending
+    status: completed
   - id: about-dialog
     content: Add Help > About with getVersion and a GitHub README link
-    status: pending
+    status: completed
   - id: folder-creator
     content: Add Set Creator on the folder context menu, with subfolder choice and creator autocomplete
-    status: pending
+    status: completed
   - id: import-meta
     content: Add optional tags and creator to the import-finished dialog, applied only to newly imported files
-    status: pending
+    status: completed
   - id: readme
     content: Rewrite README.md from the current app (formats, install, build, tests, layout, data locations)
-    status: pending
+    status: completed
   - id: test-coverage
     content: Add unit tests for the uncovered preview, CTB, settings, and drag/thumb helpers, and record llvm-cov plus vitest coverage
-    status: pending
+    status: completed
 isProject: false
 ---
 
 # v1.1 features
 
-Planning only. Branch this work from `cursor/preview-drag-security-f6b2` (PR #1). Do not expand scope past the items below.
+Implemented on `cursor/v1-1-features-plan-bbc7`, branched from `cursor/preview-drag-security-f6b2` (PR #1).
 
 Version strings today are `26.10.11` in `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`, kept together by `scripts/version.mjs`.
 

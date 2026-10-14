@@ -1,5 +1,6 @@
 mod ctb;
 mod db;
+mod drag_out;
 mod hash_pass;
 mod import;
 mod names;
@@ -244,24 +245,39 @@ fn apply_bulk_meta(
     tags: Option<Vec<String>>,
 ) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
-    for id in ids {
-        if let Some(creator) = &creator {
-            let loc = db.file_location(id)?;
-            let row = db
-                .conn
-                .query_row(
-                    "SELECT sort_name, notes FROM files WHERE id = ?1",
-                    [id],
-                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
-                )
-                .map_err(|e| e.to_string())?;
-            db.update_file(id, &row.0, creator, &row.1, loc.folder_id)?;
-        }
-        if let Some(tags) = &tags {
-            db.set_tags(id, tags)?;
-        }
-    }
-    Ok(())
+    db.apply_import_meta(&ids, creator.as_deref(), tags.as_deref())
+}
+
+#[tauri::command]
+fn set_pane_widths(state: State<AppState>, sidebar_width: u32, inspector_width: u32) -> Result<(), String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.set_pane_widths(sidebar_width, inspector_width)
+}
+
+#[tauri::command]
+fn count_files_for_scope(
+    state: State<AppState>,
+    folder_id: Option<i64>,
+    include_subfolders: bool,
+) -> Result<i64, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(db.file_ids_for_creator_scope(folder_id, include_subfolders)?.len() as i64)
+}
+
+#[tauri::command]
+fn set_creator_under_folder(
+    state: State<AppState>,
+    folder_id: Option<i64>,
+    creator: String,
+    include_subfolders: bool,
+) -> Result<i64, String> {
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    db.set_creator_under_folder(folder_id, &creator, include_subfolders)
+}
+
+#[tauri::command]
+fn prepare_drag_paths(paths: Vec<String>, icon_path: String) -> drag_out::PreparedDrag {
+    drag_out::prepare_drag_paths(&paths, &icon_path)
 }
 
 #[tauri::command]
@@ -399,67 +415,120 @@ struct ThumbJob {
     size_bytes: i64,
 }
 
-#[tauri::command]
-fn next_thumbnail(state: State<AppState>) -> Result<Option<ThumbJob>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let Some(candidate) = db.claim_next_pending_thumb()? else {
-        return Ok(None);
-    };
-    let root = db.library_root()?;
+enum ThumbAction {
+    Ok(Vec<u8>),
+    Unavailable,
+    Retry,
+    Render,
+    Unhashed,
+}
+
+fn classify_thumb(root: &std::path::Path, candidate: &db::ThumbCandidate) -> ThumbAction {
+    if candidate.sha256.is_empty() {
+        return ThumbAction::Unhashed;
+    }
     let absolute = root.join(&candidate.stored_relpath);
-    if !absolute.exists() {
-        db.set_thumb_status(candidate.id, "unavailable")?;
-        return Ok(Some(ThumbJob {
-            kind: "skip".into(),
-            id: candidate.id,
-            absolute_path: absolute.to_string_lossy().to_string(),
-            ext: candidate.ext.clone(),
-            size_bytes: candidate.size_bytes,
-        }));
+    if !absolute.is_file() {
+        return ThumbAction::Unavailable;
     }
-    if let Some(png) = preview::extract_thumbnail_png(&absolute) {
-        let dest = db::thumb_path(&db.data_dir, &candidate.sha256);
-        fs::write(&dest, png).map_err(|e| e.to_string())?;
-        db.set_thumb_status(candidate.id, "ok")?;
-        return Ok(Some(ThumbJob {
-            kind: "done".into(),
-            id: candidate.id,
-            absolute_path: absolute.to_string_lossy().to_string(),
-            ext: candidate.ext,
-            size_bytes: candidate.size_bytes,
-        }));
+    match preview::extract_thumbnail_png(&absolute) {
+        Ok(Some(png)) => ThumbAction::Ok(png),
+        Ok(None) => {
+            if names::is_mesh(&candidate.ext) && candidate.size_bytes <= 150 * 1024 * 1024 {
+                ThumbAction::Render
+            } else {
+                ThumbAction::Unavailable
+            }
+        }
+        Err(preview::ThumbFail::Decode(message)) => {
+            let _ = debug_log(format!(
+                "thumb-decode id={} path={} error={message}",
+                candidate.id,
+                absolute.display()
+            ));
+            ThumbAction::Unavailable
+        }
+        Err(preview::ThumbFail::Io(message)) => {
+            let _ = debug_log(format!(
+                "thumb-io id={} path={} error={message}",
+                candidate.id,
+                absolute.display()
+            ));
+            ThumbAction::Retry
+        }
     }
-    let renderable = names::is_mesh(&candidate.ext) && candidate.size_bytes <= 150 * 1024 * 1024;
-    if renderable {
-        return Ok(Some(ThumbJob {
-            kind: "render".into(),
-            id: candidate.id,
-            absolute_path: absolute.to_string_lossy().to_string(),
-            ext: candidate.ext,
-            size_bytes: candidate.size_bytes,
-        }));
-    }
-    db.set_thumb_status(candidate.id, "unavailable")?;
-    Ok(Some(ThumbJob {
-        kind: "skip".into(),
+}
+
+fn apply_thumb_action(db: &AppDb, candidate: &db::ThumbCandidate, action: ThumbAction) -> Result<ThumbJob, String> {
+    let absolute = db.library_root()?.join(&candidate.stored_relpath);
+    let job = |kind: &str| ThumbJob {
+        kind: kind.into(),
         id: candidate.id,
         absolute_path: absolute.to_string_lossy().to_string(),
-        ext: candidate.ext,
+        ext: candidate.ext.clone(),
         size_bytes: candidate.size_bytes,
-    }))
+    };
+    match action {
+        ThumbAction::Unhashed => {
+            db.set_thumb_status(candidate.id, "unhashed")?;
+            Ok(job("skip"))
+        }
+        ThumbAction::Unavailable => {
+            db.set_thumb_status(candidate.id, "unavailable")?;
+            Ok(job("skip"))
+        }
+        ThumbAction::Retry => {
+            db.note_thumb_io_failure(candidate.id)?;
+            Ok(job("skip"))
+        }
+        ThumbAction::Render => Ok(job("render")),
+        ThumbAction::Ok(png) => {
+            let dest = db::thumb_path(&db.data_dir, &candidate.sha256);
+            if let Err(err) = fs::write(&dest, png) {
+                let _ = debug_log(format!("thumb-write id={} error={err}", candidate.id));
+                db.note_thumb_io_failure(candidate.id)?;
+                return Ok(job("skip"));
+            }
+            db.mark_thumb_ok(candidate.id)?;
+            Ok(job("done"))
+        }
+    }
+}
+
+#[tauri::command]
+fn next_thumbnail(state: State<AppState>) -> Result<Option<ThumbJob>, String> {
+    let (candidate, root) = {
+        let db = state.db.lock().map_err(|e| e.to_string())?;
+        let Some(candidate) = db.claim_next_pending_thumb()? else {
+            return Ok(None);
+        };
+        let root = db.library_root()?;
+        (candidate, root)
+    };
+    let action = classify_thumb(&root, &candidate);
+    let db = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(Some(apply_thumb_action(&db, &candidate, action)?))
 }
 
 #[tauri::command]
 fn save_rendered_thumb(state: State<AppState>, id: i64, png: Vec<u8>) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
     let loc = db.file_location(id)?;
+    if loc.sha256.is_empty() {
+        db.set_thumb_status(id, "unhashed")?;
+        return Ok(());
+    }
     let Some(png) = preview::png_from_bytes(&png) else {
         db.set_thumb_status(id, "unavailable")?;
         return Ok(());
     };
     let dest = db::thumb_path(&db.data_dir, &loc.sha256);
-    fs::write(dest, png).map_err(|e| e.to_string())?;
-    db.set_thumb_status(id, "ok")
+    if let Err(err) = fs::write(&dest, png) {
+        let _ = debug_log(format!("thumb-write id={id} error={err}"));
+        db.note_thumb_io_failure(id)?;
+        return Ok(());
+    }
+    db.mark_thumb_ok(id)
 }
 
 #[tauri::command]
@@ -525,6 +594,7 @@ pub fn run() {
         .setup(|app| {
             let dir = data_dir();
             let db = db::open(&dir).expect("open database");
+            requeue_image_thumbs_once(&db);
             if let Some(root) = db.settings().library_root.clone() {
                 allow_asset_scope(app.handle(), PathBuf::from(&root).as_path());
             }
@@ -547,6 +617,7 @@ pub fn run() {
             set_library_root,
             set_theme,
             set_grid_size,
+            set_pane_widths,
             create_folder,
             rename_folder,
             delete_folder,
@@ -558,6 +629,8 @@ pub fn run() {
             set_tags,
             add_tags_under_folder,
             apply_bulk_meta,
+            count_files_for_scope,
+            set_creator_under_folder,
             list_creators,
             list_tags,
             import_paths,
@@ -573,8 +646,78 @@ pub fn run() {
             mark_thumb_unavailable,
             clear_thumbnail_cache,
             drag_icon_path,
+            prepare_drag_paths,
             debug_log
         ])
         .run(tauri::generate_context!())
         .expect("error while running 3D File Library");
+}
+
+fn requeue_image_thumbs_once(db: &AppDb) {
+    let mut settings = db.settings();
+    if settings.thumb_retry >= 1 {
+        return;
+    }
+    match db.requeue_unavailable_images() {
+        Ok(count) => {
+            eprintln!("requeued {count} unavailable image thumbnails");
+            settings.thumb_retry = 1;
+            if let Err(err) = db.save_settings(&settings) {
+                eprintln!("could not save thumb retry flag: {err}");
+            }
+        }
+        Err(err) => eprintln!("could not requeue image thumbnails: {err}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::Settings;
+
+    #[test]
+    fn png_thumbnail_is_written_once_and_empty_sha_is_not() {
+        let dir = std::env::temp_dir().join(format!("filelib-settle-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        let png_path = root.join("pic.png");
+        image::RgbImage::from_pixel(20, 10, image::Rgb([1, 2, 3]))
+            .save(&png_path)
+            .unwrap();
+        let id = db
+            .insert_file("pic.png", "pic.png", "png", 20, "sha-pic", 1, None, None)
+            .unwrap();
+        let candidate = db.claim_next_pending_thumb().unwrap().unwrap();
+        let job = apply_thumb_action(&db, &candidate, classify_thumb(&root, &candidate)).unwrap();
+        assert_eq!(job.kind, "done");
+        assert_eq!(job.id, id);
+        assert!(db::thumb_path(&dir, "sha-pic").is_file());
+        let status: String = db
+            .conn
+            .query_row("SELECT thumb_status FROM files WHERE id = ?1", [id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(status, "ok");
+        assert!(db.claim_next_pending_thumb().unwrap().is_none());
+
+        let empty = db
+            .insert_file_with_thumb_status("empty.png", "empty.png", "png", 1, "", 1, None, None, "none")
+            .unwrap();
+        fs::write(root.join("empty.png"), b"not-a-real-png").unwrap();
+        let candidate = db.claim_next_pending_thumb().unwrap().unwrap();
+        assert_eq!(candidate.id, empty);
+        let job = apply_thumb_action(&db, &candidate, classify_thumb(&root, &candidate)).unwrap();
+        assert_eq!(job.kind, "skip");
+        assert!(!db::thumb_path(&dir, "").exists());
+        let status: String = db
+            .conn
+            .query_row("SELECT thumb_status FROM files WHERE id = ?1", [empty], |row| row.get(0))
+            .unwrap();
+        assert_eq!(status, "unhashed");
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

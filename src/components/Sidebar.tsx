@@ -34,6 +34,7 @@ export function Sidebar({
   onRenameFolder,
   onDeleteFolder,
   onTagFolder,
+  onSetCreator,
   onMoveFolder,
 }: {
   folders: FolderRow[];
@@ -49,6 +50,7 @@ export function Sidebar({
   onRenameFolder: (folderId: number) => void;
   onDeleteFolder: (folderId: number) => void;
   onTagFolder: (folderId: number | null) => void;
+  onSetCreator: (folderId: number | null) => void;
   onMoveFolder: (id: number, parentId: number | null) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([ROOT_KEY]));
@@ -337,6 +339,7 @@ export function Sidebar({
             {kids ? twist(key, open, folder.name) : twistSpacer()}
             <span
               className="folder-label"
+              title={folder.name}
               onClick={() => onFolderLabelClick(key, browse, kids)}
             >
               {folder.name}
@@ -369,6 +372,7 @@ export function Sidebar({
           {rootKids ? twist(ROOT_KEY, expanded.has(ROOT_KEY), libraryName) : twistSpacer()}
           <span
             className="folder-label"
+            title={libraryName}
             onClick={() => onFolderLabelClick(ROOT_KEY, ROOT_KEY, rootKids)}
           >
             {libraryName}
@@ -426,6 +430,16 @@ export function Sidebar({
                 }}
               >
                 Tag contents…
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  onSetCreator(contextMenu.folderId);
+                  setContextMenu(null);
+                }}
+              >
+                Set Creator…
               </button>
             </div>,
             document.body,

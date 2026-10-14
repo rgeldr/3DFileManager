@@ -1,16 +1,21 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getVersion } from "@tauri-apps/api/app";
 import { Menu, MenuItem, PredefinedMenuItem, Submenu, CheckMenuItem } from "@tauri-apps/api/menu";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openPath, openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { api } from "./api";
 import { FileGrid } from "./components/FileGrid";
 import { Inspector } from "./components/Inspector";
 import { Sidebar } from "./components/Sidebar";
 import { debugLog } from "./debugLog";
+import { iconForDrag } from "./lib/dragPaths";
+import { importMetaPayload } from "./lib/importMeta";
+import { clampInspector, clampSidebar } from "./lib/paneWidths";
 import { renderMeshStill } from "./lib/renderThumb";
 import { useTheme } from "./theme/ThemeProvider";
 import type { Browse, FileRow, FolderRow, GridSize, ImportSummary, Settings } from "./types";
@@ -77,6 +82,7 @@ interface Actions {
   clearThumbs: () => void;
   setTheme: (theme: "dark" | "light") => void;
   setGrid: (size: GridSize) => void;
+  showAbout: () => void;
 }
 
 export function App() {
@@ -101,10 +107,21 @@ export function App() {
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number; message: string } | null>(null);
   const [summary, setSummary] = useState<ImportSummary | null>(null);
-  const [bulk, setBulk] = useState<number[] | null>(null);
-  const [bulkCreator, setBulkCreator] = useState("");
-  const [bulkTags, setBulkTags] = useState("");
+  const [importCreator, setImportCreator] = useState("");
+  const [importTags, setImportTags] = useState<string[]>([]);
+  const [importTagText, setImportTagText] = useState("");
   const [folderTagTarget, setFolderTagTarget] = useState<{ folderId: number | null; name: string } | null>(null);
+  const [creatorTarget, setCreatorTarget] = useState<{ folderId: number | null; name: string } | null>(null);
+  const [creatorValue, setCreatorValue] = useState("");
+  const [includeSubfolders, setIncludeSubfolders] = useState(true);
+  const [creatorFileCount, setCreatorFileCount] = useState<number | null>(null);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [aboutVersion, setAboutVersion] = useState<string | null>(null);
+  const [aboutVersionFailed, setAboutVersionFailed] = useState(false);
+  const [dragFailure, setDragFailure] = useState<{ message: string; path: string } | null>(null);
+  const [fileMenu, setFileMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(240);
+  const [inspectorWidth, setInspectorWidth] = useState(320);
   const [folderTagInput, setFolderTagInput] = useState("");
   const [folderTagFileCount, setFolderTagFileCount] = useState<number | null>(null);
   const [namePrompt, setNamePrompt] = useState<null | { title: string; value: string; onOk: (value: string) => void }>(null);
@@ -121,12 +138,18 @@ export function App() {
     clearThumbs: () => undefined,
     setTheme: () => undefined,
     setGrid: () => undefined,
+    showAbout: () => undefined,
   });
   const themeItems = useRef<{ dark?: CheckMenuItem; light?: CheckMenuItem }>({});
   const gridItems = useRef<Partial<Record<GridSize, CheckMenuItem>>>({});
   const [thumbNonce, setThumbNonce] = useState(0);
   const thumbGeneration = useRef(0);
   const gridScrollRef = useRef<HTMLDivElement>(null);
+  const dragIconRef = useRef<string | null>(null);
+  const sidebarWidthRef = useRef(sidebarWidth);
+  const inspectorWidthRef = useRef(inspectorWidth);
+  sidebarWidthRef.current = sidebarWidth;
+  inspectorWidthRef.current = inspectorWidth;
   const [previewIconsEnabled, setPreviewIconsEnabled] = useState(false);
   const [folderExpandHint, setFolderExpandHint] = useState<{ key: string; nonce: number } | null>(null);
   const libraryBusy = useRef(false);
@@ -266,7 +289,8 @@ export function App() {
 
   const pumpThumbs = useCallback(async (generation: number) => {
     const stale = () => thumbGeneration.current !== generation;
-    for (let i = 0; i < 5000; i += 1) {
+    let done = 0;
+    for (;;) {
       if (stale()) return;
       await new Promise((resolve) => setTimeout(resolve, 32));
       if (stale()) return;
@@ -281,11 +305,13 @@ export function App() {
           await api.markThumbUnavailable(job.id);
         }
       }
+      if (job.kind === "done") {
+        done += 1;
+        if (done % 10 === 0 && !stale()) await refreshLists();
+      }
     }
     if (!stale()) await refreshLists();
   }, [refreshLists]);
-
-  const BULK_TAG_LIMIT = 200;
 
   const runImport = useCallback(async (paths: string[]) => {
     if (paths.length === 0) return;
@@ -299,11 +325,11 @@ export function App() {
     setProgress({ current: 0, total: 0, message: "Counting files…" });
     try {
       const result = await api.importPaths(paths, targetFolderId);
+      setImportCreator("");
+      setImportTags([]);
+      setImportTagText("");
       setSummary(result);
       if (result.importedIds.length === 1) setSelected(result.importedIds);
-      if (result.importedIds.length > 1 && result.importedIds.length <= BULK_TAG_LIMIT) {
-        setBulk(result.importedIds);
-      }
       await refreshLists();
     } catch (err) {
       setError(String(err));
@@ -316,20 +342,21 @@ export function App() {
   }, [refreshLists, targetFolderId]);
   runImportRef.current = runImport;
 
-  const dialogOpen = Boolean(busy || progress || summary || bulk || namePrompt || deleteConfirm || missingOpen || error || diskDialog);
+  const dialogOpen = Boolean(
+    busy || progress || summary || namePrompt || deleteConfirm || missingOpen || error || diskDialog || aboutOpen || creatorTarget || dragFailure,
+  );
 
   useEffect(() => {
     debugLog("dialogs", {
       busy,
       progress: progress ? `${progress.current}/${progress.total} ${progress.message}` : null,
       summary: summary ? summary.importedCount : null,
-      bulk: bulk?.length ?? null,
       namePrompt: namePrompt?.title ?? null,
       deleteConfirm: deleteConfirm?.name ?? null,
       missingOpen,
       error,
     });
-  }, [busy, progress, summary, bulk, namePrompt, deleteConfirm, missingOpen, error]);
+  }, [busy, progress, summary, namePrompt, deleteConfirm, missingOpen, error]);
 
   useEffect(() => {
     if (!ready || !settings?.libraryRoot || dialogOpen) {
@@ -397,6 +424,11 @@ export function App() {
         setSettings((current) => (current ? { ...current, gridSize: size } : current));
         void api.setGridSize(size);
       },
+      showAbout: () => {
+        setAboutVersion(null);
+        setAboutVersionFailed(false);
+        setAboutOpen(true);
+      },
     };
   }, [refreshLists, runDiskOp, runImport, setTheme]);
 
@@ -429,6 +461,8 @@ export function App() {
     let unlisten = () => undefined;
     void api.bootstrap().then(async (boot) => {
       setSettings(boot.settings);
+      setSidebarWidth(clampSidebar(boot.settings.sidebarWidth, window.innerWidth));
+      setInspectorWidth(clampInspector(boot.settings.inspectorWidth, window.innerWidth));
       setFolders(boot.folders);
       setMissingCount(boot.missingCount);
       if (boot.settings.theme === "light" || boot.settings.theme === "dark") {
@@ -442,7 +476,9 @@ export function App() {
       setError(String(err));
       setReady(true);
     });
-    void fallbackDragIconPath().catch((err: unknown) => {
+    void fallbackDragIconPath().then((path) => {
+      dragIconRef.current = path;
+    }).catch((err: unknown) => {
       debugLog("drag-icon", { error: String(err) });
     });
     const drag = getCurrentWebview().onDragDropEvent((event) => {
@@ -481,6 +517,60 @@ export function App() {
     const timer = setTimeout(() => setPreviewIconsEnabled(true), 5000);
     return () => clearTimeout(timer);
   }, [ready, settings?.libraryRoot]);
+
+  useEffect(() => {
+    const onResize = () => {
+      setSidebarWidth((current) => clampSidebar(current, window.innerWidth));
+      setInspectorWidth((current) => clampInspector(current, window.innerWidth));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    if (!aboutOpen) return;
+    let cancelled = false;
+    void getVersion()
+      .then((version) => {
+        if (!cancelled) setAboutVersion(version);
+      })
+      .catch(() => {
+        if (!cancelled) setAboutVersionFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [aboutOpen]);
+
+  useEffect(() => {
+    if (!creatorTarget) {
+      setCreatorFileCount(null);
+      return;
+    }
+    void api
+      .countFilesForScope(creatorTarget.folderId, includeSubfolders)
+      .then(setCreatorFileCount)
+      .catch((err) => setError(String(err)));
+  }, [creatorTarget, includeSubfolders]);
+
+  useEffect(() => {
+    if (!fileMenu) return;
+    const close = () => setFileMenu(null);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    const onPointer = (event: PointerEvent) => {
+      const menu = document.querySelector(".file-context-menu");
+      if (menu?.contains(event.target as Node)) return;
+      close();
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onPointer);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onPointer);
+    };
+  }, [fileMenu]);
 
   useEffect(() => {
     if (!folderTagTarget) {
@@ -552,6 +642,12 @@ export function App() {
               await Submenu.new({ text: "Theme", items: [dark, light] }),
             ],
           }),
+          await Submenu.new({
+            text: "Help",
+            items: [
+              await MenuItem.new({ text: "About", action: () => actions.current.showAbout() }),
+            ],
+          }),
         ],
       });
       if (!cancelled) await menu.setAsAppMenu();
@@ -585,14 +681,33 @@ export function App() {
       if (outside && !drag.startedNative) {
         drag.startedNative = true;
         const paths = files.filter((file) => drag.ids.includes(file.id)).map((file) => file.absolutePath);
-        const thumb = files.find((file) => drag.ids.includes(file.id) && file.thumbPath)?.thumbPath;
+        const leftAt = performance.now();
         if (paths.length > 0) {
           void (async () => {
             try {
-              const icon = thumb ?? (await fallbackDragIconPath());
-              await startDrag({ item: paths, icon });
+              const icon = iconForDrag(dragIconRef.current ?? (await fallbackDragIconPath()));
+              dragIconRef.current = icon;
+              const prepared = await api.prepareDragPaths(paths, icon);
+              debugLog("drag-out", {
+                selected: drag.ids.length,
+                iconKind: "drag.png",
+                iconBytes: prepared.iconBytes,
+                msToStart: Math.round(performance.now() - leftAt),
+                reports: prepared.reports,
+              });
+              if (prepared.skipped.length > 0) {
+                showToast(`Skipped: ${prepared.skipped.join(", ")}`);
+              }
+              if (prepared.paths.length === 0) {
+                const message = prepared.reports.map((item) => item.error).filter(Boolean).join("\n") || "Could not drag these files.";
+                setDragFailure({ message, path: paths[0] });
+                return;
+              }
+              await startDrag({ item: prepared.paths, icon });
+              debugLog("drag-result", { ok: true, ms: Math.round(performance.now() - leftAt) });
             } catch (err) {
-              setError(String(err));
+              debugLog("drag-result", { ok: false, error: String(err), ms: Math.round(performance.now() - leftAt) });
+              setDragFailure({ message: String(err), path: paths[0] });
             }
           })();
         }
@@ -628,7 +743,7 @@ export function App() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [files, runDiskOp]);
+  }, [files, runDiskOp, showToast]);
 
   const browseKey = browse.type === "folder" ? `folder:${browse.id}` : browse.type;
 
@@ -652,6 +767,43 @@ export function App() {
     setSelected([id]);
     dragRef.current = { ids: [id], active: false, startedNative: false };
   };
+
+  const onPanePointerDown = (which: "sidebar" | "inspector") => (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    const startX = event.clientX;
+    const origin = which === "sidebar" ? sidebarWidthRef.current : inspectorWidthRef.current;
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX;
+      if (dx !== 0) moved = true;
+      if (which === "sidebar") {
+        const next = clampSidebar(origin + dx, window.innerWidth);
+        sidebarWidthRef.current = next;
+        setSidebarWidth(next);
+      } else {
+        const next = clampInspector(origin - dx, window.innerWidth);
+        inspectorWidthRef.current = next;
+        setInspectorWidth(next);
+      }
+    };
+    const up = (ev: PointerEvent) => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      if (handle.hasPointerCapture(ev.pointerId)) handle.releasePointerCapture(ev.pointerId);
+      if (!moved) return;
+      void api.setPaneWidths(sidebarWidthRef.current, inspectorWidthRef.current).catch((err) => setError(String(err)));
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+  };
+
+  const paneStyle = {
+    "--sidebar-width": `${sidebarWidth}px`,
+    "--inspector-width": `${inspectorWidth}px`,
+  } as CSSProperties;
 
   if (!ready || !settings) {
     return <div className="setup"><p>Loading…</p></div>;
@@ -701,6 +853,7 @@ export function App() {
   return (
     <div
       className="app"
+      style={paneStyle}
       onPointerDown={(event) => {
         const tile = (event.target as HTMLElement).closest("[data-file-id]");
         if (!tile || event.button !== 0) return;
@@ -740,6 +893,15 @@ export function App() {
           setFolderTagInput("");
           setFolderTagTarget({ folderId, name });
         }}
+        onSetCreator={(folderId) => {
+          const name =
+            folderId === null
+              ? libraryName
+              : folders.find((item) => item.id === folderId)?.name ?? "Folder";
+          setCreatorValue("");
+          setIncludeSubfolders(true);
+          setCreatorTarget({ folderId, name });
+        }}
         onMoveFolder={(id, parentId) => {
           const name = folders.find((item) => item.id === id)?.name ?? "folder";
           const expandKey = parentId == null ? "root" : `folder:${parentId}`;
@@ -755,6 +917,14 @@ export function App() {
             },
           });
         }}
+      />
+      <div
+        className="pane-splitter"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize folders"
+        tabIndex={0}
+        onPointerDown={onPanePointerDown("sidebar")}
       />
       <section className="main">
         <div className="toolbar">
@@ -803,8 +973,19 @@ export function App() {
               previewIconsEnabled={previewIconsEnabled}
               scrollRootRef={gridScrollRef}
               onSelect={onSelect}
+              onContextMenu={(event, file) => {
+                setFileMenu({ x: event.clientX, y: event.clientY, path: file.absolutePath });
+              }}
             />
           </div>
+          <div
+            className="pane-splitter"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize details"
+            tabIndex={0}
+            onPointerDown={onPanePointerDown("inspector")}
+          />
           <Inspector
             file={selectedFile}
             folders={folders}
@@ -886,7 +1067,7 @@ export function App() {
           </div>
         </Modal>
       ) : null}
-      {summary && !bulk ? (
+      {summary ? (
         <Modal>
           <div className="card">
             <h2>{summary.cancelled ? "Import stopped" : "Import finished"}</h2>
@@ -900,29 +1081,105 @@ export function App() {
               <p>Duplicate checking continues in the background for {summary.pendingHashCount} files.</p>
             ) : null}
             {summary.failed.length > 0 ? <p>{summary.failed.slice(0, 5).join(" ")}</p> : null}
+            {summary.importedIds.length > 0 ? (
+              <>
+                <p className="muted">Applies to newly imported files only.</p>
+                <input
+                  placeholder="Creator for all imported files"
+                  list="import-creators"
+                  value={importCreator}
+                  onChange={(event) => setImportCreator(event.target.value)}
+                />
+                <datalist id="import-creators">
+                  {creators.map((item) => <option key={item} value={item} />)}
+                </datalist>
+                <div className="tags">
+                  {importTags.map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      className="tag"
+                      onClick={() => setImportTags(importTags.filter((tag) => tag !== item))}
+                    >
+                      {item} ×
+                    </button>
+                  ))}
+                </div>
+                <input
+                  placeholder="Tags for all imported files"
+                  list="import-tags"
+                  value={importTagText}
+                  onChange={(event) => setImportTagText(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return;
+                    event.preventDefault();
+                    const next = importTagText.trim();
+                    if (next && !importTags.some((tag) => tag.toLowerCase() === next.toLowerCase())) {
+                      setImportTags([...importTags, next]);
+                    }
+                    setImportTagText("");
+                  }}
+                />
+                <datalist id="import-tags">
+                  {tags.map((item) => <option key={item} value={item} />)}
+                </datalist>
+              </>
+            ) : null}
             {summary.recycleCount > 0 ? (
               <p>Keep those originals, or move the imported files and duplicates to the Recycle Bin?</p>
             ) : null}
             <div className="row">
-              <button type="button" className="primary" onClick={() => setSummary(null)}>Keep originals</button>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => {
+                  const ids = summary.importedIds;
+                  void (async () => {
+                    try {
+                      const payload = importMetaPayload(ids, importCreator, importTags);
+                      if (payload) {
+                        await api.applyBulkMeta(payload.ids, payload.creator, payload.tags);
+                        await refreshLists();
+                      }
+                      setSummary(null);
+                    } catch (err) {
+                      setError(String(err));
+                    }
+                  })();
+                }}
+              >
+                Keep originals
+              </button>
               {summary.recycleCount > 0 ? (
                 <button
                   type="button"
                   onClick={() => {
-                    setSummary(null);
-                    void runDiskOp({
-                      title: "Moving originals to the Recycle Bin...",
-                      cancellable: true,
-                      success: "Originals moved to the Recycle Bin",
-                      cancelled: "Recycle cancelled",
-                      run: async () => {
-                        const outcome = await api.recycleLastImport();
-                        if (!outcome.cancelled && outcome.failed.length > 0) {
-                          throw new Error(outcome.failed.join("\n"));
+                    const ids = summary.importedIds;
+                    void (async () => {
+                      try {
+                        const payload = importMetaPayload(ids, importCreator, importTags);
+                        if (payload) {
+                          await api.applyBulkMeta(payload.ids, payload.creator, payload.tags);
+                          await refreshLists();
                         }
-                        return outcome;
-                      },
-                    });
+                        setSummary(null);
+                        void runDiskOp({
+                          title: "Moving originals to the Recycle Bin...",
+                          cancellable: true,
+                          success: "Originals moved to the Recycle Bin",
+                          cancelled: "Recycle cancelled",
+                          run: async () => {
+                            const outcome = await api.recycleLastImport();
+                            if (!outcome.cancelled && outcome.failed.length > 0) {
+                              throw new Error(outcome.failed.join("\n"));
+                            }
+                            return outcome;
+                          },
+                        });
+                      } catch (err) {
+                        setError(String(err));
+                      }
+                    })();
                   }}
                 >
                   Move to Recycle Bin
@@ -985,27 +1242,98 @@ export function App() {
           </div>
         </Modal>
       ) : null}
-      {bulk ? (
+      {creatorTarget ? (
         <Modal>
           <div className="card">
-            <h2>Tag this import</h2>
-            <p>Apply a creator and tags to the {bulk.length} files just imported.</p>
-            <input placeholder="Creator" value={bulkCreator} autoFocus onChange={(event) => setBulkCreator(event.target.value)} />
-            <input placeholder="Tags, separated by commas" value={bulkTags} onChange={(event) => setBulkTags(event.target.value)} />
+            <h2>Set creator</h2>
+            <p>
+              Set the creator on files in <strong>{creatorTarget.name}</strong>.
+            </p>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={includeSubfolders}
+                onChange={(event) => setIncludeSubfolders(event.target.checked)}
+              />
+              Include subfolders
+            </label>
+            {creatorFileCount === 0 ? <p className="muted">This folder has no files.</p> : null}
+            {creatorFileCount != null && creatorFileCount > 0 ? (
+              <p className="muted">{creatorFileCount} files will be updated.</p>
+            ) : null}
+            <input
+              placeholder="Creator"
+              list="folder-creators"
+              value={creatorValue}
+              autoFocus
+              disabled={creatorFileCount === 0}
+              onChange={(event) => setCreatorValue(event.target.value)}
+            />
+            <datalist id="folder-creators">
+              {creators.map((item) => <option key={item} value={item} />)}
+            </datalist>
             <div className="row">
-              <button type="button" onClick={() => setBulk(null)}>Skip</button>
+              <button type="button" onClick={() => setCreatorTarget(null)}>Cancel</button>
               <button
                 type="button"
                 className="primary"
+                disabled={creatorFileCount === 0 || creatorValue.trim() === ""}
                 onClick={() => {
-                  const nextTags = bulkTags.split(",").map((item) => item.trim()).filter(Boolean);
-                  void api.applyBulkMeta(bulk, bulkCreator.trim() || null, nextTags.length ? nextTags : null)
+                  void api
+                    .setCreatorUnderFolder(creatorTarget.folderId, creatorValue.trim(), includeSubfolders)
                     .then(() => refreshLists())
-                    .finally(() => setBulk(null));
+                    .catch((err) => setError(String(err)))
+                    .finally(() => setCreatorTarget(null));
                 }}
               >
                 Apply
               </button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+      {aboutOpen ? (
+        <Modal>
+          <div className="card">
+            <h2>3D File Library</h2>
+            <p>{aboutVersionFailed ? "Version unavailable" : aboutVersion ?? "…"}</p>
+            <div className="row">
+              <button
+                type="button"
+                onClick={() => {
+                  void openUrl("https://github.com/rgeldr/3DFileManager#readme").catch((err) => setError(String(err)));
+                }}
+              >
+                View README on GitHub
+              </button>
+              <button type="button" className="primary" onClick={() => setAboutOpen(false)}>Close</button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+      {dragFailure ? (
+        <Modal>
+          <div className="card">
+            <h2>Could not drag the file</h2>
+            <p className="card-scroll">{formatErrorForDisplay(dragFailure.message)}</p>
+            <div className="row">
+              <button
+                type="button"
+                onClick={() => {
+                  void openPath(dragFailure.path).catch((err) => setError(String(err)));
+                }}
+              >
+                Open
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void revealItemInDir(dragFailure.path).catch((err) => setError(String(err)));
+                }}
+              >
+                Show in Explorer
+              </button>
+              <button type="button" className="primary" onClick={() => setDragFailure(null)}>Close</button>
             </div>
           </div>
         </Modal>
@@ -1106,6 +1434,35 @@ export function App() {
         </Modal>
       ) : null}
       {toast ? <div className="toast" role="status">{toast}</div> : null}
+      {fileMenu
+        ? createPortal(
+            <div className="file-context-menu" style={{ left: fileMenu.x, top: fileMenu.y }} role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  const path = fileMenu.path;
+                  setFileMenu(null);
+                  void openPath(path).catch((err) => setError(String(err)));
+                }}
+              >
+                Open
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  const path = fileMenu.path;
+                  setFileMenu(null);
+                  void revealItemInDir(path).catch((err) => setError(String(err)));
+                }}
+              >
+                Show in Explorer
+              </button>
+            </div>,
+            document.body,
+          )
+        : null}
       {error ? (
         <Modal>
           <div className="card">
