@@ -10,7 +10,7 @@ mod rescan;
 mod settings;
 
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -84,6 +84,36 @@ pub(crate) fn contained_library_file(root: &std::path::Path, stored_relpath: &st
         return Err("That file is outside the library.".into());
     }
     Ok(path)
+}
+
+const TEXT_PREVIEW_BYTES: usize = 4096;
+
+/// Keep printable text from the first 4KB. Invalid UTF-8 and control bytes are dropped.
+pub(crate) fn clean_text_preview(bytes: &[u8]) -> String {
+    let end = bytes.len().min(TEXT_PREVIEW_BYTES);
+    let decoded = String::from_utf8_lossy(&bytes[..end]);
+    let mut out = String::with_capacity(decoded.len());
+    for ch in decoded.chars() {
+        if ch == '\u{FFFD}' || ch == '\u{FEFF}' {
+            continue;
+        }
+        if ch == '\n' || ch == '\t' {
+            out.push(ch);
+            continue;
+        }
+        if ch.is_control() {
+            continue;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn read_text_preview(path: &std::path::Path) -> Result<String, String> {
+    let mut file = fs::File::open(path).map_err(|err| err.to_string())?;
+    let mut buf = [0u8; TEXT_PREVIEW_BYTES];
+    let n = file.read(&mut buf).map_err(|err| err.to_string())?;
+    Ok(clean_text_preview(&buf[..n]))
 }
 
 fn catalog_file_path(db: &AppDb, file_id: i64) -> Result<PathBuf, String> {
@@ -886,6 +916,25 @@ async fn reveal_file(app: AppHandle, file_id: i64) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn text_preview(app: AppHandle, file_id: i64) -> Result<String, String> {
+    let db = app.state::<AppState>().db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = {
+            let db = db.lock().map_err(|err| err.to_string())?;
+            let loc = db.file_location(file_id)?;
+            if names::extension_of(&loc.stored_relpath) != "txt" {
+                return Ok(String::new());
+            }
+            let root = db.library_root()?;
+            contained_library_file(&root, &loc.stored_relpath)?
+        };
+        read_text_preview(&path)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
 async fn get_settings(app: AppHandle) -> Result<Settings, String> {
     let db = app.state::<AppState>().db.clone();
     off_ui("get_settings", move || {
@@ -961,6 +1010,7 @@ pub fn run() {
             prepare_drag_paths,
             open_in_default_app,
             reveal_file,
+            text_preview,
             debug_log
         ])
         .run(tauri::generate_context!())
@@ -1063,6 +1113,26 @@ mod tests {
             assert!(contained_library_file(&root, "Models/link.pdf").is_err());
         }
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn text_preview_keeps_printable_text_and_stops_at_four_kilobytes() {
+        let cleaned = clean_text_preview(b"Hello\tthere\n\0\x01caf\xff\xfe\n\xEF\xBB\xBFHi");
+        assert_eq!(cleaned, "Hello\tthere\ncaf\nHi");
+        let mut long = vec![b'A'; TEXT_PREVIEW_BYTES];
+        long.push(b'Z');
+        let preview = clean_text_preview(&long);
+        assert_eq!(preview.len(), TEXT_PREVIEW_BYTES);
+        assert!(!preview.contains('Z'));
+
+        let dir = std::env::temp_dir().join(format!("filelib-txt-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("notes.txt"), &long).unwrap();
+        let from_file = read_text_preview(&dir.join("notes.txt")).unwrap();
+        assert_eq!(from_file.len(), TEXT_PREVIEW_BYTES);
+        assert!(!from_file.contains('Z'));
         let _ = fs::remove_dir_all(&dir);
     }
 

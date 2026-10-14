@@ -327,7 +327,8 @@ button:focus-visible {
   letter-spacing: 0.04em;
 }
 
-.type-icon-pdf {
+.type-icon-pdf,
+.type-icon-txt {
   display: grid;
   place-items: center;
   min-width: 44px;
@@ -412,6 +413,19 @@ button:focus-visible {
   margin: 0;
   color: var(--color-text-muted);
   pointer-events: none;
+}
+
+.text-preview {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  background: var(--viewer-bg);
+  font: 12px/1.45 ui-monospace, monospace;
 }
 
 .tags {

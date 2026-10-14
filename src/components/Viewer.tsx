@@ -5,6 +5,7 @@ import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { ThreeMFLoader } from "three/addons/loaders/3MFLoader.js";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { api } from "../api";
 import type { FileRow } from "../types";
 import { useTheme } from "../theme/ThemeProvider";
 
@@ -74,6 +75,29 @@ function cssVar(name: string): string {
 }
 
 type MeshPhase = "loading" | "ready" | "error";
+
+function TextPreview({ fileId }: { fileId: number }) {
+  const [text, setText] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setText(null);
+    void api
+      .textPreview(fileId)
+      .then((value) => {
+        if (!cancelled) setText(value);
+      })
+      .catch(() => {
+        if (!cancelled) setText("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fileId]);
+  if (!text?.trim()) {
+    return <p className="viewer-message">Text file</p>;
+  }
+  return <pre className="text-preview">{text}</pre>;
+}
 
 export function Viewer({ file }: { file: FileRow | null }) {
   const { theme } = useTheme();
@@ -193,6 +217,14 @@ export function Viewer({ file }: { file: FileRow | null }) {
           ? "Loading preview…"
           : ""
       : staticMessage(file);
+
+  if (file?.ext === "txt") {
+    return (
+      <div className="viewer">
+        <TextPreview fileId={file.id} />
+      </div>
+    );
+  }
 
   return (
     <div className="viewer">
