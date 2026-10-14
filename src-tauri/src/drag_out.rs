@@ -2,12 +2,19 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::names::sanitize_component;
 
 const MAX_LEGACY: usize = 259;
 const STAGE_MAX_AGE_SECS: u64 = 24 * 60 * 60;
+
+// tauri-plugin-drag 2.1.1 on Windows does not use its CF_HDROP DataObject
+// (that type is dead code). start_drag builds an IShellItemArray, binds
+// BHID_DataObject, and then attaches the drag bitmap with InitializeFromBitmap.
+// ChiTuBox accepts a classic file drop whose path ends in a lowercase
+// extension, so a stored `Hero.STL` or an extensionless name is staged here
+// as a hard link named `Hero.stl` before that shell object is built.
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,19 +50,31 @@ pub fn path_needs_staging(path: &str) -> bool {
     false
 }
 
-pub fn prepare_drag_paths(paths: &[String], icon_path: &str) -> PreparedDrag {
+/// One library file the webview wants to drag out.
+///
+/// `file_name` is the original name (for example `Hero.STL`). The drag path
+/// uses that stem plus the catalog extension in lowercase (`Hero.stl`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DragSource {
+    pub path: String,
+    pub file_name: String,
+    pub ext: String,
+}
+
+pub fn prepare_drag_paths(sources: &[DragSource], icon_path: &str) -> PreparedDrag {
     cleanup_staged();
     let mut out_paths = Vec::new();
     let mut skipped = Vec::new();
     let mut reports = Vec::new();
-    for original in paths {
-        match prepare_one(original) {
+    for source in sources {
+        match prepare_one(source) {
             Ok((drag_path, report)) => {
                 out_paths.push(drag_path);
                 reports.push(report);
             }
             Err(report) => {
-                skipped.push(display_name(original));
+                skipped.push(display_name(&source.path));
                 reports.push(report);
             }
         }
@@ -69,14 +88,55 @@ pub fn prepare_drag_paths(paths: &[String], icon_path: &str) -> PreparedDrag {
     }
 }
 
-fn prepare_one(original: &str) -> Result<(String, DragReport), DragReport> {
+/// Name ChiTuBox and other drop targets will see. The extension is the catalog
+/// extension in lowercase, so `Hero.STL` is dragged as `Hero.stl`.
+pub fn drag_file_name(file_name: &str, ext: &str) -> String {
+    let ext = ext.trim().trim_start_matches('.').to_ascii_lowercase();
+    let raw = if file_name.trim().is_empty() { "file" } else { file_name };
+    let safe = sanitize_component(raw);
+    let safe = if safe.is_empty() { "file".to_string() } else { safe };
+    if ext.is_empty() {
+        return safe;
+    }
+    let stem = Path::new(&safe)
+        .file_stem()
+        .map(|item| item.to_string_lossy().to_string())
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or_else(|| "file".into());
+    format!("{stem}.{ext}")
+}
+
+pub fn drag_log_line(paths: &[String]) -> String {
+    if paths.is_empty() {
+        "drag-paths (none)".to_string()
+    } else {
+        format!("drag-paths {}", paths.join(" | "))
+    }
+}
+
+fn stored_file_name(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
+fn prepare_one(source: &DragSource) -> Result<(String, DragReport), DragReport> {
+    let original = source.path.as_str();
     let path = PathBuf::from(original);
     if !path.is_file() {
         return Err(report(original, original, false, String::new(), Some("File is missing.".into())));
     }
     let simplified_path = dunce::canonicalize(&path).unwrap_or_else(|_| path.clone());
     let simplified = simplified_path.to_string_lossy().to_string();
-    if !path_needs_staging(&simplified) {
+    let label = if source.file_name.trim().is_empty() {
+        stored_file_name(&simplified)
+    } else {
+        source.file_name.clone()
+    };
+    let desired = drag_file_name(&label, &source.ext);
+    let name_matches = stored_file_name(&simplified) == desired;
+    if name_matches && !path_needs_staging(&simplified) {
         return Ok((
             simplified.clone(),
             report(original, &simplified, false, simplified.clone(), None),
@@ -86,11 +146,7 @@ fn prepare_one(original: &str) -> Result<(String, DragReport), DragReport> {
     if let Err(err) = fs::create_dir_all(&dir) {
         return Err(report(original, &simplified, false, String::new(), Some(err.to_string())));
     }
-    let file_name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_else(|| "file".into());
-    let dest = match staged_destination(&dir, &file_name) {
+    let dest = match staged_destination(&dir, &desired) {
         Ok(dest) => dest,
         Err(err) => return Err(report(original, &simplified, false, String::new(), Some(err))),
     };
@@ -252,6 +308,14 @@ mod tests {
         assert!(!path_needs_staging("/tmp/model.stl"));
     }
 
+    fn source(path: &Path, file_name: &str, ext: &str) -> DragSource {
+        DragSource {
+            path: path.to_string_lossy().to_string(),
+            file_name: file_name.to_string(),
+            ext: ext.to_string(),
+        }
+    }
+
     #[test]
     fn short_path_is_not_staged_and_missing_file_is_skipped() {
         let dir = std::env::temp_dir().join(format!("filelib-drag-short-{}", std::process::id()));
@@ -259,15 +323,24 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let src = dir.join("model.stl");
         fs::write(&src, b"solid").unwrap();
-        let prepared = prepare_drag_paths(&[src.to_string_lossy().to_string()], "/missing/drag.png");
+        let prepared = prepare_drag_paths(&[source(&src, "model.stl", "stl")], "/missing/drag.png");
         assert_eq!(prepared.paths.len(), 1);
         assert!(prepared.skipped.is_empty());
         assert!(!prepared.reports[0].staged);
+        assert!(prepared.paths[0].ends_with("model.stl"));
         assert!(src.is_file());
-        let missing = prepare_drag_paths(&["/tmp/filelib-does-not-exist.stl".into()], "");
+        let missing = prepare_drag_paths(
+            &[DragSource {
+                path: "/tmp/filelib-does-not-exist.stl".into(),
+                file_name: "filelib-does-not-exist.stl".into(),
+                ext: "stl".into(),
+            }],
+            "",
+        );
         assert!(missing.paths.is_empty());
         assert_eq!(missing.skipped, vec!["filelib-does-not-exist.stl".to_string()]);
         assert_eq!(missing.reports[0].error.as_deref(), Some("File is missing."));
+        assert_eq!(drag_log_line(&missing.paths), "drag-paths (none)");
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -284,7 +357,7 @@ mod tests {
         fs::write(&src, b"solid long").unwrap();
         let original = src.to_string_lossy().to_string();
         assert!(path_needs_staging(&original), "path len {}", original.chars().count());
-        let prepared = prepare_drag_paths(&[original], "");
+        let prepared = prepare_drag_paths(&[source(&src, "guild model.stl", "stl")], "");
         assert_eq!(prepared.skipped, Vec::<String>::new(), "{:?}", prepared.reports);
         assert_eq!(prepared.paths.len(), 1);
         let drag = &prepared.paths[0];
@@ -296,5 +369,47 @@ mod tests {
         assert_eq!(fs::read(drag).unwrap(), b"solid long");
         let _ = fs::remove_file(drag);
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn drag_file_name_uses_the_lowercase_catalog_extension() {
+        assert_eq!(drag_file_name("Hero.STL", "stl"), "Hero.stl");
+        assert_eq!(drag_file_name("Hero.STL", "STL"), "Hero.stl");
+        assert_eq!(drag_file_name("hashname", "stl"), "hashname.stl");
+        assert_eq!(drag_file_name("Read Me.TXT", "txt"), "Read Me.txt");
+        assert_eq!(drag_file_name("a:b.stl", "stl"), "a_b.stl");
+        assert_eq!(drag_log_line(&["C:\\drag\\Hero.stl".into()]), "drag-paths C:\\drag\\Hero.stl");
+    }
+
+    #[test]
+    fn uppercase_and_extensionless_files_are_staged_under_the_original_name() {
+        let dir = std::env::temp_dir().join(format!("filelib-drag-alias-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let upper = dir.join("Hero.STL");
+        let bare = dir.join("abc123");
+        fs::write(&upper, b"solid upper").unwrap();
+        fs::write(&bare, b"solid bare").unwrap();
+        let prepared = prepare_drag_paths(
+            &[
+                source(&upper, "Hero.STL", "stl"),
+                source(&bare, "Base Mini.stl", "stl"),
+            ],
+            "",
+        );
+        assert_eq!(prepared.skipped, Vec::<String>::new(), "{:?}", prepared.reports);
+        assert_eq!(prepared.paths.len(), 2);
+        assert!(prepared.reports.iter().all(|report| report.staged));
+        assert!(prepared.paths[0].ends_with("Hero.stl"), "{}", prepared.paths[0]);
+        assert!(prepared.paths[1].ends_with("Base Mini.stl"), "{}", prepared.paths[1]);
+        assert!(prepared.paths[0].contains("3D File Library"));
+        assert_eq!(fs::read(&prepared.paths[0]).unwrap(), b"solid upper");
+        assert_eq!(fs::read(&prepared.paths[1]).unwrap(), b"solid bare");
+        assert_eq!(fs::read(&upper).unwrap(), b"solid upper");
+        assert!(drag_log_line(&prepared.paths).contains("Hero.stl"));
+        for path in &prepared.paths {
+            let _ = fs::remove_file(path);
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 }

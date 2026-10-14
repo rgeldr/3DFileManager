@@ -482,16 +482,18 @@ async fn set_creator_under_folder(
 }
 
 #[tauri::command]
-async fn prepare_drag_paths(paths: Vec<String>, icon_path: String) -> drag_out::PreparedDrag {
+async fn prepare_drag_paths(files: Vec<drag_out::DragSource>, icon_path: String) -> drag_out::PreparedDrag {
     let _timer = CommandTimer::start("prepare_drag_paths");
-    tauri::async_runtime::spawn_blocking(move || drag_out::prepare_drag_paths(&paths, &icon_path))
+    let prepared = tauri::async_runtime::spawn_blocking(move || drag_out::prepare_drag_paths(&files, &icon_path))
         .await
         .unwrap_or_else(|err| drag_out::PreparedDrag {
             paths: Vec::new(),
             skipped: vec![err.to_string()],
             reports: Vec::new(),
             icon_bytes: 0,
-        })
+        });
+    let _ = write_debug_log(drag_out::drag_log_line(&prepared.paths));
+    prepared
 }
 
 #[tauri::command]

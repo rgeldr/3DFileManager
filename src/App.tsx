@@ -10,6 +10,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { api } from "./api";
 import { FileGrid } from "./components/FileGrid";
+import { ImportProgressLines } from "./components/ImportProgress";
 import { Inspector } from "./components/Inspector";
 import { Sidebar } from "./components/Sidebar";
 import { debugLog } from "./debugLog";
@@ -750,20 +751,24 @@ export function App() {
       const outside = event.clientX <= 0 || event.clientY <= 0 || event.clientX >= window.innerWidth - 1 || event.clientY >= window.innerHeight - 1;
       if (outside && !drag.startedNative) {
         drag.startedNative = true;
-        const paths = files.filter((file) => drag.ids.includes(file.id)).map((file) => file.absolutePath);
+        const dragged = files.filter((file) => drag.ids.includes(file.id));
         const leftAt = performance.now();
-        if (paths.length > 0) {
+        if (dragged.length > 0) {
           const fileId = drag.ids[0];
           void (async () => {
             try {
               const icon = iconForDrag(dragIconRef.current ?? (await fallbackDragIconPath()));
               dragIconRef.current = icon;
-              const prepared = await api.prepareDragPaths(paths, icon);
+              const prepared = await api.prepareDragPaths(
+                dragged.map((file) => ({ path: file.absolutePath, fileName: file.originalName, ext: file.ext })),
+                icon,
+              );
               debugLog("drag-out", {
                 selected: drag.ids.length,
                 iconKind: "drag.png",
                 iconBytes: prepared.iconBytes,
                 msToStart: Math.round(performance.now() - leftAt),
+                paths: prepared.paths,
                 reports: prepared.reports,
               });
               if (prepared.skipped.length > 0) {
@@ -1122,10 +1127,11 @@ export function App() {
         <Modal>
           <div className="card">
             <h2>{busy ?? "Working"}</h2>
-            <p>
-              {progress?.message}
-              {progress && progress.total > 0 ? ` · ${progress.current} of ${progress.total}` : null}
-            </p>
+            <ImportProgressLines
+              current={progress?.current ?? 0}
+              total={progress?.total ?? 0}
+              message={progress?.message ?? ""}
+            />
             <div className="progress-track">
               <div
                 className="progress-bar"

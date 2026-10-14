@@ -547,6 +547,23 @@ button:focus-visible {
   padding: var(--space-4);
 }
 
+.progress-count {
+  width: 22ch;
+  overflow: hidden;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  line-height: 1.4;
+}
+
+.progress-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
 .progress-track {
   height: 6px;
   background: var(--color-bg-sunken);
