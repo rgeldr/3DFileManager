@@ -1,6 +1,6 @@
 [package]
 name = "file-library"
-version = "26.10.13"
+version = "26.10.14"
 description = "3D File Library"
 authors = ["Jason"]
 edition = "2021"

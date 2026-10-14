@@ -1135,7 +1135,7 @@ dependencies = [
 
 [[package]]
 name = "file-library"
-version = "26.10.13"
+version = "26.10.14"
 dependencies = [
  "base64 0.22.1",
  "dirs 6.0.0",
