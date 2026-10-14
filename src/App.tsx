@@ -6,7 +6,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { Menu, MenuItem, PredefinedMenuItem, Submenu, CheckMenuItem } from "@tauri-apps/api/menu";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
-import { openPath, openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { api } from "./api";
 import { FileGrid } from "./components/FileGrid";
@@ -119,8 +119,8 @@ export function App() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [aboutVersion, setAboutVersion] = useState<string | null>(null);
   const [aboutVersionFailed, setAboutVersionFailed] = useState(false);
-  const [dragFailure, setDragFailure] = useState<{ message: string; path: string } | null>(null);
-  const [fileMenu, setFileMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+  const [dragFailure, setDragFailure] = useState<{ message: string; fileId: number } | null>(null);
+  const [fileMenu, setFileMenu] = useState<{ x: number; y: number; fileId: number } | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const [inspectorWidth, setInspectorWidth] = useState(320);
   const [folderTagInput, setFolderTagInput] = useState("");
@@ -753,6 +753,7 @@ export function App() {
         const paths = files.filter((file) => drag.ids.includes(file.id)).map((file) => file.absolutePath);
         const leftAt = performance.now();
         if (paths.length > 0) {
+          const fileId = drag.ids[0];
           void (async () => {
             try {
               const icon = iconForDrag(dragIconRef.current ?? (await fallbackDragIconPath()));
@@ -770,14 +771,14 @@ export function App() {
               }
               if (prepared.paths.length === 0) {
                 const message = prepared.reports.map((item) => item.error).filter(Boolean).join("\n") || "Could not drag these files.";
-                setDragFailure({ message, path: paths[0] });
+                setDragFailure({ message, fileId });
                 return;
               }
               await startDrag({ item: prepared.paths, icon });
               debugLog("drag-result", { ok: true, ms: Math.round(performance.now() - leftAt) });
             } catch (err) {
               debugLog("drag-result", { ok: false, error: String(err), ms: Math.round(performance.now() - leftAt) });
-              setDragFailure({ message: String(err), path: paths[0] });
+              setDragFailure({ message: String(err), fileId });
             }
           })();
         }
@@ -1045,10 +1046,10 @@ export function App() {
               onSelect={onSelect}
               onSelectionChange={setSelected}
               onOpen={(file) => {
-                void openPath(file.absolutePath).catch((err) => setError(String(err)));
+                void api.openInDefaultApp(file.id).catch((err) => setError(String(err)));
               }}
               onContextMenu={(event, file) => {
-                setFileMenu({ x: event.clientX, y: event.clientY, path: file.absolutePath });
+                setFileMenu({ x: event.clientX, y: event.clientY, fileId: file.id });
               }}
             />
           </div>
@@ -1394,7 +1395,7 @@ export function App() {
               <button
                 type="button"
                 onClick={() => {
-                  void openPath(dragFailure.path).catch((err) => setError(String(err)));
+                  void api.openInDefaultApp(dragFailure.fileId).catch((err) => setError(String(err)));
                 }}
               >
                 Open
@@ -1402,7 +1403,7 @@ export function App() {
               <button
                 type="button"
                 onClick={() => {
-                  void revealItemInDir(dragFailure.path).catch((err) => setError(String(err)));
+                  void api.revealFile(dragFailure.fileId).catch((err) => setError(String(err)));
                 }}
               >
                 Show in Explorer
@@ -1515,9 +1516,9 @@ export function App() {
                 type="button"
                 role="menuitem"
                 onClick={() => {
-                  const path = fileMenu.path;
+                  const fileId = fileMenu.fileId;
                   setFileMenu(null);
-                  void openPath(path).catch((err) => setError(String(err)));
+                  void api.openInDefaultApp(fileId).catch((err) => setError(String(err)));
                 }}
               >
                 Open
@@ -1526,9 +1527,9 @@ export function App() {
                 type="button"
                 role="menuitem"
                 onClick={() => {
-                  const path = fileMenu.path;
+                  const fileId = fileMenu.fileId;
                   setFileMenu(null);
-                  void revealItemInDir(path).catch((err) => setError(String(err)));
+                  void api.revealFile(fileId).catch((err) => setError(String(err)));
                 }}
               >
                 Show in Explorer

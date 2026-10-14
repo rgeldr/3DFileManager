@@ -11,6 +11,11 @@ fn link_gnu_test_manifest() {
     if !target.contains("windows-gnu") {
         return;
     }
+    // Release app binary already gets a manifest from tauri-winres; linking ours too
+    // triggers GNU ld ".rsrc merge failure: multiple non-default manifests".
+    if std::env::var("CARGO_CFG_DEBUG_ASSERTIONS").is_err() {
+        return;
+    }
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let rc = std::path::Path::new(&manifest_dir).join("windows/controls.manifest.rc");

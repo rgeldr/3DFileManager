@@ -82,8 +82,8 @@ export function LazyThumb({
   if (!previewIconsEnabled || !file.thumbPath || !showImage || failed) {
     return (
       <div className="thumb" ref={tileRef}>
-        {file.ext === "pdf" ? (
-          <span className="type-icon type-icon-pdf">PDF</span>
+        {file.ext === "pdf" || file.ext === "txt" ? (
+          <span className={`type-icon type-icon-${file.ext}`}>{file.ext.toUpperCase()}</span>
         ) : (
           <span className="type-icon">{file.ext.toUpperCase()}</span>
         )}

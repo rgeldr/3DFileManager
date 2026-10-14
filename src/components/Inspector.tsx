@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
+import { api } from "../api";
 import type { FileRow, FolderRow } from "../types";
 import { Viewer } from "./Viewer";
 
@@ -133,8 +133,8 @@ export function Inspector({
         {file.sourceArchive ? <p className="muted">From archive: {file.sourceArchive}</p> : null}
         <div className="row">
           <button type="submit" className="primary">Save</button>
-          <button type="button" onClick={() => void openPath(file.absolutePath)}>Open</button>
-          <button type="button" onClick={() => void revealItemInDir(file.absolutePath)}>
+          <button type="button" onClick={() => void api.openInDefaultApp(file.id)}>Open</button>
+          <button type="button" onClick={() => void api.revealFile(file.id)}>
             Show in Explorer
           </button>
           <button type="button" onClick={() => onDelete(file.id)}>Delete</button>

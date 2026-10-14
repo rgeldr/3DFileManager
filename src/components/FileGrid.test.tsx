@@ -66,6 +66,15 @@ describe("LazyThumb", () => {
     expect(view.container.querySelector("img")).toBeNull();
   });
 
+  it("shows a TXT badge when the file is a text document", () => {
+    const view = render(
+      <LazyThumb file={file({ ext: "txt", thumbPath: null, originalName: "notes.txt" })} previewIconsEnabled scrollRoot={null} />,
+    );
+    const badge = view.container.querySelector(".type-icon-txt");
+    expect(badge?.textContent).toBe("TXT");
+    expect(view.container.querySelector("img")).toBeNull();
+  });
+
   it("shows the extension when there is no thumbnail", () => {
     const view = render(<LazyThumb file={file({ thumbPath: null, ext: "png" })} previewIconsEnabled scrollRoot={null} />);
     expect(screen.getByText("PNG")).toBeTruthy();
