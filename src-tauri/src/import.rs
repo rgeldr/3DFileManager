@@ -4,6 +4,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use rusqlite::OptionalExtension;
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 use zip::ZipArchive;
@@ -157,6 +158,8 @@ impl ImportBatch {
 struct FolderCache {
     relpath_by_id: HashMap<i64, String>,
     id_by_relpath: HashMap<String, i64>,
+    /// Folders inserted by this import, parents before children.
+    created: Vec<(i64, String)>,
 }
 
 impl FolderCache {
@@ -170,6 +173,7 @@ impl FolderCache {
         Ok(Self {
             relpath_by_id,
             id_by_relpath,
+            created: Vec::new(),
         })
     }
 
@@ -216,7 +220,8 @@ impl FolderCache {
                 .map_err(|e| e.to_string())?;
             let id = db.conn.last_insert_rowid();
             self.relpath_by_id.insert(id, relpath.clone());
-            self.id_by_relpath.insert(relpath, id);
+            self.id_by_relpath.insert(relpath.clone(), id);
+            self.created.push((id, relpath));
             current = Some(id);
         }
         Ok(current)
@@ -324,6 +329,7 @@ pub fn import_paths<F: FnMut(ImportProgress)>(
                     &mut batch,
                     &path,
                     target_folder,
+                    Path::new(""),
                     None,
                     0,
                     cancelled,
@@ -338,6 +344,7 @@ pub fn import_paths<F: FnMut(ImportProgress)>(
                     &mut batch,
                     &path,
                     target_folder,
+                    Path::new(""),
                     0,
                     cancelled,
                     &mut summary,
@@ -351,6 +358,7 @@ pub fn import_paths<F: FnMut(ImportProgress)>(
                     &mut batch,
                     &path,
                     target_folder,
+                    Path::new(""),
                     None,
                     true,
                     &mut summary,
@@ -366,6 +374,12 @@ pub fn import_paths<F: FnMut(ImportProgress)>(
     })();
     if let Err(err) = import_result {
         batch.rollback(db);
+        remove_empty_created_dirs(&library_root, &folder_cache.created);
+        return Err(err);
+    }
+    if let Err(err) = prune_created_empty_folders(db, &library_root, &folder_cache.created) {
+        batch.rollback(db);
+        remove_empty_created_dirs(&library_root, &folder_cache.created);
         return Err(err);
     }
     if batch.finish(db).is_err() {
@@ -409,6 +423,16 @@ fn count_jobs(jobs: &[PathBuf], cancelled: &AtomicBool) -> Result<u32, String> {
     Ok(total)
 }
 
+fn join_rel(prefix: &Path, rel: &Path) -> PathBuf {
+    if prefix.as_os_str().is_empty() {
+        rel.to_path_buf()
+    } else if rel.as_os_str().is_empty() {
+        prefix.to_path_buf()
+    } else {
+        prefix.join(rel)
+    }
+}
+
 fn import_tree<F: FnMut(ImportProgress)>(
     db: &mut AppDb,
     library_root: &Path,
@@ -416,6 +440,7 @@ fn import_tree<F: FnMut(ImportProgress)>(
     batch: &mut ImportBatch,
     source_root: &Path,
     target_folder: Option<i64>,
+    rel_prefix: &Path,
     source_archive: Option<&str>,
     archive_depth: u8,
     cancelled: &AtomicBool,
@@ -445,8 +470,7 @@ fn import_tree<F: FnMut(ImportProgress)>(
             .strip_prefix(source_root)
             .unwrap_or(Path::new(""))
             .to_path_buf();
-        let folder_id =
-            folder_cache.ensure_folder_chain(db, library_root, target_folder, &rel_parent)?;
+        let relative_dir = join_rel(rel_prefix, &rel_parent);
         if is_archive(&ext) {
             if archive_depth < 1 {
                 import_archive(
@@ -455,7 +479,8 @@ fn import_tree<F: FnMut(ImportProgress)>(
                     folder_cache,
                     batch,
                     path,
-                    folder_id,
+                    target_folder,
+                    &relative_dir,
                     archive_depth + 1,
                     cancelled,
                     summary,
@@ -473,7 +498,8 @@ fn import_tree<F: FnMut(ImportProgress)>(
             folder_cache,
             batch,
             path,
-            folder_id,
+            target_folder,
+            &relative_dir,
             source_archive,
             source_archive.is_none(),
             summary,
@@ -490,6 +516,7 @@ fn import_archive<F: FnMut(ImportProgress)>(
     batch: &mut ImportBatch,
     archive_path: &Path,
     target_folder: Option<i64>,
+    parent_rel: &Path,
     depth: u8,
     cancelled: &AtomicBool,
     summary: &mut ImportOutcome,
@@ -526,19 +553,16 @@ fn import_archive<F: FnMut(ImportProgress)>(
     let archive_name = archive_path
         .file_name()
         .map(|s| s.to_string_lossy().to_string());
-    let holder = folder_cache.ensure_folder_chain(
-        db,
-        library_root,
-        target_folder,
-        Path::new(&stem),
-    )?;
+    // The archive folder is created only when a file inside it is stored.
+    let prefix = join_rel(parent_rel, Path::new(&stem));
     import_tree(
         db,
         library_root,
         folder_cache,
         batch,
         &temp,
-        holder,
+        target_folder,
+        &prefix,
         archive_name.as_deref(),
         depth,
         cancelled,
@@ -565,7 +589,8 @@ fn import_file(
     folder_cache: &mut FolderCache,
     batch: &mut ImportBatch,
     source: &Path,
-    folder_id: Option<i64>,
+    parent_folder: Option<i64>,
+    relative_dir: &Path,
     source_archive: Option<&str>,
     can_recycle: bool,
     summary: &mut ImportOutcome,
@@ -579,16 +604,49 @@ fn import_file(
         summary.unsupported_count += 1;
         return Ok(());
     }
+
+    let force_copy = force_copy_enabled();
+    // Hash before creating folders when the file will be copied. A duplicate
+    // then never creates its destination folder. Hard links still need the
+    // destination directory first; an empty folder from a failed link is
+    // removed by prune_created_empty_folders.
+    if force_copy {
+        let sha = match hash_file(source) {
+            Ok(sha) => sha,
+            Err(err) => {
+                summary.failed.push(format!("{}: {err}", source.display()));
+                return Ok(());
+            }
+        };
+        if db.sha_exists(&sha)? {
+            summary.duplicate_count += 1;
+            remember_recycle(summary, source, can_recycle);
+            return Ok(());
+        }
+        let folder_id =
+            folder_cache.ensure_folder_chain(db, library_root, parent_folder, relative_dir)?;
+        return store_copied_file(
+            db,
+            library_root,
+            folder_cache,
+            batch,
+            source,
+            folder_id,
+            &file_name,
+            &ext,
+            &sha,
+            source_archive,
+            can_recycle,
+            summary,
+        );
+    }
+
+    let folder_id =
+        folder_cache.ensure_folder_chain(db, library_root, parent_folder, relative_dir)?;
     let dest_dir = folder_cache.dest_dir(library_root, folder_id)?;
     fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
     let dest = unique_file_path(&dest_dir, &file_name);
-
-    let force_copy = force_copy_enabled();
-    let linked = if !force_copy {
-        fs::hard_link(source, &dest).is_ok()
-    } else {
-        false
-    };
+    let linked = fs::hard_link(source, &dest).is_ok();
 
     if linked {
         let meta = dest.metadata().map_err(|e| e.to_string())?;
@@ -640,6 +698,39 @@ fn import_file(
         remember_recycle(summary, source, can_recycle);
         return Ok(());
     }
+    store_copied_file(
+        db,
+        library_root,
+        folder_cache,
+        batch,
+        source,
+        folder_id,
+        &file_name,
+        &ext,
+        &sha,
+        source_archive,
+        can_recycle,
+        summary,
+    )
+}
+
+fn store_copied_file(
+    db: &mut AppDb,
+    library_root: &Path,
+    folder_cache: &mut FolderCache,
+    batch: &mut ImportBatch,
+    source: &Path,
+    folder_id: Option<i64>,
+    file_name: &str,
+    ext: &str,
+    sha: &str,
+    source_archive: Option<&str>,
+    can_recycle: bool,
+    summary: &mut ImportOutcome,
+) -> Result<(), String> {
+    let dest_dir = folder_cache.dest_dir(library_root, folder_id)?;
+    fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+    let dest = unique_file_path(&dest_dir, file_name);
     if let Err(err) = fs::copy(source, &dest) {
         summary
             .failed
@@ -665,11 +756,11 @@ fn import_file(
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
     match db.insert_file(
-        &file_name,
+        file_name,
         &rel,
-        &ext,
+        ext,
         meta.len() as i64,
-        &sha,
+        sha,
         mtime,
         folder_id,
         source_archive,
@@ -1279,6 +1370,113 @@ mod flow_tests {
     }
 
     #[test]
+    fn duplicate_archive_and_folder_do_not_create_empty_folders() {
+        let (data, library, incoming) = scratch();
+        let mut db = open(&data).unwrap();
+        let boot = db.set_library_root(&library).unwrap();
+        let models = boot.folders.iter().find(|f| f.name == "Models").unwrap().id;
+
+        struct ResetForceCopy;
+        impl Drop for ResetForceCopy {
+            fn drop(&mut self) {
+                FORCE_COPY.store(false, Ordering::SeqCst);
+            }
+        }
+        let _reset = ResetForceCopy;
+        FORCE_COPY.store(true, Ordering::SeqCst);
+
+        let bytes = b"solid dup\nendsolid dup\n";
+        let seed = incoming.join("seed.stl");
+        fs::write(&seed, bytes).unwrap();
+        let seeded = import_paths(
+            &mut db,
+            &[seed.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(seeded.imported_count, 1, "{:?}", seeded.failed);
+
+        let kept = db.create_folder(Some(models), "Keep Empty", 0).unwrap();
+        assert!(library.join(&kept.relpath).is_dir());
+
+        let zip_path = incoming.join("DupPack.zip");
+        {
+            let file = File::create(&zip_path).unwrap();
+            let mut zip = ZipWriter::new(file);
+            zip.start_file("sub/seed.stl", SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(bytes).unwrap();
+            zip.finish().unwrap();
+        }
+        let archived = import_paths(
+            &mut db,
+            &[zip_path.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(archived.duplicate_count, 1, "{:?}", archived.failed);
+        assert_eq!(archived.imported_count, 0);
+        assert!(db.folder_id_by_relpath("Models/DupPack").unwrap().is_none());
+        assert!(db
+            .folder_id_by_relpath("Models/DupPack/sub")
+            .unwrap()
+            .is_none());
+        assert!(!library.join("Models/DupPack").exists());
+        assert!(library.join(&kept.relpath).is_dir());
+
+        let pack = incoming.join("FolderPack");
+        fs::create_dir_all(pack.join("dups")).unwrap();
+        fs::create_dir_all(pack.join("real")).unwrap();
+        fs::create_dir_all(pack.join("Keep Empty")).unwrap();
+        fs::write(pack.join("dups").join("seed.stl"), bytes).unwrap();
+        fs::write(pack.join("Keep Empty").join("seed.stl"), bytes).unwrap();
+        fs::write(
+            pack.join("real").join("part.stl"),
+            b"solid fresh\nendsolid fresh\n",
+        )
+        .unwrap();
+        let folder_import = import_paths(
+            &mut db,
+            &[pack.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(folder_import.imported_count, 1, "{:?}", folder_import.failed);
+        assert_eq!(folder_import.duplicate_count, 2);
+        assert!(library.join("Models/real/part.stl").is_file());
+        assert!(db.folder_id_by_relpath("Models/real").unwrap().is_some());
+        assert!(db.folder_id_by_relpath("Models/dups").unwrap().is_none());
+        assert!(!library.join("Models/dups").exists());
+        assert!(library.join(&kept.relpath).is_dir());
+        assert!(db
+            .list_folders()
+            .unwrap()
+            .iter()
+            .all(|folder| folder.name != "DupPack" && folder.name != "dups" && folder.name != "sub"));
+        assert_eq!(
+            db.folder_id_by_relpath(&kept.relpath).unwrap(),
+            Some(kept.id)
+        );
+        let kept_files: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE folder_id = ?1",
+                [kept.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(kept_files, 0);
+
+        let _ = fs::remove_dir_all(data.parent().unwrap());
+    }
+
+    #[test]
     fn hash_error_keeps_file_and_continues() {
         let (data, library, incoming) = scratch();
         let mut db = open(&data).unwrap();
@@ -1353,6 +1551,61 @@ mod flow_tests {
             .unwrap();
         assert_eq!(status, "unhashed");
         let _ = fs::remove_dir_all(data.parent().unwrap());
+    }
+}
+
+/// Drop folders this import created when nothing was stored in them or in a
+/// descendant. Folders that already existed are not in `created` and stay,
+/// even when they are empty.
+fn prune_created_empty_folders(
+    db: &mut AppDb,
+    library_root: &Path,
+    created: &[(i64, String)],
+) -> Result<(), String> {
+    for (id, rel) in created.iter().rev() {
+        let still_there: bool = db
+            .conn
+            .query_row("SELECT 1 FROM folders WHERE id = ?1", [id], |_| Ok(true))
+            .optional()
+            .map_err(|e| e.to_string())?
+            .unwrap_or(false);
+        if !still_there {
+            continue;
+        }
+        let child: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM folders WHERE parent_id = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        let files: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE folder_id = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if child > 0 || files > 0 {
+            continue;
+        }
+        let dir = library_root.join(rel);
+        if dir.exists() && !dir_is_completely_empty(&dir) {
+            continue;
+        }
+        db.delete_folder(*id)?;
+    }
+    Ok(())
+}
+
+fn remove_empty_created_dirs(library_root: &Path, created: &[(i64, String)]) {
+    for (_, rel) in created.iter().rev() {
+        let dir = library_root.join(rel);
+        if dir_is_completely_empty(&dir) {
+            let _ = fs::remove_dir(&dir);
+        }
     }
 }
 

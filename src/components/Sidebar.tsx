@@ -224,6 +224,7 @@ export function Sidebar({
 
   const onFolderRowPointerDown = (event: React.PointerEvent, folderId: number) => {
     if (event.button !== 0) return;
+    if (event.currentTarget instanceof HTMLElement) event.currentTarget.focus();
     if ((event.target as HTMLElement).closest(".tree-twist")) return;
     folderDragRef.current = {
       folderId,
@@ -366,6 +367,9 @@ export function Sidebar({
           data-folder-id="root"
           data-tree-key={ROOT_KEY}
           tabIndex={0}
+          onPointerDown={(event) => {
+            if (event.button === 0 && event.currentTarget instanceof HTMLElement) event.currentTarget.focus();
+          }}
           onKeyDown={(event) => onTreeKeyDown(event, ROOT_KEY, null, rootKids)}
           onContextMenu={(event) => openFolderContextMenu(event, ROOT_KEY, null)}
         >

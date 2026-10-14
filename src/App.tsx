@@ -13,6 +13,7 @@ import { FileGrid } from "./components/FileGrid";
 import { Inspector } from "./components/Inspector";
 import { Sidebar } from "./components/Sidebar";
 import { debugLog } from "./debugLog";
+import { deleteKeyCommand, deleteKeyFocus, focusedFolderId, isTypingTarget } from "./lib/deleteKey";
 import { iconForDrag } from "./lib/dragPaths";
 import { importMetaPayload } from "./lib/importMeta";
 import { clampInspector, clampSidebar } from "./lib/paneWidths";
@@ -361,6 +362,59 @@ export function App() {
   const dialogOpen = Boolean(
     busy || progress || summary || namePrompt || deleteConfirm || missingOpen || error || diskDialog || aboutOpen || creatorTarget || dragFailure,
   );
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const focus = deleteKeyFocus(event.target);
+      const folderId = focus === "sidebar"
+        ? (focusedFolderId(event.target) ?? (browse.type === "folder" ? browse.id : null))
+        : null;
+      const command = deleteKeyCommand({
+        key: event.key,
+        typing: isTypingTarget(event.target),
+        dialogOpen: Boolean(
+          dialogOpen || folderTagTarget || fileMenu,
+        ),
+        focus,
+        selectedCount: selected.length,
+        folderId,
+      });
+      if (!command) return;
+      event.preventDefault();
+      if (command === "folder" && folderId != null) {
+        openDeleteFolderConfirm(folderId);
+        return;
+      }
+      const ids = selected;
+      if (ids.length === 0) return;
+      const one = ids.length === 1 ? files.find((file) => file.id === ids[0]) : null;
+      const title = one ? `Deleting "${one.sortName}"...` : `Deleting ${ids.length} files...`;
+      const success = one ? `Deleted "${one.sortName}"` : `Deleted ${ids.length} files`;
+      void runDiskOp({
+        title,
+        cancellable: true,
+        success,
+        cancelled: "Delete cancelled",
+        run: () => api.deleteFiles(ids),
+        after: async () => {
+          setSelected([]);
+          await refreshLists();
+        },
+      });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [
+    browse,
+    dialogOpen,
+    fileMenu,
+    files,
+    folderTagTarget,
+    openDeleteFolderConfirm,
+    refreshLists,
+    runDiskOp,
+    selected,
+  ]);
 
   useEffect(() => {
     debugLog("dialogs", {
@@ -981,7 +1035,7 @@ export function App() {
           </div>
         ) : null}
         <div className="workspace">
-          <div className="grid-wrap" ref={gridScrollRef}>
+          <div className="grid-wrap" ref={gridScrollRef} tabIndex={-1}>
             <FileGrid
               files={files}
               gridSize={settings.gridSize}
@@ -989,6 +1043,7 @@ export function App() {
               previewIconsEnabled={previewIconsEnabled}
               scrollRootRef={gridScrollRef}
               onSelect={onSelect}
+              onSelectionChange={setSelected}
               onContextMenu={(event, file) => {
                 setFileMenu({ x: event.clientX, y: event.clientY, path: file.absolutePath });
               }}

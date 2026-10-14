@@ -31,6 +31,76 @@ export function columnCount(width: number, tile: number): number {
   return Math.max(1, Math.floor((width + GRID_GAP) / (tile + GRID_GAP)));
 }
 
+/** Track width after CSS grid stretches `minmax(tile, 1fr)` columns. */
+export function columnWidth(width: number, tile: number): number {
+  const columns = columnCount(width, tile);
+  if (width <= 0) return tile;
+  return (width - (columns - 1) * GRID_GAP) / columns;
+}
+
+export type GridRect = { x: number; y: number; width: number; height: number };
+
+export function normalizeRect(x1: number, y1: number, x2: number, y2: number): GridRect {
+  return {
+    x: Math.min(x1, x2),
+    y: Math.min(y1, y2),
+    width: Math.abs(x2 - x1),
+    height: Math.abs(y2 - y1),
+  };
+}
+
+export function clientToContent(client: number, origin: number, scroll: number, padding: number): number {
+  return client - origin - padding + scroll;
+}
+
+export function contentToClient(content: number, origin: number, scroll: number, padding: number): number {
+  return content + origin + padding - scroll;
+}
+
+export function rectsIntersect(a: GridRect, b: GridRect): boolean {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+/** File indexes whose tile border boxes meet `rect` in content coordinates. */
+export function marqueeHitIndices(input: {
+  count: number;
+  width: number;
+  tile: number;
+  rect: GridRect;
+}): number[] {
+  if (input.count <= 0 || input.rect.width <= 0 || input.rect.height <= 0 || input.width <= 0) return [];
+  const columns = columnCount(input.width, input.tile);
+  const stride = rowStride(input.tile);
+  const colW = columnWidth(input.width, input.tile);
+  const rowH = input.tile + TILE_CHROME;
+  const cell = colW + GRID_GAP;
+  const rows = Math.ceil(input.count / columns);
+  const firstRow = Math.max(0, Math.floor(input.rect.y / stride));
+  const lastRow = Math.min(rows - 1, Math.floor((input.rect.y + input.rect.height) / stride));
+  const hits: number[] = [];
+  for (let row = firstRow; row <= lastRow; row += 1) {
+    for (let col = 0; col < columns; col += 1) {
+      const index = row * columns + col;
+      if (index >= input.count) break;
+      const tileRect = { x: col * cell, y: row * stride, width: colW, height: rowH };
+      if (rectsIntersect(tileRect, input.rect)) hits.push(index);
+    }
+  }
+  return hits;
+}
+
+export function mergeSelection(base: number[], hits: number[], additive: boolean): number[] {
+  if (!additive) return hits;
+  const seen = new Set(base);
+  const next = base.slice();
+  for (const id of hits) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    next.push(id);
+  }
+  return next;
+}
+
 export function visibleGridWindow(input: {
   count: number;
   width: number;
