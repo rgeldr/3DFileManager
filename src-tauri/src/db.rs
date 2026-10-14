@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::Serialize;
@@ -124,6 +125,8 @@ pub fn open(data_dir: &Path) -> Result<AppDb, String> {
     conn.pragma_update(None, "journal_mode", "WAL")
         .map_err(|e| e.to_string())?;
     conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(|e| e.to_string())?;
+    conn.busy_timeout(Duration::from_secs(5))
         .map_err(|e| e.to_string())?;
     let version: i32 = conn
         .pragma_query_value(None, "user_version", |r| r.get(0))
@@ -909,9 +912,10 @@ impl AppDb {
         tags: Vec<String>,
     ) -> Result<FileRow, String> {
         let absolute = root.join(&seed.stored_relpath);
-        let thumb = thumb_path(&self.data_dir, &seed.sha256);
-        let thumb_path = if seed.thumb_status == "ok" && thumb.exists() {
-            Some(thumb.to_string_lossy().to_string())
+        // Trust thumb_status. A per-file exists() check holds the database lock
+        // across a syscall for every row while the window is waiting on a list.
+        let thumb_path = if seed.thumb_status == "ok" && !seed.sha256.is_empty() {
+            Some(thumb_path(&self.data_dir, &seed.sha256).to_string_lossy().to_string())
         } else {
             None
         };
@@ -1290,6 +1294,57 @@ impl AppDb {
         Ok(false)
     }
 
+    pub fn trash_items(&self, ids: &[i64]) -> Result<Vec<TrashItem>, String> {
+        let root = self.library_root()?;
+        let mut items = Vec::with_capacity(ids.len());
+        for id in ids {
+            let loc = self.file_location(*id)?;
+            let path = root.join(&loc.stored_relpath);
+            let name = Path::new(&loc.stored_relpath)
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or(loc.original_name);
+            let bytes = path.metadata().map(|meta| meta.len()).unwrap_or(0);
+            items.push(TrashItem {
+                id: *id,
+                path,
+                sha256: loc.sha256,
+                name,
+                bytes,
+            });
+        }
+        Ok(items)
+    }
+
+    /// Drop the catalog row and an unshared thumbnail. The caller deletes the library file.
+    pub fn remove_catalogued_file(&self, id: i64, sha256: &str) -> Result<(), String> {
+        let others: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE sha256 = ?1 AND id <> ?2",
+                params![sha256, id],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if others == 0 && !sha256.is_empty() {
+            let _ = std::fs::remove_file(thumb_path(&self.data_dir, sha256));
+        }
+        self.conn
+            .execute("DELETE FROM files WHERE id = ?1", [id])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn release_rendering_thumb(&self, id: i64) -> Result<(), String> {
+        self.conn
+            .execute(
+                "UPDATE files SET thumb_status = 'none' WHERE id = ?1 AND thumb_status = 'rendering'",
+                [id],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     pub fn delete_files(&self, ids: &[i64]) -> Result<(), String> {
         self.delete_files_with(ids, &AtomicBool::new(false), |_| {})
             .map(|_| ())
@@ -1642,6 +1697,14 @@ impl AppDb {
 }
 
 #[derive(Clone)]
+pub struct TrashItem {
+    pub id: i64,
+    pub path: PathBuf,
+    pub sha256: String,
+    pub name: String,
+    pub bytes: u64,
+}
+
 pub struct FileLoc {
     pub stored_relpath: String,
     pub folder_id: Option<i64>,

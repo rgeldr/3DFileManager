@@ -260,11 +260,19 @@ button:focus-visible {
   padding: var(--space-3);
 }
 
+.grid-virtual {
+  position: relative;
+  width: 100%;
+}
+
 .grid {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
   align-content: flex-start;
+  position: absolute;
+  left: 0;
+  right: 0;
 }
 
 .grid.medium { --tile: 96px; }

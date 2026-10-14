@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { debugLog } from "../debugLog";
+import { TILE_PX, visibleGridWindow } from "../lib/gridWindow";
 import type { FileRow, GridSize } from "../types";
 
 export function LazyThumb({
@@ -79,17 +80,38 @@ export function FileGrid({
   onContextMenu?: (event: React.MouseEvent, file: FileRow) => void;
 }) {
   const [scrollRoot, setScrollRoot] = useState<HTMLElement | null>(null);
+  const [frame, setFrame] = useState({ width: 0, height: 0, scrollTop: 0 });
 
   useEffect(() => {
     setScrollRoot(scrollRootRef.current);
   }, [scrollRootRef, files.length]);
 
+  useEffect(() => {
+    const node = scrollRootRef.current;
+    if (!node) return;
+    const update = () => {
+      setFrame({ width: node.clientWidth, height: node.clientHeight, scrollTop: node.scrollTop });
+    };
+    update();
+    node.addEventListener("scroll", update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => {
+      node.removeEventListener("scroll", update);
+      observer.disconnect();
+    };
+  }, [scrollRootRef, files.length, gridSize]);
+
   if (files.length === 0) {
     return <div className="empty">This folder is empty. Drop files here to import them.</div>;
   }
+  const tile = TILE_PX[gridSize];
+  const page = visibleGridWindow({ count: files.length, tile, ...frame });
+  const visible = files.slice(page.start, page.end);
   return (
-    <div className={`grid ${gridSize}`}>
-      {files.map((file) => {
+    <div className="grid-virtual" style={{ height: page.totalHeight }}>
+      <div className={`grid ${gridSize}`} style={{ top: page.padTop }}>
+        {visible.map((file) => {
         const title = [file.sortName, file.creator, file.tags.join(", ")].filter(Boolean).join(" · ");
         return (
           <button
@@ -117,6 +139,7 @@ export function FileGrid({
           </button>
         );
       })}
+      </div>
     </div>
   );
 }

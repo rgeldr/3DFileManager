@@ -9,20 +9,30 @@ use crate::import::hash_file;
 
 static HASH_WORKER_RUNNING: AtomicBool = AtomicBool::new(false);
 
-fn apply_hash_result(db: &AppDb, id: i64, path: &PathBuf) -> Result<(), String> {
-    let sha = match hash_file(path) {
-        Ok(sha) => sha,
-        Err(_) => {
-            db.set_thumb_status(id, "hash_error")?;
-            return Ok(());
+/// Record a hash computed outside the database lock.
+/// `Some(sha)` means the bytes duplicate another file: recycle the path, then
+/// remove this catalog row. The shared thumbnail stays.
+fn commit_hash(db: &AppDb, id: i64, hashed: Result<String, ()>) -> Result<Option<String>, String> {
+    match hashed {
+        Ok(sha) => {
+            if db.sha_exists_other(&sha, id)? {
+                return Ok(Some(sha));
+            }
+            db.set_file_sha_ready(id, &sha)?;
+            Ok(None)
         }
-    };
-    if db.sha_exists_other(&sha, id)? {
-        db.delete_files(&[id])?;
-        return Ok(());
+        Err(()) => {
+            db.set_thumb_status(id, "hash_error")?;
+            Ok(None)
+        }
     }
-    db.set_file_sha_ready(id, &sha)?;
-    Ok(())
+}
+
+fn discard_duplicate(db: &AppDb, id: i64, path: &PathBuf, sha: &str) -> Result<(), String> {
+    if path.exists() {
+        trash::delete(path).map_err(|err| err.to_string())?;
+    }
+    db.remove_catalogued_file(id, sha)
 }
 
 pub fn process_one_unhashed(db: &AppDb) -> Result<bool, String> {
@@ -31,7 +41,10 @@ pub fn process_one_unhashed(db: &AppDb) -> Result<bool, String> {
     };
     let root = db.library_root()?;
     let path = root.join(&candidate.stored_relpath);
-    apply_hash_result(db, candidate.id, &path)?;
+    let hashed = hash_file(&path).map_err(|_| ());
+    if let Some(sha) = commit_hash(db, candidate.id, hashed)? {
+        discard_duplicate(db, candidate.id, &path, &sha)?;
+    }
     Ok(true)
 }
 
@@ -64,14 +77,36 @@ pub fn spawn_hash_pass_if_needed(app: AppHandle, db: Arc<Mutex<AppDb>>) {
             let _ = db.reset_hashing_to_unhashed();
         }
         loop {
-            let step = match db.lock() {
-                Ok(db) => process_one_unhashed(&db),
-                Err(_) => break,
+            let claimed = {
+                let db = match db.lock() {
+                    Ok(db) => db,
+                    Err(_) => break,
+                };
+                match db.claim_next_unhashed() {
+                    Ok(Some(candidate)) => match db.library_root() {
+                        Ok(root) => Some((candidate.id, root.join(candidate.stored_relpath))),
+                        Err(_) => None,
+                    },
+                    Ok(None) => None,
+                    Err(_) => None,
+                }
             };
-            match step {
-                Ok(false) => break,
-                Ok(true) => {}
-                Err(_) => continue,
+            let Some((id, path)) = claimed else {
+                break;
+            };
+            let hashed = hash_file(&path).map_err(|_| ());
+            let duplicate = {
+                let db = match db.lock() {
+                    Ok(db) => db,
+                    Err(_) => break,
+                };
+                commit_hash(&db, id, hashed).ok().flatten()
+            };
+            if let Some(sha) = duplicate {
+                let _ = trash::delete(&path);
+                if let Ok(db) = db.lock() {
+                    let _ = db.remove_catalogued_file(id, &sha);
+                }
             }
         }
         HASH_WORKER_RUNNING.store(false, Ordering::SeqCst);

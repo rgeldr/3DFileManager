@@ -16,7 +16,7 @@ import { debugLog } from "./debugLog";
 import { iconForDrag } from "./lib/dragPaths";
 import { importMetaPayload } from "./lib/importMeta";
 import { clampInspector, clampSidebar } from "./lib/paneWidths";
-import { renderMeshStill } from "./lib/renderThumb";
+import { renderMeshStill, MESH_BYTE_LIMIT } from "./lib/renderThumb";
 import { useTheme } from "./theme/ThemeProvider";
 import type { Browse, FileRow, FolderRow, GridSize, ImportSummary, Settings } from "./types";
 
@@ -287,6 +287,9 @@ export function App() {
 
   const runImportRef = useRef<(paths: string[]) => Promise<void>>(async () => undefined);
 
+  const refreshListsRef = useRef(refreshLists);
+  refreshListsRef.current = refreshLists;
+
   const pumpThumbs = useCallback(async (generation: number) => {
     const stale = () => thumbGeneration.current !== generation;
     let done = 0;
@@ -295,23 +298,34 @@ export function App() {
       await new Promise((resolve) => setTimeout(resolve, 32));
       if (stale()) return;
       const job = await api.nextThumbnail();
+      if (stale()) {
+        if (job?.kind === "render") await api.releaseRenderingThumb(job.id).catch(() => undefined);
+        return;
+      }
       if (!job) break;
       if (job.kind === "render") {
         try {
-          const png = await renderMeshStill(convertFileSrc(job.absolutePath), job.ext);
-          if (stale()) return;
-          await api.saveRenderedThumb(job.id, Array.from(png));
+          if (job.sizeBytes > MESH_BYTE_LIMIT) {
+            await api.markThumbUnavailable(job.id);
+          } else {
+            const png = await renderMeshStill(convertFileSrc(job.absolutePath), job.ext);
+            if (stale()) {
+              await api.releaseRenderingThumb(job.id);
+              return;
+            }
+            await api.saveRenderedThumb(job.id, Array.from(png));
+          }
         } catch {
-          await api.markThumbUnavailable(job.id);
+          if (!stale()) await api.markThumbUnavailable(job.id);
         }
       }
       if (job.kind === "done") {
         done += 1;
-        if (done % 10 === 0 && !stale()) await refreshLists();
+        if (done % 10 === 0 && !stale()) await refreshListsRef.current();
       }
     }
-    if (!stale()) await refreshLists();
-  }, [refreshLists]);
+    if (!stale()) await refreshListsRef.current();
+  }, []);
 
   const runImport = useCallback(async (paths: string[]) => {
     if (paths.length === 0) return;

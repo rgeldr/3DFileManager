@@ -14,6 +14,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -22,7 +23,10 @@ use settings::Settings;
 
 struct AppState {
     db: Arc<Mutex<AppDb>>,
-    import_cancel: AtomicBool,
+    /// Thumbnail claims use this connection so a folder listing never waits on
+    /// image decode, and decode never waits on a folder listing.
+    thumbs: Arc<Mutex<AppDb>>,
+    import_cancel: Arc<AtomicBool>,
     disk_cancel: Arc<AtomicBool>,
     disk_running: AtomicBool,
     last_recycle_paths: Mutex<Vec<String>>,
@@ -82,6 +86,46 @@ where
 
 static DEBUG_LOG_LOCK: Mutex<()> = Mutex::new(());
 
+fn command_log_line(name: &str, ms: u128) -> String {
+    format!("command {name} {ms}ms")
+}
+
+struct CommandTimer {
+    name: &'static str,
+    started: Instant,
+}
+
+impl CommandTimer {
+    fn start(name: &'static str) -> Self {
+        Self {
+            name,
+            started: Instant::now(),
+        }
+    }
+}
+
+impl Drop for CommandTimer {
+    fn drop(&mut self) {
+        let _ = write_debug_log(command_log_line(
+            self.name,
+            self.started.elapsed().as_millis(),
+        ));
+    }
+}
+
+async fn off_ui<T, F>(name: &'static str, work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    let timer = CommandTimer::start(name);
+    let result = tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|err| err.to_string())?;
+    drop(timer);
+    result
+}
+
 fn data_dir() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -95,52 +139,74 @@ fn allow_asset_scope(app: &AppHandle, path: &std::path::Path) {
 }
 
 #[tauri::command]
-fn bootstrap(state: State<AppState>) -> Result<db::Bootstrap, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.bootstrap()
+async fn bootstrap(app: AppHandle) -> Result<db::Bootstrap, String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("bootstrap", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.bootstrap()
+    })
+    .await
 }
 
 #[tauri::command]
-fn set_library_root(app: AppHandle, state: State<AppState>, path: String) -> Result<db::Bootstrap, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let result = db.set_library_root(PathBuf::from(path).as_path())?;
-    if let Some(root) = &result.settings.library_root {
-        allow_asset_scope(&app, PathBuf::from(root).as_path());
-    }
-    allow_asset_scope(&app, &db.data_dir.join("thumbs"));
-    Ok(result)
+async fn set_library_root(app: AppHandle, path: String) -> Result<db::Bootstrap, String> {
+    let db = app.state::<AppState>().db.clone();
+    let scope_app = app.clone();
+    off_ui("set_library_root", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        let result = db.set_library_root(PathBuf::from(path).as_path())?;
+        if let Some(root) = &result.settings.library_root {
+            allow_asset_scope(&scope_app, PathBuf::from(root).as_path());
+        }
+        allow_asset_scope(&scope_app, &db.data_dir.join("thumbs"));
+        Ok(result)
+    })
+    .await
 }
 
 #[tauri::command]
-fn set_theme(state: State<AppState>, theme: String) -> Result<(), String> {
-    if theme != "dark" && theme != "light" {
-        return Err("Unknown theme.".into());
-    }
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let mut settings = db.settings();
-    settings.theme = theme;
-    db.save_settings(&settings)
+async fn set_theme(app: AppHandle, theme: String) -> Result<(), String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("set_theme", move || {
+        if theme != "dark" && theme != "light" {
+            return Err("Unknown theme.".into());
+        }
+        let db = db.lock().map_err(|e| e.to_string())?;
+        let mut settings = db.settings();
+        settings.theme = theme;
+        db.save_settings(&settings)
+    })
+    .await
 }
 
 #[tauri::command]
-fn set_grid_size(state: State<AppState>, grid_size: String) -> Result<(), String> {
-    if !matches!(grid_size.as_str(), "medium" | "large" | "extraLarge") {
-        return Err("Unknown grid size.".into());
-    }
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let mut settings = db.settings();
-    settings.grid_size = grid_size;
-    db.save_settings(&settings)
+async fn set_grid_size(app: AppHandle, grid_size: String) -> Result<(), String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("set_grid_size", move || {
+        if !matches!(grid_size.as_str(), "medium" | "large" | "extraLarge") {
+            return Err("Unknown grid size.".into());
+        }
+        let db = db.lock().map_err(|e| e.to_string())?;
+        let mut settings = db.settings();
+        settings.grid_size = grid_size;
+        db.save_settings(&settings)
+    })
+    .await
 }
 
 #[tauri::command]
-fn create_folder(state: State<AppState>, parent_id: Option<i64>, name: String) -> Result<db::FolderRow, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.create_folder(parent_id, &name, 0)
+async fn create_folder(app: AppHandle, parent_id: Option<i64>, name: String) -> Result<db::FolderRow, String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("create_folder", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.create_folder(parent_id, &name, 0)
+    })
+    .await
 }
 
 #[tauri::command]
 async fn rename_folder(app: AppHandle, id: i64, name: String) -> Result<DiskOutcome, String> {
+    let _timer = CommandTimer::start("rename_folder");
     block_on_disk(app, move |db, cancel, app| {
         let cancelled = db.rename_folder_with(id, &name, cancel, |progress| emit_disk(&app, &progress))?;
         Ok(DiskOutcome { cancelled })
@@ -150,6 +216,7 @@ async fn rename_folder(app: AppHandle, id: i64, name: String) -> Result<DiskOutc
 
 #[tauri::command]
 async fn delete_folder(app: AppHandle, id: i64) -> Result<DiskOutcome, String> {
+    let _timer = CommandTimer::start("delete_folder");
     block_on_disk(app, move |db, _cancel, _app| {
         db.delete_folder(id)?;
         Ok(DiskOutcome { cancelled: false })
@@ -159,6 +226,7 @@ async fn delete_folder(app: AppHandle, id: i64) -> Result<DiskOutcome, String> {
 
 #[tauri::command]
 async fn move_folder(app: AppHandle, id: i64, parent_id: Option<i64>) -> Result<DiskOutcome, String> {
+    let _timer = CommandTimer::start("move_folder");
     block_on_disk(app, move |db, cancel, app| {
         let cancelled = db.move_folder_with(id, parent_id, cancel, false, |progress| {
             emit_disk(&app, &progress)
@@ -180,27 +248,39 @@ struct ListFilesArgs {
 }
 
 #[tauri::command]
-fn list_files(state: State<AppState>, args: ListFilesArgs) -> Result<Vec<db::FileRow>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let filter = match args.folder.as_str() {
-        "all" => FolderFilter::All,
-        "root" => FolderFilter::Root,
-        "id" => FolderFilter::Id(args.folder_id.ok_or("Missing folder id")?),
-        _ => return Err("Unknown folder filter.".into()),
-    };
-    db.list_files(filter, &args.query, &args.creator, &args.tag, &args.sort)
+async fn list_files(app: AppHandle, args: ListFilesArgs) -> Result<Vec<db::FileRow>, String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("list_files", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        let filter = match args.folder.as_str() {
+            "all" => FolderFilter::All,
+            "root" => FolderFilter::Root,
+            "id" => FolderFilter::Id(args.folder_id.ok_or("Missing folder id")?),
+            _ => return Err("Unknown folder filter.".into()),
+        };
+        db.list_files(filter, &args.query, &args.creator, &args.tag, &args.sort)
+    })
+    .await
 }
 
 #[tauri::command]
-fn missing_files(state: State<AppState>) -> Result<Vec<db::FileRow>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.missing_files()
+async fn missing_files(app: AppHandle) -> Result<Vec<db::FileRow>, String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("missing_files", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.missing_files()
+    })
+    .await
 }
 
 #[tauri::command]
-fn remove_missing(state: State<AppState>) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.remove_missing()
+async fn remove_missing(app: AppHandle) -> Result<(), String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("remove_missing", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.remove_missing()
+    })
+    .await
 }
 
 #[tauri::command]
@@ -212,6 +292,7 @@ async fn update_file(
     notes: String,
     folder_id: Option<i64>,
 ) -> Result<DiskOutcome, String> {
+    let _timer = CommandTimer::start("update_file");
     block_on_disk(app, move |db, cancel, handle| {
         let cancelled = db.update_file_with(id, &sort_name, &creator, &notes, folder_id, cancel, |progress| {
             emit_disk(&handle, &progress)
@@ -222,74 +303,114 @@ async fn update_file(
 }
 
 #[tauri::command]
-fn set_tags(state: State<AppState>, id: i64, tags: Vec<String>) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.set_tags(id, &tags)
+async fn set_tags(app: AppHandle, id: i64, tags: Vec<String>) -> Result<(), String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("set_tags", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.set_tags(id, &tags)
+    })
+    .await
 }
 
 #[tauri::command]
-fn add_tags_under_folder(
-    state: State<AppState>,
+async fn add_tags_under_folder(
+    app: AppHandle,
     folder_id: Option<i64>,
     tags: Vec<String>,
 ) -> Result<i64, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.add_tags_under_folder(folder_id, &tags)
+    let db = app.state::<AppState>().db.clone();
+    off_ui("add_tags_under_folder", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.add_tags_under_folder(folder_id, &tags)
+    })
+    .await
 }
 
 #[tauri::command]
-fn apply_bulk_meta(
-    state: State<AppState>,
+async fn apply_bulk_meta(
+    app: AppHandle,
     ids: Vec<i64>,
     creator: Option<String>,
     tags: Option<Vec<String>>,
 ) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.apply_import_meta(&ids, creator.as_deref(), tags.as_deref())
+    let db = app.state::<AppState>().db.clone();
+    off_ui("apply_bulk_meta", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.apply_import_meta(&ids, creator.as_deref(), tags.as_deref())
+    })
+    .await
 }
 
 #[tauri::command]
-fn set_pane_widths(state: State<AppState>, sidebar_width: u32, inspector_width: u32) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.set_pane_widths(sidebar_width, inspector_width)
+async fn set_pane_widths(app: AppHandle, sidebar_width: u32, inspector_width: u32) -> Result<(), String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("set_pane_widths", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.set_pane_widths(sidebar_width, inspector_width)
+    })
+    .await
 }
 
 #[tauri::command]
-fn count_files_for_scope(
-    state: State<AppState>,
+async fn count_files_for_scope(
+    app: AppHandle,
     folder_id: Option<i64>,
     include_subfolders: bool,
 ) -> Result<i64, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    Ok(db.file_ids_for_creator_scope(folder_id, include_subfolders)?.len() as i64)
+    let db = app.state::<AppState>().db.clone();
+    off_ui("count_files_for_scope", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        Ok(db.file_ids_for_creator_scope(folder_id, include_subfolders)?.len() as i64)
+    })
+    .await
 }
 
 #[tauri::command]
-fn set_creator_under_folder(
-    state: State<AppState>,
+async fn set_creator_under_folder(
+    app: AppHandle,
     folder_id: Option<i64>,
     creator: String,
     include_subfolders: bool,
 ) -> Result<i64, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.set_creator_under_folder(folder_id, &creator, include_subfolders)
+    let db = app.state::<AppState>().db.clone();
+    off_ui("set_creator_under_folder", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.set_creator_under_folder(folder_id, &creator, include_subfolders)
+    })
+    .await
 }
 
 #[tauri::command]
-fn prepare_drag_paths(paths: Vec<String>, icon_path: String) -> drag_out::PreparedDrag {
-    drag_out::prepare_drag_paths(&paths, &icon_path)
+async fn prepare_drag_paths(paths: Vec<String>, icon_path: String) -> drag_out::PreparedDrag {
+    let _timer = CommandTimer::start("prepare_drag_paths");
+    tauri::async_runtime::spawn_blocking(move || drag_out::prepare_drag_paths(&paths, &icon_path))
+        .await
+        .unwrap_or_else(|err| drag_out::PreparedDrag {
+            paths: Vec::new(),
+            skipped: vec![err.to_string()],
+            reports: Vec::new(),
+            icon_bytes: 0,
+        })
 }
 
 #[tauri::command]
-fn list_creators(state: State<AppState>) -> Result<Vec<String>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.list_creators()
+async fn list_creators(app: AppHandle) -> Result<Vec<String>, String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("list_creators", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.list_creators()
+    })
+    .await
 }
 
 #[tauri::command]
-fn list_tags(state: State<AppState>) -> Result<Vec<String>, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.list_tags()
+async fn list_tags(app: AppHandle) -> Result<Vec<String>, String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("list_tags", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.list_tags()
+    })
+    .await
 }
 
 #[tauri::command]
@@ -298,18 +419,16 @@ async fn import_paths(
     paths: Vec<String>,
     folder_id: Option<i64>,
 ) -> Result<import::ImportSummary, String> {
+    let _timer = CommandTimer::start("import_paths");
     let _guard = acquire_disk(&app)?;
-    let state = app.state::<AppState>();
-    state.import_cancel.store(false, Ordering::SeqCst);
-    let mut db = state.db.lock().map_err(|e| e.to_string())?;
-    let app_emit = app.clone();
-    let outcome = import::import_paths(
-        &mut db,
-        &paths,
-        folder_id,
-        &state.import_cancel,
-        |progress| {
-            let _ = app_emit.emit(
+    let db = app.state::<AppState>().db.clone();
+    let cancel = app.state::<AppState>().import_cancel.clone();
+    cancel.store(false, Ordering::SeqCst);
+    let emit_app = app.clone();
+    let outcome = tauri::async_runtime::spawn_blocking(move || -> Result<import::ImportOutcome, String> {
+        let mut db = db.lock().map_err(|e| e.to_string())?;
+        let outcome = import::import_paths(&mut db, &paths, folder_id, &cancel, |progress| {
+            let _ = emit_app.emit(
                 "import-progress",
                 serde_json::json!({
                     "current": progress.current,
@@ -317,16 +436,19 @@ async fn import_paths(
                     "message": progress.message,
                 }),
             );
-        },
-    )?;
-    drop(db);
-    if let Ok(mut stored) = state.last_recycle_paths.lock() {
+        })?;
+        drop(db);
+        Ok(outcome)
+    })
+    .await
+    .map_err(|err| err.to_string())??;
+    if let Ok(mut stored) = app.state::<AppState>().last_recycle_paths.lock() {
         *stored = outcome.recycle_paths.clone();
     }
-    if let Ok(mut stored) = state.last_recycle_roots.lock() {
+    if let Ok(mut stored) = app.state::<AppState>().last_recycle_roots.lock() {
         *stored = outcome.recycle_roots.clone();
     }
-    hash_pass::spawn_hash_pass_if_needed(app.clone(), state.db.clone());
+    hash_pass::spawn_hash_pass_if_needed(app.clone(), app.state::<AppState>().db.clone());
     Ok(import::summary_for_api(&outcome))
 }
 
@@ -349,38 +471,49 @@ struct RecycleOutcome {
 
 #[tauri::command]
 async fn recycle_paths(app: AppHandle, paths: Vec<String>) -> Result<RecycleOutcome, String> {
-    block_on_disk(app, move |_db, cancel, handle| {
+    let _timer = CommandTimer::start("recycle_paths");
+    let _guard = acquire_disk(&app)?;
+    let cancel = app.state::<AppState>().disk_cancel.clone();
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
         let (failed, cancelled) =
-            import::recycle_paths_with(&paths, &[], cancel, |progress| emit_disk(&handle, &progress))?;
+            import::recycle_paths_with(&paths, &[], &cancel, |progress| emit_disk(&handle, &progress))?;
         Ok(RecycleOutcome { failed, cancelled })
     })
     .await
+    .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]
 async fn recycle_last_import(app: AppHandle) -> Result<RecycleOutcome, String> {
-    let state = app.state::<AppState>();
-    let paths = state
+    let _timer = CommandTimer::start("recycle_last_import");
+    let paths = app
+        .state::<AppState>()
         .last_recycle_paths
         .lock()
         .map_err(|e| e.to_string())?
         .clone();
-    let roots = state
+    let roots = app
+        .state::<AppState>()
         .last_recycle_roots
         .lock()
         .map_err(|e| e.to_string())?
         .clone();
-    drop(state);
-    block_on_disk(app, move |_db, cancel, handle| {
+    let _guard = acquire_disk(&app)?;
+    let cancel = app.state::<AppState>().disk_cancel.clone();
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
         let (failed, cancelled) =
-            import::recycle_paths_with(&paths, &roots, cancel, |progress| emit_disk(&handle, &progress))?;
+            import::recycle_paths_with(&paths, &roots, &cancel, |progress| emit_disk(&handle, &progress))?;
         Ok(RecycleOutcome { failed, cancelled })
     })
     .await
+    .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]
 async fn move_files(app: AppHandle, ids: Vec<i64>, folder_id: Option<i64>) -> Result<DiskOutcome, String> {
+    let _timer = CommandTimer::start("move_files");
     block_on_disk(app, move |db, cancel, handle| {
         let cancelled = db.move_files_with(&ids, folder_id, cancel, |progress| emit_disk(&handle, &progress))?;
         Ok(DiskOutcome { cancelled })
@@ -390,15 +523,60 @@ async fn move_files(app: AppHandle, ids: Vec<i64>, folder_id: Option<i64>) -> Re
 
 #[tauri::command]
 async fn delete_files(app: AppHandle, ids: Vec<i64>) -> Result<DiskOutcome, String> {
-    block_on_disk(app, move |db, cancel, handle| {
-        let cancelled = db.delete_files_with(&ids, cancel, |progress| emit_disk(&handle, &progress))?;
-        Ok(DiskOutcome { cancelled })
+    let _timer = CommandTimer::start("delete_files");
+    let _guard = acquire_disk(&app)?;
+    let cancel = app.state::<AppState>().disk_cancel.clone();
+    let db = app.state::<AppState>().db.clone();
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let items = {
+            let db = db.lock().map_err(|e| e.to_string())?;
+            db.trash_items(&ids)?
+        };
+        let total = items.len() as u32;
+        for (index, item) in items.iter().enumerate() {
+            if cancel.load(Ordering::SeqCst) {
+                return Ok(DiskOutcome { cancelled: true });
+            }
+            emit_disk(
+                &handle,
+                &relocate::DiskProgress {
+                    current: index as u32,
+                    total,
+                    name: item.name.clone(),
+                    bytes_done: 0,
+                    bytes_total: item.bytes,
+                    cancellable: true,
+                },
+            );
+            if item.path.exists() {
+                trash::delete(&item.path).map_err(|e| e.to_string())?;
+            }
+            {
+                let db = db.lock().map_err(|e| e.to_string())?;
+                db.remove_catalogued_file(item.id, &item.sha256)?;
+            }
+            emit_disk(
+                &handle,
+                &relocate::DiskProgress {
+                    current: (index as u32) + 1,
+                    total,
+                    name: String::new(),
+                    bytes_done: item.bytes,
+                    bytes_total: item.bytes,
+                    cancellable: true,
+                },
+            );
+        }
+        Ok(DiskOutcome { cancelled: false })
     })
     .await
+    .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]
 async fn rescan_library(app: AppHandle) -> Result<rescan::RescanSummary, String> {
+    let _timer = CommandTimer::start("rescan_library");
     block_on_disk(app, move |db, cancel, handle| {
         rescan::rescan_with(db, cancel, |progress| emit_disk(&handle, &progress))
     })
@@ -441,7 +619,7 @@ fn classify_thumb(root: &std::path::Path, candidate: &db::ThumbCandidate) -> Thu
             }
         }
         Err(preview::ThumbFail::Decode(message)) => {
-            let _ = debug_log(format!(
+            let _ = write_debug_log(format!(
                 "thumb-decode id={} path={} error={message}",
                 candidate.id,
                 absolute.display()
@@ -449,7 +627,7 @@ fn classify_thumb(root: &std::path::Path, candidate: &db::ThumbCandidate) -> Thu
             ThumbAction::Unavailable
         }
         Err(preview::ThumbFail::Io(message)) => {
-            let _ = debug_log(format!(
+            let _ = write_debug_log(format!(
                 "thumb-io id={} path={} error={message}",
                 candidate.id,
                 absolute.display()
@@ -485,7 +663,7 @@ fn apply_thumb_action(db: &AppDb, candidate: &db::ThumbCandidate, action: ThumbA
         ThumbAction::Ok(png) => {
             let dest = db::thumb_path(&db.data_dir, &candidate.sha256);
             if let Err(err) = fs::write(&dest, png) {
-                let _ = debug_log(format!("thumb-write id={} error={err}", candidate.id));
+                let _ = write_debug_log(format!("thumb-write id={} error={err}", candidate.id));
                 db.note_thumb_io_failure(candidate.id)?;
                 return Ok(job("skip"));
             }
@@ -496,67 +674,102 @@ fn apply_thumb_action(db: &AppDb, candidate: &db::ThumbCandidate, action: ThumbA
 }
 
 #[tauri::command]
-fn next_thumbnail(state: State<AppState>) -> Result<Option<ThumbJob>, String> {
-    let (candidate, root) = {
-        let db = state.db.lock().map_err(|e| e.to_string())?;
-        let Some(candidate) = db.claim_next_pending_thumb()? else {
-            return Ok(None);
+async fn next_thumbnail(app: AppHandle) -> Result<Option<ThumbJob>, String> {
+    let thumbs = app.state::<AppState>().thumbs.clone();
+    off_ui("next_thumbnail", move || {
+        let (candidate, root) = {
+            let db = thumbs.lock().map_err(|e| e.to_string())?;
+            let Some(candidate) = db.claim_next_pending_thumb()? else {
+                return Ok(None);
+            };
+            let root = db.library_root()?;
+            (candidate, root)
         };
-        let root = db.library_root()?;
-        (candidate, root)
-    };
-    let action = classify_thumb(&root, &candidate);
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    Ok(Some(apply_thumb_action(&db, &candidate, action)?))
+        let action = classify_thumb(&root, &candidate);
+        let db = thumbs.lock().map_err(|e| e.to_string())?;
+        Ok(Some(apply_thumb_action(&db, &candidate, action)?))
+    })
+    .await
 }
 
 #[tauri::command]
-fn save_rendered_thumb(state: State<AppState>, id: i64, png: Vec<u8>) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    let loc = db.file_location(id)?;
-    if loc.sha256.is_empty() {
-        db.set_thumb_status(id, "unhashed")?;
-        return Ok(());
-    }
-    let Some(png) = preview::png_from_bytes(&png) else {
-        db.set_thumb_status(id, "unavailable")?;
-        return Ok(());
-    };
-    let dest = db::thumb_path(&db.data_dir, &loc.sha256);
-    if let Err(err) = fs::write(&dest, png) {
-        let _ = debug_log(format!("thumb-write id={id} error={err}"));
-        db.note_thumb_io_failure(id)?;
-        return Ok(());
-    }
-    db.mark_thumb_ok(id)
+async fn save_rendered_thumb(app: AppHandle, id: i64, png: Vec<u8>) -> Result<(), String> {
+    let thumbs = app.state::<AppState>().thumbs.clone();
+    off_ui("save_rendered_thumb", move || {
+        let db = thumbs.lock().map_err(|e| e.to_string())?;
+        let loc = db.file_location(id)?;
+        if loc.sha256.is_empty() {
+            db.set_thumb_status(id, "unhashed")?;
+            return Ok(());
+        }
+        let Some(png) = preview::png_from_bytes(&png) else {
+            db.set_thumb_status(id, "unavailable")?;
+            return Ok(());
+        };
+        let dest = db::thumb_path(&db.data_dir, &loc.sha256);
+        if let Err(err) = fs::write(&dest, png) {
+            let _ = write_debug_log(format!("thumb-write id={id} error={err}"));
+            db.note_thumb_io_failure(id)?;
+            return Ok(());
+        }
+        db.mark_thumb_ok(id)
+    })
+    .await
 }
 
 #[tauri::command]
-fn mark_thumb_unavailable(state: State<AppState>, id: i64) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.set_thumb_status(id, "unavailable")
+async fn mark_thumb_unavailable(app: AppHandle, id: i64) -> Result<(), String> {
+    let thumbs = app.state::<AppState>().thumbs.clone();
+    off_ui("mark_thumb_unavailable", move || {
+        let db = thumbs.lock().map_err(|e| e.to_string())?;
+        db.set_thumb_status(id, "unavailable")
+    })
+    .await
 }
 
 #[tauri::command]
-fn clear_thumbnail_cache(state: State<AppState>) -> Result<(), String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    db.clear_thumbs()
+async fn release_rendering_thumb(app: AppHandle, id: i64) -> Result<(), String> {
+    let thumbs = app.state::<AppState>().thumbs.clone();
+    off_ui("release_rendering_thumb", move || {
+        let db = thumbs.lock().map_err(|e| e.to_string())?;
+        db.release_rendering_thumb(id)
+    })
+    .await
 }
 
 #[tauri::command]
-fn drag_icon_path(app: AppHandle) -> Result<String, String> {
-    let path = app
-        .path()
-        .resolve("icons/drag.png", tauri::path::BaseDirectory::Resource)
-        .map_err(|e| e.to_string())?;
-    if !path.is_file() {
-        return Err(format!("Drag icon was not found at {}.", path.display()));
-    }
-    Ok(path.to_string_lossy().to_string())
+async fn clear_thumbnail_cache(app: AppHandle) -> Result<(), String> {
+    let thumbs = app.state::<AppState>().thumbs.clone();
+    off_ui("clear_thumbnail_cache", move || {
+        let db = thumbs.lock().map_err(|e| e.to_string())?;
+        db.clear_thumbs()
+    })
+    .await
 }
 
 #[tauri::command]
-fn debug_log(line: String) -> Result<String, String> {
+async fn drag_icon_path(app: AppHandle) -> Result<String, String> {
+    off_ui("drag_icon_path", move || {
+        let path = app
+            .path()
+            .resolve("icons/drag.png", tauri::path::BaseDirectory::Resource)
+            .map_err(|e| e.to_string())?;
+        if !path.is_file() {
+            return Err(format!("Drag icon was not found at {}.", path.display()));
+        }
+        Ok(path.to_string_lossy().to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn debug_log(line: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || write_debug_log(line))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+fn write_debug_log(line: String) -> Result<String, String> {
     let dir = data_dir();
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join("debug.log");
@@ -581,9 +794,13 @@ fn debug_log(line: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn get_settings(state: State<AppState>) -> Result<Settings, String> {
-    let db = state.db.lock().map_err(|e| e.to_string())?;
-    Ok(db.settings())
+async fn get_settings(app: AppHandle) -> Result<Settings, String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("get_settings", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        Ok(db.settings())
+    })
+    .await
 }
 
 pub fn run() {
@@ -595,13 +812,15 @@ pub fn run() {
             let dir = data_dir();
             let db = db::open(&dir).expect("open database");
             requeue_image_thumbs_once(&db);
+            let thumbs = db::open(&dir).expect("open thumbnail database");
             if let Some(root) = db.settings().library_root.clone() {
                 allow_asset_scope(app.handle(), PathBuf::from(&root).as_path());
             }
             allow_asset_scope(app.handle(), &dir.join("thumbs"));
             let state = AppState {
                 db: Arc::new(Mutex::new(db)),
-                import_cancel: AtomicBool::new(false),
+                thumbs: Arc::new(Mutex::new(thumbs)),
+                import_cancel: Arc::new(AtomicBool::new(false)),
                 disk_cancel: Arc::new(AtomicBool::new(false)),
                 disk_running: AtomicBool::new(false),
                 last_recycle_paths: Mutex::new(Vec::new()),
@@ -644,6 +863,7 @@ pub fn run() {
             next_thumbnail,
             save_rendered_thumb,
             mark_thumb_unavailable,
+            release_rendering_thumb,
             clear_thumbnail_cache,
             drag_icon_path,
             prepare_drag_paths,
@@ -718,6 +938,7 @@ mod tests {
             .query_row("SELECT thumb_status FROM files WHERE id = ?1", [empty], |row| row.get(0))
             .unwrap();
         assert_eq!(status, "unhashed");
+        assert_eq!(command_log_line("list_files", 12), "command list_files 12ms");
         let _ = fs::remove_dir_all(&dir);
     }
 }

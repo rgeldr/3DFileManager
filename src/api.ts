@@ -76,6 +76,7 @@ export const api = {
   saveRenderedThumb: (id: number, png: number[]) =>
     invoke<void>("save_rendered_thumb", { id, png }),
   markThumbUnavailable: (id: number) => invoke<void>("mark_thumb_unavailable", { id }),
+  releaseRenderingThumb: (id: number) => invoke<void>("release_rendering_thumb", { id }),
   clearThumbnailCache: () => invoke<void>("clear_thumbnail_cache"),
   debugLog: (line: string) => invoke<string>("debug_log", { line }),
   dragIconPath: () => invoke<string>("drag_icon_path"),
