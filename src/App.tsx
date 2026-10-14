@@ -891,14 +891,17 @@ export function App() {
           <div className="card">
             <h2>{summary.cancelled ? "Import stopped" : "Import finished"}</h2>
             <p>
-              Imported {summary.importedCount}. Duplicates skipped {summary.duplicateCount}. Unsupported {summary.unsupportedCount}.
+              Imported {summary.importedCount}. Duplicates {summary.duplicateCount}. Left in place {summary.leftInPlace}.
+            </p>
+            <p className="muted">
+              Unsupported files will be left in place. Files that failed to import stay in the original folder too.
             </p>
             {summary.pendingHashCount > 0 ? (
               <p>Duplicate checking continues in the background for {summary.pendingHashCount} files.</p>
             ) : null}
             {summary.failed.length > 0 ? <p>{summary.failed.slice(0, 5).join(" ")}</p> : null}
             {summary.recycleCount > 0 ? (
-              <p>Keep the originals, or move them to the Recycle Bin?</p>
+              <p>Keep those originals, or move the imported files and duplicates to the Recycle Bin?</p>
             ) : null}
             <div className="row">
               <button type="button" className="primary" onClick={() => setSummary(null)}>Keep originals</button>

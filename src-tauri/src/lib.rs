@@ -25,6 +25,7 @@ struct AppState {
     disk_cancel: Arc<AtomicBool>,
     disk_running: AtomicBool,
     last_recycle_paths: Mutex<Vec<String>>,
+    last_recycle_roots: Mutex<Vec<String>>,
 }
 
 #[derive(serde::Serialize)]
@@ -306,6 +307,9 @@ async fn import_paths(
     if let Ok(mut stored) = state.last_recycle_paths.lock() {
         *stored = outcome.recycle_paths.clone();
     }
+    if let Ok(mut stored) = state.last_recycle_roots.lock() {
+        *stored = outcome.recycle_roots.clone();
+    }
     hash_pass::spawn_hash_pass_if_needed(app.clone(), state.db.clone());
     Ok(import::summary_for_api(&outcome))
 }
@@ -330,7 +334,8 @@ struct RecycleOutcome {
 #[tauri::command]
 async fn recycle_paths(app: AppHandle, paths: Vec<String>) -> Result<RecycleOutcome, String> {
     block_on_disk(app, move |_db, cancel, handle| {
-        let (failed, cancelled) = import::recycle_paths_with(&paths, cancel, |progress| emit_disk(&handle, &progress))?;
+        let (failed, cancelled) =
+            import::recycle_paths_with(&paths, &[], cancel, |progress| emit_disk(&handle, &progress))?;
         Ok(RecycleOutcome { failed, cancelled })
     })
     .await
@@ -338,14 +343,21 @@ async fn recycle_paths(app: AppHandle, paths: Vec<String>) -> Result<RecycleOutc
 
 #[tauri::command]
 async fn recycle_last_import(app: AppHandle) -> Result<RecycleOutcome, String> {
-    let paths = app
-        .state::<AppState>()
+    let state = app.state::<AppState>();
+    let paths = state
         .last_recycle_paths
         .lock()
         .map_err(|e| e.to_string())?
         .clone();
+    let roots = state
+        .last_recycle_roots
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone();
+    drop(state);
     block_on_disk(app, move |_db, cancel, handle| {
-        let (failed, cancelled) = import::recycle_paths_with(&paths, cancel, |progress| emit_disk(&handle, &progress))?;
+        let (failed, cancelled) =
+            import::recycle_paths_with(&paths, &roots, cancel, |progress| emit_disk(&handle, &progress))?;
         Ok(RecycleOutcome { failed, cancelled })
     })
     .await
@@ -523,6 +535,7 @@ pub fn run() {
                 disk_cancel: Arc::new(AtomicBool::new(false)),
                 disk_running: AtomicBool::new(false),
                 last_recycle_paths: Mutex::new(Vec::new()),
+                last_recycle_roots: Mutex::new(Vec::new()),
             };
             hash_pass::spawn_hash_pass_if_needed(app.handle().clone(), state.db.clone());
             app.manage(state);

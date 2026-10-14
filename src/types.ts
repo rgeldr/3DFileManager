@@ -47,6 +47,7 @@ export interface ImportSummary {
   unsupportedCount: number;
   failed: string[];
   recycleCount: number;
+  leftInPlace: number;
   cancelled: boolean;
   pendingHashCount: number;
 }
