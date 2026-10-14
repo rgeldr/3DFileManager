@@ -84,4 +84,5 @@ export const api = {
     invoke<PreparedDrag>("prepare_drag_paths", { paths, iconPath }),
   openInDefaultApp: (fileId: number) => invoke<void>("open_in_default_app", { fileId }),
   revealFile: (fileId: number) => invoke<void>("reveal_file", { fileId }),
+  textPreview: (fileId: number) => invoke<string>("text_preview", { fileId }),
 };

@@ -1075,7 +1075,7 @@ mod flow_tests {
         fs::create_dir_all(pack.join("nested")).unwrap();
         fs::write(pack.join("a.stl"), b"solid a\nendsolid a\n").unwrap();
         fs::write(pack.join("nested").join("b.stl"), b"solid b\nendsolid b\n").unwrap();
-        fs::write(pack.join("notes.txt"), b"skip").unwrap();
+        fs::write(pack.join("notes.dat"), b"skip").unwrap();
 
         let mut events: Vec<(u32, u32)> = Vec::new();
         let imported = import_paths(
@@ -1152,11 +1152,11 @@ mod flow_tests {
 
         let good = pack.join("good.stl");
         let dup = pack.join("dup.stl");
-        let notes = pack.join("notes.txt");
+        let notes = pack.join("notes.dat");
         let broken = pack.join("keep-fail").join("broken.stl");
-        let also = pack.join("keep-fail").join("also.txt");
+        let also = pack.join("keep-fail").join("also.dat");
         let mixed_stl = pack.join("mixed").join("a.stl");
-        let mixed_notes = pack.join("mixed").join("notes.txt");
+        let mixed_notes = pack.join("mixed").join("notes.dat");
         let deep = pack.join("only-models").join("deep").join("part.stl");
         let hidden_stl = pack.join("has-hidden").join("part.stl");
         let hidden = pack.join("has-hidden").join(".keep");
@@ -1546,6 +1546,7 @@ mod flow_tests {
         let pack = incoming.join("pack");
         fs::create_dir_all(pack.join("docs")).unwrap();
         fs::write(pack.join("notes.txt"), b"leave me").unwrap();
+        fs::write(pack.join("skip.dat"), b"nope").unwrap();
         fs::write(pack.join("docs").join("Assembly Guide.PDF"), guide_bytes).unwrap();
         let fresh = b"%PDF-1.4\nother\n%%EOF\n";
         fs::write(pack.join("docs").join("other.pdf"), fresh).unwrap();
@@ -1557,7 +1558,7 @@ mod flow_tests {
             |_| {},
         )
         .unwrap();
-        assert_eq!(folder_import.imported_count, 1, "{:?}", folder_import.failed);
+        assert_eq!(folder_import.imported_count, 2, "{:?}", folder_import.failed);
         assert_eq!(folder_import.duplicate_count, 1);
         assert_eq!(folder_import.unsupported_count, 1);
         let recycled = |path: &Path| {
@@ -1568,9 +1569,11 @@ mod flow_tests {
         };
         assert!(recycled(&pack.join("docs").join("other.pdf")));
         assert!(recycled(&pack.join("docs").join("Assembly Guide.PDF")));
-        assert!(!recycled(&pack.join("notes.txt")));
+        assert!(recycled(&pack.join("notes.txt")));
+        assert!(!recycled(&pack.join("skip.dat")));
         assert!(library.join("Models/docs/other.pdf").is_file());
-        assert!(!library.join("Models/docs/notes.txt").exists());
+        assert!(library.join("Models/notes.txt").is_file());
+        assert!(!library.join("Models/skip.dat").exists());
 
         let zip_path = incoming.join("Manual.zip");
         {
@@ -1596,6 +1599,123 @@ mod flow_tests {
             .recycle_paths
             .iter()
             .any(|path| path.ends_with("Manual.zip")));
+
+        let _ = fs::remove_dir_all(data.parent().unwrap());
+    }
+
+    #[test]
+    fn txt_imports_from_a_file_folder_and_archive_and_dedupes() {
+        let (data, library, incoming) = scratch();
+        let mut db = open(&data).unwrap();
+        let boot = db.set_library_root(&library).unwrap();
+        let models = boot.folders.iter().find(|f| f.name == "Models").unwrap().id;
+
+        struct ResetForceCopy;
+        impl Drop for ResetForceCopy {
+            fn drop(&mut self) {
+                FORCE_COPY.store(false, Ordering::SeqCst);
+            }
+        }
+        let _reset = ResetForceCopy;
+        FORCE_COPY.store(true, Ordering::SeqCst);
+
+        let note_bytes = b"Line one\nLine two\n";
+        let note = incoming.join("Read Me.TXT");
+        fs::write(&note, note_bytes).unwrap();
+        let first = import_paths(
+            &mut db,
+            &[note.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(first.imported_count, 1, "{:?}", first.failed);
+        assert_eq!(first.unsupported_count, 0);
+        assert_eq!(first.duplicate_count, 0);
+        assert!(first
+            .recycle_paths
+            .iter()
+            .any(|path| path == &note.to_string_lossy().to_string()));
+        assert!(library.join("Models/Read Me.TXT").is_file());
+        let rows = db
+            .list_files(FolderFilter::Id(models), "", "", "", "name")
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].ext, "txt");
+
+        let again = import_paths(
+            &mut db,
+            &[note.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(again.imported_count, 0);
+        assert_eq!(again.duplicate_count, 1);
+        assert_eq!(
+            db.list_files(FolderFilter::Id(models), "", "", "", "name")
+                .unwrap()
+                .len(),
+            1
+        );
+
+        let pack = incoming.join("notes-pack");
+        fs::create_dir_all(pack.join("docs")).unwrap();
+        fs::write(pack.join("docs").join("Read Me.TXT"), note_bytes).unwrap();
+        fs::write(pack.join("docs").join("extra.txt"), b"fresh note\n").unwrap();
+        fs::write(pack.join("docs").join("skip.dat"), b"nope").unwrap();
+        let folder_import = import_paths(
+            &mut db,
+            &[pack.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(folder_import.imported_count, 1, "{:?}", folder_import.failed);
+        assert_eq!(folder_import.duplicate_count, 1);
+        assert_eq!(folder_import.unsupported_count, 1);
+        assert!(folder_import
+            .recycle_paths
+            .iter()
+            .any(|path| path.ends_with("extra.txt")));
+        assert!(folder_import
+            .recycle_paths
+            .iter()
+            .any(|path| path.ends_with("Read Me.TXT")));
+        assert!(!folder_import
+            .recycle_paths
+            .iter()
+            .any(|path| path.ends_with("skip.dat")));
+        assert!(library.join("Models/docs/extra.txt").is_file());
+        assert!(!library.join("Models/docs/skip.dat").exists());
+
+        let zip_path = incoming.join("Notes.zip");
+        {
+            let file = File::create(&zip_path).unwrap();
+            let mut zip = ZipWriter::new(file);
+            zip.start_file("steps/build.txt", SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(b"build notes\n").unwrap();
+            zip.finish().unwrap();
+        }
+        let archived = import_paths(
+            &mut db,
+            &[zip_path.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(archived.imported_count, 1, "{:?}", archived.failed);
+        assert_eq!(archived.unsupported_count, 0);
+        assert!(library.join("Models/Notes/steps/build.txt").is_file());
+        assert!(archived
+            .recycle_paths
+            .iter()
+            .any(|path| path.ends_with("Notes.zip")));
 
         let _ = fs::remove_dir_all(data.parent().unwrap());
     }

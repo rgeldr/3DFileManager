@@ -1,0 +1,64 @@
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import type { FileRow } from "../types";
+import { ThemeProvider } from "../theme/ThemeProvider";
+import { Viewer } from "./Viewer";
+
+vi.mock("@tauri-apps/api/core", () => ({
+  convertFileSrc: (path: string) => `asset://localhost/${path}`,
+  invoke: vi.fn(),
+}));
+
+vi.mock("../api", () => ({
+  api: {
+    textPreview: (fileId: number) => Promise.resolve(fileId === 7 ? "Hello\nworld" : " \n\t "),
+  },
+}));
+
+function file(overrides: Partial<FileRow>): FileRow {
+  return {
+    id: 7,
+    originalName: "notes.txt",
+    sortName: "notes",
+    storedRelpath: "notes.txt",
+    ext: "txt",
+    sizeBytes: 12,
+    sha256: "abc",
+    folderId: null,
+    creator: "",
+    notes: "",
+    sourceArchive: null,
+    importedAt: 1,
+    thumbStatus: "unavailable",
+    missing: false,
+    tags: [],
+    absolutePath: "/library/notes.txt",
+    thumbPath: null,
+    ...overrides,
+  };
+}
+
+describe("Viewer text preview", () => {
+  it("shows the cleaned preview in a read-only block", async () => {
+    render(
+      <ThemeProvider>
+        <Viewer file={file({})} />
+      </ThemeProvider>,
+    );
+    const preview = await screen.findByText(/Hello/);
+    expect(preview.tagName).toBe("PRE");
+    expect(preview.textContent).toBe("Hello\nworld");
+    expect(preview.getAttribute("contenteditable")).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("shows file info when the preview has no printable text", async () => {
+    render(
+      <ThemeProvider>
+        <Viewer file={file({ id: 8, originalName: "empty.txt" })} />
+      </ThemeProvider>,
+    );
+    expect(await screen.findByText("Text file")).toBeTruthy();
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+});

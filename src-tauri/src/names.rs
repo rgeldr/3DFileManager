@@ -109,6 +109,7 @@ pub fn is_supported_file(ext: &str) -> bool {
             | "jpg"
             | "jpeg"
             | "pdf"
+            | "txt"
     )
 }
 
@@ -143,6 +144,14 @@ mod tests {
         assert!(is_supported_file(&extension_of("instructions.PDF")));
         assert!(!is_mesh("pdf"));
         assert!(!is_archive("pdf"));
-        assert!(!is_supported_file("txt"));
+    }
+
+    #[test]
+    fn txt_is_a_supported_file_and_not_a_mesh_or_archive() {
+        assert_eq!(extension_of("Read Me.TXT"), "txt");
+        assert!(is_supported_file("txt"));
+        assert!(is_supported_file(&extension_of("Read Me.TXT")));
+        assert!(!is_mesh("txt"));
+        assert!(!is_archive("txt"));
     }
 }
