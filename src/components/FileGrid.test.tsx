@@ -57,6 +57,15 @@ describe("LazyThumb", () => {
     expect(img?.getAttribute("src")).toContain("abc.png");
   });
 
+  it("shows a PDF badge when the file is a document", () => {
+    const view = render(
+      <LazyThumb file={file({ ext: "pdf", thumbPath: null, originalName: "guide.pdf" })} previewIconsEnabled scrollRoot={null} />,
+    );
+    const badge = view.container.querySelector(".type-icon-pdf");
+    expect(badge?.textContent).toBe("PDF");
+    expect(view.container.querySelector("img")).toBeNull();
+  });
+
   it("shows the extension when there is no thumbnail", () => {
     const view = render(<LazyThumb file={file({ thumbPath: null, ext: "png" })} previewIconsEnabled scrollRoot={null} />);
     expect(screen.getByText("PNG")).toBeTruthy();

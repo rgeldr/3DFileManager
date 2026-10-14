@@ -20,11 +20,11 @@ Help > About shows the running app version and opens this README on GitHub.
 
 ## Formats
 
-Library files: `stl`, `3mf`, `obj`, `gcode`, `bgcode`, `ctb`, `chitubox`, `ags`, `lys`, `png`, `jpg`, `jpeg`.
+Library files: `stl`, `3mf`, `obj`, `gcode`, `bgcode`, `ctb`, `chitubox`, `ags`, `lys`, `png`, `jpg`, `jpeg`, `pdf`.
 
 Archives: `zip`, `rar`, `7z`.
 
-Mesh preview and mesh thumbnails: `stl`, `obj`, and `3mf`, up to 150 MB. PNG and JPG thumbnails are generated in the app, resized so the long edge is at most 256 pixels, and cached by file hash. There is no Lychee preview.
+Mesh preview and mesh thumbnails: `stl`, `obj`, and `3mf`, up to 150 MB. PNG and JPG thumbnails are generated in the app, resized so the long edge is at most 256 pixels, and cached by file hash. PDF files are stored, deduplicated, and shown with a PDF badge. Open and double-click use the system PDF viewer. There is no Lychee preview and no in-app PDF renderer.
 
 ## Install
 

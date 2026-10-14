@@ -82,7 +82,11 @@ export function LazyThumb({
   if (!previewIconsEnabled || !file.thumbPath || !showImage || failed) {
     return (
       <div className="thumb" ref={tileRef}>
-        <span className="type-icon">{file.ext.toUpperCase()}</span>
+        {file.ext === "pdf" ? (
+          <span className="type-icon type-icon-pdf">PDF</span>
+        ) : (
+          <span className="type-icon">{file.ext.toUpperCase()}</span>
+        )}
       </div>
     );
   }
@@ -109,6 +113,7 @@ export function FileGrid({
   scrollRootRef,
   onSelect,
   onSelectionChange,
+  onOpen,
   onContextMenu,
 }: {
   files: FileRow[];
@@ -118,6 +123,7 @@ export function FileGrid({
   scrollRootRef: React.RefObject<HTMLElement | null>;
   onSelect: (id: number, mode: "replace" | "toggle" | "range") => void;
   onSelectionChange: (ids: number[]) => void;
+  onOpen?: (file: FileRow) => void;
   onContextMenu?: (event: React.MouseEvent, file: FileRow) => void;
 }) {
   const [scrollRoot, setScrollRoot] = useState<HTMLElement | null>(null);
@@ -307,6 +313,10 @@ export function FileGrid({
                   onClick={(event) => {
                     const mode = event.shiftKey ? "range" : event.ctrlKey || event.metaKey ? "toggle" : "replace";
                     onSelect(file.id, mode);
+                  }}
+                  onDoubleClick={(event) => {
+                    event.preventDefault();
+                    onOpen?.(file);
                   }}
                   onContextMenu={(event) => {
                     event.preventDefault();
