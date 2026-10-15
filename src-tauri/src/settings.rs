@@ -11,6 +11,10 @@ fn default_inspector_width() -> u32 {
     320
 }
 
+fn default_preview_height() -> u32 {
+    240
+}
+
 fn default_thumb_retry() -> u32 {
     0
 }
@@ -25,6 +29,8 @@ pub struct Settings {
     pub sidebar_width: u32,
     #[serde(default = "default_inspector_width")]
     pub inspector_width: u32,
+    #[serde(default = "default_preview_height")]
+    pub preview_height: u32,
     #[serde(default = "default_thumb_retry")]
     pub thumb_retry: u32,
 }
@@ -37,6 +43,7 @@ impl Default for Settings {
             grid_size: "large".into(),
             sidebar_width: default_sidebar_width(),
             inspector_width: default_inspector_width(),
+            preview_height: default_preview_height(),
             thumb_retry: default_thumb_retry(),
         }
     }
@@ -64,6 +71,13 @@ pub fn check_pane_widths(sidebar_width: u32, inspector_width: u32) -> Result<(),
     Ok(())
 }
 
+pub fn check_preview_height(preview_height: u32) -> Result<(), String> {
+    if !(120..=4000).contains(&preview_height) {
+        return Err("Preview height must be between 120 and 4000.".into());
+    }
+    Ok(())
+}
+
 pub fn save(data_dir: &Path, settings: &Settings) -> Result<(), String> {
     fs::create_dir_all(data_dir).map_err(|e| e.to_string())?;
     let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
@@ -87,15 +101,18 @@ mod tests {
         assert_eq!(loaded.grid_size, "medium");
         assert_eq!(loaded.sidebar_width, 240);
         assert_eq!(loaded.inspector_width, 320);
+        assert_eq!(loaded.preview_height, 240);
         assert_eq!(loaded.thumb_retry, 0);
         let mut next = loaded;
         next.sidebar_width = 360;
         next.inspector_width = 400;
+        next.preview_height = 480;
         next.thumb_retry = 1;
         save(&dir, &next).unwrap();
         let again = load(&dir);
         assert_eq!(again.sidebar_width, 360);
         assert_eq!(again.inspector_width, 400);
+        assert_eq!(again.preview_height, 480);
         assert_eq!(again.thumb_retry, 1);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -108,5 +125,14 @@ mod tests {
         assert!(check_pane_widths(641, 320).is_err());
         assert!(check_pane_widths(240, 239).is_err());
         assert!(check_pane_widths(240, 561).is_err());
+    }
+
+    #[test]
+    fn preview_height_rejects_values_outside_the_saved_range() {
+        assert!(check_preview_height(120).is_ok());
+        assert!(check_preview_height(240).is_ok());
+        assert!(check_preview_height(4000).is_ok());
+        assert!(check_preview_height(119).is_err());
+        assert!(check_preview_height(4001).is_err());
     }
 }

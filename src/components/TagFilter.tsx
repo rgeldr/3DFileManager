@@ -29,7 +29,6 @@ export function TagFilter({
   const listRef = useRef<HTMLDivElement>(null);
   const listId = useId();
   const visible = filterTagOptions(tags, filter);
-  const selected = tags.filter((tag) => selectedIds.includes(tag.id));
 
   useEffect(() => {
     if (!open) {
@@ -84,7 +83,6 @@ export function TagFilter({
   };
 
   return (
-    <>
       <div className="tag-filter-anchor" ref={anchorRef}>
         <button
           type="button"
@@ -150,21 +148,33 @@ export function TagFilter({
           </div>
         ) : null}
       </div>
-      {selected.length > 0 ? (
-        <div className="tag-filter-chips">
-          {selected.map((tag) => (
-            <button
-              key={tag.id}
-              type="button"
-              className="tag"
-              aria-label={`Remove ${tag.name}`}
-              onClick={() => onSelectedIds(toggleTagId(selectedIds, tag.id))}
-            >
-              {tag.name} ×
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </>
+  );
+}
+
+export function TagChips({
+  tags,
+  selectedIds,
+  onSelectedIds,
+}: {
+  tags: TagCount[];
+  selectedIds: number[];
+  onSelectedIds: (ids: number[]) => void;
+}) {
+  const selected = tags.filter((tag) => selectedIds.includes(tag.id));
+  if (selected.length === 0) return null;
+  return (
+    <div className="tag-filter-chips">
+      {selected.map((tag) => (
+        <button
+          key={tag.id}
+          type="button"
+          className="tag"
+          aria-label={`Remove ${tag.name}`}
+          onClick={() => onSelectedIds(toggleTagId(selectedIds, tag.id))}
+        >
+          {tag.name} ×
+        </button>
+      ))}
+    </div>
   );
 }

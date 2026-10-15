@@ -1,4 +1,4 @@
-import type { TagCount } from "../types";
+import type { Browse, TagCount } from "../types";
 
 export type TagFilterKeyAction = "close" | "up" | "down" | "toggle" | "type";
 
@@ -15,6 +15,26 @@ export function toggleTagId(ids: number[], id: number): number[] {
 
 export function tagFilterBadge(count: number): string {
   return count > 0 ? `Tags (${count})` : "Tags";
+}
+
+export function libraryListScope(input: {
+  browse: Browse;
+  query: string;
+  creator: string;
+  selectedTagCount: number;
+}): { folder: "all" | "root" | "id"; folderId: number | null; creator: string } {
+  const queryActive = /[\p{L}\p{N}]/u.test(input.query);
+  const finding = queryActive || input.creator !== "" || input.selectedTagCount > 0;
+  const folder = finding ? "all" : input.browse.type === "root" ? "root" : "id";
+  const folderId = !finding && input.browse.type === "folder" ? input.browse.id : null;
+  return { folder, folderId, creator: input.creator };
+}
+
+export function gridEmptyMessage(input: { selectedTagCount: number; creator: string; query: string }): string {
+  if (input.selectedTagCount > 0) return "No files match the selected tags";
+  const queryActive = /[\p{L}\p{N}]/u.test(input.query);
+  if (queryActive || input.creator !== "") return "No files match the current filters";
+  return "This folder is empty. Drop files here to import them.";
 }
 
 export function moveTagHighlight(index: number, length: number, direction: "up" | "down"): number {

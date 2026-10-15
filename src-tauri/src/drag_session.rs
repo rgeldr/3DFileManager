@@ -1,5 +1,7 @@
+#[cfg(not(windows))]
 use std::path::{Path, PathBuf};
 
+#[cfg(not(windows))]
 use crate::drag_out::drag_result_line;
 
 #[derive(Debug)]

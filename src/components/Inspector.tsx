@@ -1,5 +1,7 @@
+import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { usePreviewSplitter } from "../hooks/usePreviewSplitter";
 import type { FileRow, FolderRow } from "../types";
 import { Viewer } from "./Viewer";
 
@@ -10,6 +12,8 @@ export function Inspector({
   knownTags,
   onSave,
   onDelete,
+  previewHeight,
+  onPreviewHeight,
 }: {
   file: FileRow | null;
   folders: FolderRow[];
@@ -17,6 +21,8 @@ export function Inspector({
   knownTags: string[];
   onSave: (file: FileRow, tags: string[]) => void;
   onDelete: (id: number) => void;
+  previewHeight: number;
+  onPreviewHeight: (height: number) => void;
 }) {
   const [sortName, setSortName] = useState("");
   const [creator, setCreator] = useState("");
@@ -24,6 +30,8 @@ export function Inspector({
   const [folderId, setFolderId] = useState<string>("root");
   const [tagText, setTagText] = useState("");
   const [tags, setTags] = useState<string[]>([]);
+  const split = usePreviewSplitter(previewHeight, onPreviewHeight);
+  const previewStyle = { "--preview-height": `${split.displayed}px` } as CSSProperties;
 
   useEffect(() => {
     if (!file) return;
@@ -37,15 +45,28 @@ export function Inspector({
 
   if (!file) {
     return (
-      <aside className="inspector">
+      <aside ref={split.paneRef} className="inspector">
         <div className="empty inspector-body">Select a file to edit its details and preview.</div>
       </aside>
     );
   }
 
   return (
-    <aside className="inspector">
+    <aside ref={split.paneRef} className="inspector" style={previewStyle}>
       <Viewer file={file} />
+      <div
+        className="preview-splitter"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize preview"
+        aria-valuemin={split.bounds.min}
+        aria-valuemax={split.bounds.max}
+        aria-valuenow={split.displayed}
+        tabIndex={0}
+        onPointerDown={split.onPointerDown}
+        onKeyDown={split.onKeyDown}
+        onDoubleClick={split.onDoubleClick}
+      />
       <form
         className="inspector-body"
         onSubmit={(event) => {

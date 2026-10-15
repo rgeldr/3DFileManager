@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   filterTagOptions,
+  gridEmptyMessage,
+  libraryListScope,
   moveTagHighlight,
   tagFilterBadge,
   tagFilterKeyAction,
@@ -36,6 +38,40 @@ describe("tagFilterBadge", () => {
   it("shows a count only while tags are selected", () => {
     expect(tagFilterBadge(0)).toBe("Tags");
     expect(tagFilterBadge(3)).toBe("Tags (3)");
+  });
+});
+
+describe("libraryListScope", () => {
+  const folder = { type: "folder" as const, id: 9 };
+
+  it("searches the whole library for a tag filter and leaves a blank creator blank", () => {
+    expect(libraryListScope({ browse: folder, query: "", creator: "", selectedTagCount: 1 })).toEqual({
+      folder: "all",
+      folderId: null,
+      creator: "",
+    });
+    expect(libraryListScope({ browse: folder, query: "orc", creator: "Artisan Guild", selectedTagCount: 2 })).toEqual({
+      folder: "all",
+      folderId: null,
+      creator: "Artisan Guild",
+    });
+  });
+
+  it("keeps an unfiltered browse inside the current folder", () => {
+    expect(libraryListScope({ browse: folder, query: "", creator: "", selectedTagCount: 0 })).toEqual({
+      folder: "id",
+      folderId: 9,
+      creator: "",
+    });
+    expect(libraryListScope({ browse: { type: "root" }, query: "   ", creator: "", selectedTagCount: 0 }).folder).toBe("root");
+  });
+});
+
+describe("gridEmptyMessage", () => {
+  it("explains an empty tag filter instead of calling the folder empty", () => {
+    expect(gridEmptyMessage({ selectedTagCount: 1, creator: "", query: "" })).toBe("No files match the selected tags");
+    expect(gridEmptyMessage({ selectedTagCount: 0, creator: "Artisan Guild", query: "" })).toBe("No files match the current filters");
+    expect(gridEmptyMessage({ selectedTagCount: 0, creator: "", query: "" })).toBe("This folder is empty. Drop files here to import them.");
   });
 });
 

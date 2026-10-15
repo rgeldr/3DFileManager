@@ -95,6 +95,27 @@ describe("LazyThumb", () => {
 });
 
 describe("FileGrid", () => {
+  it("shows a filter message when the tag filter matches nothing", () => {
+    const scroller = document.createElement("div");
+    document.body.appendChild(scroller);
+    const view = render(
+      <FileGrid
+        files={[]}
+        emptyMessage="No files match the selected tags"
+        gridSize="large"
+        selected={[]}
+        previewIconsEnabled={false}
+        scrollRootRef={{ current: scroller }}
+        onSelect={() => undefined}
+        onSelectionChange={() => undefined}
+      />,
+      { container: scroller },
+    );
+    expect(view.container.textContent).toContain("No files match the selected tags");
+    view.unmount();
+    scroller.remove();
+  });
+
   it("mounts only the virtual window and keeps the full name on the tile tooltip", () => {
     const files = Array.from({ length: 100 }, (_, index) =>
       file({
