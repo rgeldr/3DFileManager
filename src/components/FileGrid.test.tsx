@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { FileRow } from "../types";
 import { FileGrid, LazyThumb } from "./FileGrid";
@@ -131,6 +131,47 @@ describe("FileGrid", () => {
     const grid = view.container.querySelector(".grid") as HTMLElement;
     expect(grid.style.top).toBe("184px");
     expect(grid.style.getPropertyValue("--grid-row")).toBe("172px");
+    view.unmount();
+    scroller.remove();
+  });
+
+  it("advances the virtual window from the grid scroller, not the page", () => {
+    const files = Array.from({ length: 100 }, (_, index) =>
+      file({ id: index + 1, sortName: `File ${index + 1}`, originalName: `file-${index + 1}.stl`, ext: "stl", thumbPath: null }),
+    );
+    const scroller = document.createElement("div");
+    scroller.className = "grid-wrap";
+    let scrollTop = 0;
+    Object.defineProperty(scroller, "clientWidth", { configurable: true, get: () => 1000 });
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => 400 });
+    Object.defineProperty(scroller, "scrollTop", { configurable: true, get: () => scrollTop });
+    scroller.style.paddingLeft = "12px";
+    scroller.style.paddingRight = "12px";
+    document.body.appendChild(scroller);
+    const ref = { current: scroller };
+    const view = render(
+      <FileGrid
+        files={files}
+        gridSize="large"
+        selected={[]}
+        previewIconsEnabled={false}
+        scrollRootRef={ref}
+        onSelect={() => undefined}
+        onSelectionChange={() => undefined}
+      />,
+      { container: scroller },
+    );
+    expect(view.container.querySelector("[data-file-id]")?.getAttribute("data-file-id")).toBe("1");
+    act(() => {
+      window.dispatchEvent(new Event("scroll"));
+    });
+    expect(view.container.querySelector("[data-file-id]")?.getAttribute("data-file-id")).toBe("1");
+    act(() => {
+      scrollTop = 184 * 3;
+      scroller.dispatchEvent(new Event("scroll"));
+    });
+    expect(view.container.querySelector("[data-file-id]")?.getAttribute("data-file-id")).toBe("8");
+    expect(scroller.classList.contains("grid-wrap")).toBe(true);
     view.unmount();
     scroller.remove();
   });

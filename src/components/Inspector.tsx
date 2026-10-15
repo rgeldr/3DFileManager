@@ -38,7 +38,7 @@ export function Inspector({
   if (!file) {
     return (
       <aside className="inspector">
-        <div className="empty">Select a file to edit its details and preview.</div>
+        <div className="empty inspector-body">Select a file to edit its details and preview.</div>
       </aside>
     );
   }
@@ -47,6 +47,7 @@ export function Inspector({
     <aside className="inspector">
       <Viewer file={file} />
       <form
+        className="inspector-body"
         onSubmit={(event) => {
           event.preventDefault();
           onSave(

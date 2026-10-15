@@ -1,16 +1,22 @@
 .inspector {
   background: var(--color-bg-sidebar);
-  overflow: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
+  height: 100%;
 }
 
 .inspector form,
 .inspector-body {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   gap: var(--space-2);
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
   padding: var(--space-3);
 }
 
@@ -23,6 +29,7 @@
 
 .viewer {
   position: relative;
+  flex: 0 0 240px;
   height: 240px;
   background: var(--viewer-bg);
   border-bottom: 1px solid var(--color-divider);
