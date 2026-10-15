@@ -6,6 +6,7 @@ export interface Settings {
   gridSize: GridSize;
   sidebarWidth: number;
   inspectorWidth: number;
+  previewHeight: number;
   thumbRetry: number;
 }
 

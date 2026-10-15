@@ -52,6 +52,7 @@ export function useLibrary() {
   const [fileMenu, setFileMenu] = useState<{ x: number; y: number; fileId: number } | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const [inspectorWidth, setInspectorWidth] = useState(320);
+  const [previewHeight, setPreviewHeight] = useState(240);
   const [folderTagInput, setFolderTagInput] = useState("");
   const [folderTagFileCount, setFolderTagFileCount] = useState<number | null>(null);
   const [namePrompt, setNamePrompt] = useState<null | { title: string; value: string; onOk: (value: string) => void }>(null);
@@ -274,7 +275,8 @@ export function useLibrary() {
     includeSubfolders, setIncludeSubfolders, creatorFileCount, setCreatorFileCount,
     aboutOpen, setAboutOpen, aboutVersion, setAboutVersion, aboutVersionFailed, setAboutVersionFailed,
     dragFailure, setDragFailure, fileMenu, setFileMenu, sidebarWidth, setSidebarWidth,
-    inspectorWidth, setInspectorWidth, folderTagInput, setFolderTagInput, folderTagFileCount, setFolderTagFileCount,
+    inspectorWidth, setInspectorWidth, previewHeight, setPreviewHeight,
+    folderTagInput, setFolderTagInput, folderTagFileCount, setFolderTagFileCount,
     namePrompt, setNamePrompt, deleteConfirm, setDeleteConfirm, error, setError, diskDialog, setDiskDialog,
     toast, setToast, dragRef, filesRef, tryStartRef, prefetchRef, dragPrepCache, actions, themeItems, gridItems,
     thumbNonce, setThumbNonce, thumbGeneration, gridScrollRef, dragIconRef, sidebarWidthRef, inspectorWidthRef,

@@ -72,6 +72,8 @@ function AppShell({ app }: { app: LibraryModel }) {
     setSidebarWidth,
     inspectorWidth,
     setInspectorWidth,
+    previewHeight,
+    setPreviewHeight,
     setFolderTagInput,
     error,
     setError,
@@ -360,6 +362,11 @@ function AppShell({ app }: { app: LibraryModel }) {
                   return outcome;
                 },
               });
+            }}
+            previewHeight={previewHeight}
+            onPreviewHeight={(height) => {
+              setPreviewHeight(height);
+              void api.setPreviewHeight(height).catch((err) => setError(String(err)));
             }}
             onDelete={(id) => {
               const name = files.find((file) => file.id === id)?.sortName ?? "file";

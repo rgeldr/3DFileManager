@@ -1,0 +1,143 @@
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { FileRow } from "../types";
+import { ThemeProvider } from "../theme/ThemeProvider";
+import { Inspector } from "./Inspector";
+
+vi.mock("@tauri-apps/api/core", () => ({
+  convertFileSrc: (path: string) => `asset://localhost/${path}`,
+  invoke: vi.fn(),
+}));
+
+vi.mock("../api", () => ({
+  api: {
+    textPreview: () => Promise.resolve(""),
+    openInDefaultApp: vi.fn(),
+    revealFile: vi.fn(),
+  },
+}));
+
+function file(): FileRow {
+  return {
+    id: 3,
+    originalName: "shot.png",
+    sortName: "shot",
+    storedRelpath: "shot.png",
+    ext: "png",
+    sizeBytes: 12,
+    sha256: "abc",
+    folderId: null,
+    creator: "Ada",
+    notes: "",
+    sourceArchive: null,
+    importedAt: 1,
+    thumbStatus: "ok",
+    missing: false,
+    tags: [],
+    absolutePath: "/library/shot.png",
+    thumbPath: null,
+  };
+}
+
+function renderInspector(previewHeight: number, onPreviewHeight = vi.fn()) {
+  const view = render(
+    <ThemeProvider>
+      <Inspector
+        file={file()}
+        folders={[]}
+        creators={[]}
+        knownTags={[]}
+        previewHeight={previewHeight}
+        onPreviewHeight={onPreviewHeight}
+        onSave={() => undefined}
+        onDelete={() => undefined}
+      />
+    </ThemeProvider>,
+  );
+  const splitter = screen.getByRole("separator", { name: "Resize preview" });
+  return { ...view, splitter, onPreviewHeight };
+}
+
+afterEach(() => cleanup());
+
+describe("inspector preview splitter", () => {
+  it("shows a focusable horizontal splitter above the scrolling details form", () => {
+    const { splitter } = renderInspector(240);
+    expect(splitter.getAttribute("aria-orientation")).toBe("horizontal");
+    expect(splitter.tabIndex).toBe(0);
+    expect(splitter.parentElement?.style.getPropertyValue("--preview-height")).toBe("240px");
+    expect(splitter.className).toContain("preview-splitter");
+    const form = document.querySelector("form.inspector-body");
+    expect(form?.contains(splitter)).toBe(false);
+    expect(splitter.compareDocumentPosition(form as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByLabelText("Sort name")).toBeTruthy();
+  });
+
+  it("resizes from the keyboard and resets on double-click", () => {
+    const { splitter, onPreviewHeight, rerender } = renderInspector(300);
+    fireEvent.keyDown(splitter, { key: "ArrowDown" });
+    expect(onPreviewHeight).toHaveBeenCalledWith(316);
+    rerender(
+      <ThemeProvider>
+        <Inspector
+          file={file()}
+          folders={[]}
+          creators={[]}
+          knownTags={[]}
+          previewHeight={316}
+          onPreviewHeight={onPreviewHeight}
+          onSave={() => undefined}
+          onDelete={() => undefined}
+        />
+      </ThemeProvider>,
+    );
+    fireEvent.keyDown(splitter, { key: "ArrowUp" });
+    expect(onPreviewHeight).toHaveBeenCalledWith(300);
+    fireEvent.doubleClick(splitter);
+    expect(onPreviewHeight).toHaveBeenCalledWith(240);
+  });
+
+  it("drags the preview taller inside the inspector pane", () => {
+    const original = globalThis.ResizeObserver;
+    class FakeObserver {
+      constructor(private readonly cb: ResizeObserverCallback) {}
+      observe(target: Element) {
+        Object.defineProperty(target, "clientHeight", { configurable: true, value: 800 });
+        this.cb([], this as unknown as ResizeObserver);
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    globalThis.ResizeObserver = FakeObserver as unknown as typeof ResizeObserver;
+    try {
+      const { splitter, onPreviewHeight } = renderInspector(240);
+      expect(splitter.getAttribute("aria-valuenow")).toBe("240");
+      expect(splitter.getAttribute("aria-valuemax")).toBe("646");
+      fireEvent.pointerDown(splitter, { clientY: 100, button: 0, pointerId: 1 });
+      fireEvent.pointerMove(splitter, { clientY: 180, pointerId: 1 });
+      expect(splitter.parentElement?.style.getPropertyValue("--preview-height")).toBe("320px");
+      fireEvent.pointerUp(splitter, { clientY: 180, pointerId: 1 });
+      expect(onPreviewHeight).toHaveBeenCalledWith(320);
+    } finally {
+      globalThis.ResizeObserver = original;
+    }
+  });
+
+  it("hides the splitter until a file is selected", () => {
+    render(
+      <ThemeProvider>
+        <Inspector
+          file={null}
+          folders={[]}
+          creators={[]}
+          knownTags={[]}
+          previewHeight={240}
+          onPreviewHeight={() => undefined}
+          onSave={() => undefined}
+          onDelete={() => undefined}
+        />
+      </ThemeProvider>,
+    );
+    expect(screen.queryByRole("separator", { name: "Resize preview" })).toBeNull();
+  });
+});

@@ -20,6 +20,8 @@ export const api = {
   setGridSize: (gridSize: string) => invoke<void>("set_grid_size", { gridSize }),
   setPaneWidths: (sidebarWidth: number, inspectorWidth: number) =>
     invoke<void>("set_pane_widths", { sidebarWidth, inspectorWidth }),
+  setPreviewHeight: (previewHeight: number) =>
+    invoke<void>("set_preview_height", { previewHeight }),
   createFolder: (parentId: number | null, name: string) =>
     invoke<FolderRow>("create_folder", { parentId, name }),
   renameFolder: (id: number, name: string) => invoke<DiskOutcome>("rename_folder", { id, name }),

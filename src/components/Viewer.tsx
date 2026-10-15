@@ -143,7 +143,7 @@ export function Viewer({ file }: { file: FileRow | null }) {
     const resize = () => {
       const width = host.clientWidth || 1;
       const height = host.clientHeight || 1;
-      renderer.setSize(width, height);
+      renderer.setSize(width, height, false);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
     };

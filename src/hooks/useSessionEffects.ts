@@ -6,6 +6,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../api";
 import { debugLog } from "../debugLog";
 import { clampInspector, clampSidebar } from "../lib/paneWidths";
+import { persistPreviewHeight } from "../lib/previewSplit";
 import type { Settings } from "../types";
 import { fallbackDragIconPath, type Actions, type DiskProgress } from "./libraryTypes";
 
@@ -23,6 +24,7 @@ export function useSessionEffects(s: {
   setSettings: React.Dispatch<React.SetStateAction<Settings | null>>;
   setSidebarWidth: React.Dispatch<React.SetStateAction<number>>;
   setInspectorWidth: React.Dispatch<React.SetStateAction<number>>;
+  setPreviewHeight: (height: number) => void;
   setFolders: React.Dispatch<React.SetStateAction<import("../types").FolderRow[]>>;
   setMissingCount: React.Dispatch<React.SetStateAction<number>>;
   setTheme: (theme: "dark" | "light") => void;
@@ -67,7 +69,7 @@ export function useSessionEffects(s: {
 }) {
   const {
     dialogOpen,
-    ready, settings, setSettings, setSidebarWidth, setInspectorWidth, setFolders, setMissingCount,
+    ready, settings, setSettings, setSidebarWidth, setInspectorWidth, setPreviewHeight, setFolders, setMissingCount,
     setTheme, refreshLists, setReady, setError, dragIconRef, runImportRef, setProgress, setThumbNonce,
     browse, query, creator, selectedTagIds, tagMatch, sort, setPreviewIconsEnabled, aboutOpen, setAboutVersion,
     setAboutVersionFailed, creatorTarget, setCreatorFileCount, includeSubfolders, fileMenu, setFileMenu,
@@ -165,6 +167,7 @@ export function useSessionEffects(s: {
       setSettings(boot.settings);
       setSidebarWidth(clampSidebar(boot.settings.sidebarWidth, window.innerWidth));
       setInspectorWidth(clampInspector(boot.settings.inspectorWidth, window.innerWidth));
+      setPreviewHeight(persistPreviewHeight(boot.settings.previewHeight, 0));
       setFolders(boot.folders);
       setMissingCount(boot.missingCount);
       if (boot.settings.theme === "light" || boot.settings.theme === "dark") {
