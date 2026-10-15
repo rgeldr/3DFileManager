@@ -91,6 +91,7 @@ pub fn run() {
             delete_files,
             rescan_library,
             next_thumbnail,
+            pending_thumbnail_count,
             save_rendered_thumb,
             mark_thumb_unavailable,
             release_rendering_thumb,

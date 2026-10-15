@@ -73,6 +73,7 @@ export const api = {
       cancelled: boolean;
     }>("rescan_library"),
   nextThumbnail: () => invoke<ThumbJob | null>("next_thumbnail"),
+  pendingThumbnailCount: () => invoke<number>("pending_thumbnail_count"),
   saveRenderedThumb: (id: number, png: number[]) =>
     invoke<void>("save_rendered_thumb", { id, png }),
   markThumbUnavailable: (id: number) => invoke<void>("mark_thumb_unavailable", { id }),

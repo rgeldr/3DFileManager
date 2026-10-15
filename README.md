@@ -20,7 +20,7 @@ Help > About shows the running app version and opens this README on GitHub.
 
 ## Formats
 
-Library files: `stl`, `3mf`, `obj`, `gcode`, `bgcode`, `ctb`, `chitubox`, `ags`, `lys`, `png`, `jpg`, `jpeg`, `pdf`, `txt`.
+Library files: `stl`, `3mf`, `obj`, `gcode`, `bgcode`, `ctb`, `chitubox`, `ags`, `lys`, `png`, `jpg`, `jpeg`, `pdf`, `txt`, `step`, `f3d`, `md`, `scad`.
 
 Archives: `zip`, `rar`, `7z`.
 

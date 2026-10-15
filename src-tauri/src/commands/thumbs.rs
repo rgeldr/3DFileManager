@@ -174,6 +174,16 @@ async fn release_rendering_thumb(app: AppHandle, id: i64) -> Result<(), String> 
 }
 
 #[tauri::command]
+async fn pending_thumbnail_count(app: AppHandle) -> Result<i64, String> {
+    let thumbs = app.state::<AppState>().thumbs.clone();
+    off_ui("pending_thumbnail_count", move || {
+        let db = thumbs.lock().map_err(|e| e.to_string())?;
+        db.pending_thumb_count()
+    })
+    .await
+}
+
+#[tauri::command]
 async fn clear_thumbnail_cache(app: AppHandle) -> Result<(), String> {
     let thumbs = app.state::<AppState>().thumbs.clone();
     off_ui("clear_thumbnail_cache", move || {

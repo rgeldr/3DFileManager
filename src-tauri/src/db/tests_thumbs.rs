@@ -75,6 +75,29 @@
     }
 
     #[test]
+    fn pending_thumb_count_includes_none_and_rendering_not_missing() {
+        let (dir, db) = scratch_db("thumb-pending-count");
+        db.insert_file_with_thumb_status("a.png", "a.png", "png", 1, "sha-a", 1, None, None, "none")
+            .unwrap();
+        db.insert_file_with_thumb_status("b.png", "b.png", "png", 1, "sha-b", 1, None, None, "rendering")
+            .unwrap();
+        db.insert_file_with_thumb_status("c.png", "c.png", "png", 1, "sha-c", 1, None, None, "ok")
+            .unwrap();
+        db.insert_file_with_thumb_status("d.png", "d.png", "png", 1, "sha-d", 1, None, None, "unavailable")
+            .unwrap();
+        db.insert_file_with_thumb_status("e.png", "e.png", "png", 1, "", 1, None, None, "unhashed")
+            .unwrap();
+        let missing = db
+            .insert_file_with_thumb_status("f.png", "f.png", "png", 1, "sha-f", 1, None, None, "none")
+            .unwrap();
+        db.conn
+            .execute("UPDATE files SET missing = 1 WHERE id = ?1", [missing])
+            .unwrap();
+        assert_eq!(db.pending_thumb_count().unwrap(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn thumb_io_failure_retries_twice_then_unavailable() {
         let (dir, db) = scratch_db("thumb-io");
         let id = db

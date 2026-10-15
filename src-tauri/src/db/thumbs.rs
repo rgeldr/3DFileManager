@@ -114,6 +114,16 @@ impl AppDb {
         Ok(Some(candidate))
     }
 
+    pub fn pending_thumb_count(&self) -> Result<i64, String> {
+        self.conn
+            .query_row(
+                "SELECT count(*) FROM files WHERE thumb_status IN ('none', 'rendering') AND missing = 0",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())
+    }
+
     pub fn clear_thumbs(&self) -> Result<(), String> {
         let dir = self.data_dir.join("thumbs");
         if dir.exists() {

@@ -21,6 +21,7 @@ import {
   Toast,
 } from "./components/dialogs";
 import { useLibrary, type LibraryModel } from "./hooks/useLibrary";
+import { useThumbQueueCount } from "./hooks/useThumbQueueCount";
 import { clampInspector, clampSidebar } from "./lib/paneWidths";
 import type { GridSize } from "./types";
 
@@ -100,6 +101,7 @@ function AppShell({ app }: { app: LibraryModel }) {
     dropTarget,
     onPointerDown
   } = app;
+  const thumbQueue = useThumbQueueCount(ready && Boolean(settings?.libraryRoot));
   const onPanePointerDown = (which: "sidebar" | "inspector") => (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -357,7 +359,11 @@ function AppShell({ app }: { app: LibraryModel }) {
           />
         </div>
         <footer className="status">
-          <span>{files.length === 1 ? "1 file" : `${files.length} files`}{selected.length ? ` · ${selected.length} selected` : ""}</span>
+          <span>
+            {files.length === 1 ? "1 file" : `${files.length} files`}
+            {selected.length ? ` · ${selected.length} selected` : ""}
+            {thumbQueue > 0 ? ` · ${thumbQueue} thumbnail${thumbQueue === 1 ? "" : "s"} queued` : ""}
+          </span>
           <div className="view-toggle">
             {(["medium", "large", "extraLarge"] as GridSize[]).map((size) => (
               <button

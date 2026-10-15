@@ -110,6 +110,10 @@ pub fn is_supported_file(ext: &str) -> bool {
             | "jpeg"
             | "pdf"
             | "txt"
+            | "step"
+            | "f3d"
+            | "md"
+            | "scad"
     )
 }
 
@@ -153,5 +157,21 @@ mod tests {
         assert!(is_supported_file(&extension_of("Read Me.TXT")));
         assert!(!is_mesh("txt"));
         assert!(!is_archive("txt"));
+    }
+
+    #[test]
+    fn cad_and_doc_extensions_are_supported_not_mesh_or_archive() {
+        for (ext, sample) in [
+            ("step", "part.STEP"),
+            ("f3d", "design.F3D"),
+            ("md", "notes.MD"),
+            ("scad", "widget.SCAD"),
+        ] {
+            assert_eq!(extension_of(sample), ext);
+            assert!(is_supported_file(ext));
+            assert!(is_supported_file(&extension_of(sample)));
+            assert!(!is_mesh(ext));
+            assert!(!is_archive(ext));
+        }
     }
 }
