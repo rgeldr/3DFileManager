@@ -59,12 +59,6 @@ impl AppDb {
         })
     }
 
-    #[cfg(test)]
-    pub fn rename_folder(&self, id: i64, new_name: &str) -> Result<(), String> {
-        self.rename_folder_with(id, new_name, &AtomicBool::new(false), |_| {})
-            .map(|_| ())
-    }
-
     pub fn rename_folder_with<F: FnMut(DiskProgress)>(
         &self,
         id: i64,

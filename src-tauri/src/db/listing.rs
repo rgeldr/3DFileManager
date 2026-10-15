@@ -1,4 +1,5 @@
 impl AppDb {
+    #[cfg(test)]
     pub fn list_files(
         &self,
         folder: FolderFilter,

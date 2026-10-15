@@ -148,7 +148,7 @@ pub fn hdrop_bytes(paths: &[String]) -> Vec<u8> {
     bytes
 }
 
-#[cfg(any(windows, test))]
+#[cfg(test)]
 pub fn hdrop_paths(bytes: &[u8]) -> Result<Vec<String>, String> {
     if bytes.len() < 20 {
         return Err("CF_HDROP is shorter than DROPFILES.".into());

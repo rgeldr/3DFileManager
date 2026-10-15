@@ -38,6 +38,7 @@
         let child_row = db
             .list_files(FolderFilter::Id(child.id), "", "", "", "name")
             .unwrap();
+        assert_eq!(child_row[0].id, in_child);
         assert_eq!(child_row[0].tags, vec!["newtag"]);
 
         let sibling_row = db
