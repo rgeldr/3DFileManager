@@ -1,0 +1,102 @@
+.inspector {
+  background: var(--color-bg-sidebar);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.inspector form,
+.inspector-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
+.inspector label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--color-text-muted);
+}
+
+.viewer {
+  position: relative;
+  height: 240px;
+  background: var(--viewer-bg);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.viewer img,
+.viewer-canvas,
+.viewer canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  -webkit-user-drag: none;
+}
+
+.viewer img,
+.viewer-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.viewer-message {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.text-preview {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  background: var(--viewer-bg);
+  font: 12px/1.45 ui-monospace, monospace;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.tag {
+  background: var(--color-bg-input);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+}
+
+.status {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg-app);
+  border-top: 1px solid var(--color-divider);
+  color: var(--color-text-muted);
+}
+
+.view-toggle {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.view-toggle button.active {
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+  border-color: var(--color-accent);
+}
+

@@ -1,0 +1,33 @@
+.main {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-width: 0;
+  background: var(--color-bg-app);
+}
+
+.toolbar {
+  background: var(--color-bg-app);
+  border-bottom: 1px solid var(--color-divider);
+  flex-wrap: wrap;
+}
+
+.toolbar input[type="search"] {
+  min-width: 180px;
+  flex: 1;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 4px var(--inspector-width, 320px);
+  min-height: 0;
+}
+
+.grid-wrap {
+  overflow: auto;
+  padding: var(--space-3);
+}
+
+.grid-wrap:focus {
+  outline: none;
+}
+

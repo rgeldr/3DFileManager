@@ -3,8 +3,8 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { installDebugProbes } from "./debugLog";
 import { readStoredTheme, ThemeProvider } from "./theme/ThemeProvider";
-import "./theme/tokens.css";
-import "./styles.css";
+import "./styles/tokens.css";
+import "./styles/index.css";
 
 installDebugProbes();
 

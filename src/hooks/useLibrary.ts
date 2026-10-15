@@ -1,0 +1,282 @@
+import { useCallback, useMemo, useRef, useState } from "react";
+import type { CheckMenuItem } from "@tauri-apps/api/menu";
+import { api } from "../api";
+import { useTheme } from "../theme/ThemeProvider";
+import type { Browse, DragReport, FileRow, FolderRow, GridSize, ImportSummary, Settings } from "../types";
+import { useLibraryEffects } from "./useLibraryEffects";
+import { useSelection } from "./useSelection";
+import {
+  emptyProgress,
+  type Actions,
+  type DiskDialog,
+  type DiskProgress,
+  type FileDrag,
+} from "./libraryTypes";
+
+export function useLibrary() {
+  const { theme, setTheme } = useTheme();
+  const [ready, setReady] = useState(false);
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [folders, setFolders] = useState<FolderRow[]>([]);
+  const [files, setFiles] = useState<FileRow[]>([]);
+  const [browse, setBrowse] = useState<Browse>({ type: "root" });
+  const [query, setQuery] = useState("");
+  const [creator, setCreator] = useState("");
+  const [tag, setTag] = useState("");
+  const [sort, setSort] = useState("name");
+  const [creators, setCreators] = useState<string[]>([]);
+  const [tags, setTags] = useState<string[]>([]);
+  const [missingCount, setMissingCount] = useState(0);
+  const [missingOpen, setMissingOpen] = useState(false);
+  const [missingFiles, setMissingFiles] = useState<FileRow[]>([]);
+  const [chosenRoot, setChosenRoot] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [progress, setProgress] = useState<{ current: number; total: number; message: string } | null>(null);
+  const [summary, setSummary] = useState<ImportSummary | null>(null);
+  const [importCreator, setImportCreator] = useState("");
+  const [importTags, setImportTags] = useState<string[]>([]);
+  const [importTagText, setImportTagText] = useState("");
+  const [folderTagTarget, setFolderTagTarget] = useState<{ folderId: number | null; name: string } | null>(null);
+  const [creatorTarget, setCreatorTarget] = useState<{ folderId: number | null; name: string } | null>(null);
+  const [creatorValue, setCreatorValue] = useState("");
+  const [includeSubfolders, setIncludeSubfolders] = useState(true);
+  const [creatorFileCount, setCreatorFileCount] = useState<number | null>(null);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [aboutVersion, setAboutVersion] = useState<string | null>(null);
+  const [aboutVersionFailed, setAboutVersionFailed] = useState(false);
+  const [dragFailure, setDragFailure] = useState<{ message: string; fileId: number } | null>(null);
+  const [fileMenu, setFileMenu] = useState<{ x: number; y: number; fileId: number } | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(240);
+  const [inspectorWidth, setInspectorWidth] = useState(320);
+  const [folderTagInput, setFolderTagInput] = useState("");
+  const [folderTagFileCount, setFolderTagFileCount] = useState<number | null>(null);
+  const [namePrompt, setNamePrompt] = useState<null | { title: string; value: string; onOk: (value: string) => void }>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<null | { id: number; name: string }>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [diskDialog, setDiskDialog] = useState<DiskDialog | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const dragRef = useRef<FileDrag | null>(null);
+  const filesRef = useRef(files);
+  filesRef.current = files;
+  const tryStartRef = useRef<() => void>(() => undefined);
+  const prefetchRef = useRef<(ids: number[]) => void>(() => undefined);
+  const { selected, setSelected, onSelect, selectedFile } = useSelection(files, prefetchRef);
+  const dragPrepCache = useRef<{ key: string; paths: string[]; skipped: string[]; reports: DragReport[] } | null>(null);
+  const actions = useRef<Actions>({
+    importFolder: () => undefined,
+    importArchive: () => undefined,
+    rescan: () => undefined,
+    clearThumbs: () => undefined,
+    setTheme: () => undefined,
+    setGrid: () => undefined,
+    showAbout: () => undefined,
+  });
+  const themeItems = useRef<{ dark?: CheckMenuItem; light?: CheckMenuItem }>({});
+  const gridItems = useRef<Partial<Record<GridSize, CheckMenuItem>>>({});
+  const [thumbNonce, setThumbNonce] = useState(0);
+  const thumbGeneration = useRef(0);
+  const gridScrollRef = useRef<HTMLDivElement>(null);
+  const dragIconRef = useRef<string | null>(null);
+  const sidebarWidthRef = useRef(sidebarWidth);
+  const inspectorWidthRef = useRef(inspectorWidth);
+  sidebarWidthRef.current = sidebarWidth;
+  inspectorWidthRef.current = inspectorWidth;
+  const [previewIconsEnabled, setPreviewIconsEnabled] = useState(false);
+  const [folderExpandHint, setFolderExpandHint] = useState<{ key: string; nonce: number } | null>(null);
+  const libraryBusy = useRef(false);
+  const diskProgress = useRef<DiskProgress>(emptyProgress());
+  const toastTimer = useRef<number | null>(null);
+
+  const libraryName = useMemo(() => {
+    const root = settings?.libraryRoot;
+    if (!root) return "Library";
+    const parts = root.split(/[\\/]/).filter(Boolean);
+    return parts[parts.length - 1] || "Library";
+  }, [settings]);
+
+  const targetFolderId = browse.type === "folder" ? browse.id : null;
+
+  const refreshLists = useCallback(async (nextBrowse = browse, nextQuery = query, nextCreator = creator, nextTag = tag, nextSort = sort) => {
+    const queryActive = /[\p{L}\p{N}]/u.test(nextQuery);
+    const finding = queryActive || nextCreator !== "" || nextTag !== "";
+    const folder = finding ? "all" : nextBrowse.type === "root" ? "root" : "id";
+    const folderId = !finding && nextBrowse.type === "folder" ? nextBrowse.id : null;
+    const [rows, creatorRows, tagRows, boot] = await Promise.all([
+      api.listFiles({ folder, folderId, query: nextQuery, creator: nextCreator, tag: nextTag, sort: nextSort }),
+      api.listCreators(),
+      api.listTags(),
+      api.bootstrap(),
+    ]);
+    setFiles(rows);
+    setCreators(creatorRows);
+    setTags(tagRows);
+    setFolders(boot.folders);
+    setMissingCount(boot.missingCount);
+    setSettings(boot.settings);
+  }, [browse, creator, query, sort, tag]);
+
+  const showToast = useCallback((message: string) => {
+    if (toastTimer.current != null) window.clearTimeout(toastTimer.current);
+    setToast(message);
+    toastTimer.current = window.setTimeout(() => setToast(null), 2500);
+  }, []);
+
+  const runDiskOp = useCallback(async (opts: {
+    title: string;
+    cancellable: boolean;
+    success: string;
+    cancelled: string;
+    run: () => Promise<{ cancelled: boolean }>;
+    after?: () => Promise<void> | void;
+  }) => {
+    if (libraryBusy.current) {
+      setError("Another library change is already running.");
+      return;
+    }
+    libraryBusy.current = true;
+    diskProgress.current = { ...emptyProgress(), cancellable: opts.cancellable };
+    let revealed = false;
+    const timer = window.setTimeout(() => {
+      revealed = true;
+      const progress = diskProgress.current;
+      setDiskDialog({
+        ...progress,
+        title: opts.title,
+        cancellable: opts.cancellable && progress.cancellable,
+      });
+    }, 300);
+    try {
+      const outcome = await opts.run();
+      window.clearTimeout(timer);
+      setDiskDialog(null);
+      if (opts.after) await opts.after();
+      else await refreshLists();
+      if (revealed) showToast(outcome.cancelled ? opts.cancelled : opts.success);
+    } catch (err) {
+      window.clearTimeout(timer);
+      setDiskDialog(null);
+      setError(String(err));
+      await refreshLists().catch(() => undefined);
+    } finally {
+      libraryBusy.current = false;
+    }
+  }, [refreshLists, showToast]);
+
+  const openNewFolderPrompt = useCallback((parentId: number | null) => {
+    setNamePrompt({
+      title: "New folder",
+      value: "",
+      onOk: (value) => {
+        const expandKey = parentId == null ? "root" : `folder:${parentId}`;
+        void api.createFolder(parentId, value)
+          .then(() => {
+            setFolderExpandHint((hint) => ({ key: expandKey, nonce: (hint?.nonce ?? 0) + 1 }));
+            return refreshLists();
+          })
+          .catch((err) => setError(String(err)));
+      },
+    });
+  }, [refreshLists]);
+
+  const openRenameFolderPrompt = useCallback((folderId: number) => {
+    const folder = folders.find((item) => item.id === folderId);
+    if (!folder) return;
+    setNamePrompt({
+      title: "Rename folder",
+      value: folder.name,
+      onOk: (value) => {
+        void runDiskOp({
+          title: `Renaming "${folder.name}"...`,
+          cancellable: false,
+          success: `Renamed "${value}"`,
+          cancelled: "Rename cancelled",
+          run: () => api.renameFolder(folder.id, value),
+        });
+      },
+    });
+  }, [folders, runDiskOp]);
+
+  const openDeleteFolderConfirm = useCallback((folderId: number) => {
+    const folder = folders.find((item) => item.id === folderId);
+    if (!folder) return;
+    setDeleteConfirm({ id: folderId, name: folder.name });
+  }, [folders]);
+
+  const performDeleteFolder = useCallback((folderId: number, name: string) => {
+    void runDiskOp({
+      title: `Deleting "${name}"...`,
+      cancellable: false,
+      success: `Deleted "${name}"`,
+      cancelled: "Delete cancelled",
+      run: () => api.deleteFolder(folderId),
+      after: async () => {
+        setBrowse({ type: "root" });
+        await refreshLists({ type: "root" });
+      },
+    });
+  }, [refreshLists, runDiskOp]);
+
+  const runImportRef = useRef<(paths: string[]) => Promise<void>>(async () => undefined);
+
+  const refreshListsRef = useRef(refreshLists);
+  refreshListsRef.current = refreshLists;
+  const runImport = useCallback(async (paths: string[]) => {
+    if (paths.length === 0) return;
+    if (libraryBusy.current) {
+      setError("Another library change is already running.");
+      return;
+    }
+    libraryBusy.current = true;
+    setBusy("Importing…");
+    setImporting(true);
+    setProgress({ current: 0, total: 0, message: "Counting files…" });
+    try {
+      const result = await api.importPaths(paths, targetFolderId);
+      setImportCreator("");
+      setImportTags([]);
+      setImportTagText("");
+      setSummary(result);
+      if (result.importedIds.length === 1) setSelected(result.importedIds);
+      await refreshLists();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      libraryBusy.current = false;
+      setImporting(false);
+      setBusy(null);
+      setProgress(null);
+    }
+  }, [refreshLists, targetFolderId]);
+  runImportRef.current = runImport;
+
+  const dialogOpen = Boolean(
+    busy || progress || summary || namePrompt || deleteConfirm || missingOpen || error || diskDialog || aboutOpen || creatorTarget || dragFailure,
+  );
+
+  const browseKey = browse.type === "folder" ? `folder:${browse.id}` : browse.type;
+  const model = {
+    theme, setTheme, ready, setReady, settings, setSettings, folders, setFolders, files, setFiles,
+    browse, setBrowse, query, setQuery, creator, setCreator, tag, setTag, sort, setSort,
+    creators, setCreators, tags, setTags, selected, setSelected, missingCount, setMissingCount,
+    missingOpen, setMissingOpen, missingFiles, setMissingFiles, chosenRoot, setChosenRoot,
+    busy, setBusy, importing, setImporting, progress, setProgress, summary, setSummary,
+    importCreator, setImportCreator, importTags, setImportTags, importTagText, setImportTagText,
+    folderTagTarget, setFolderTagTarget, creatorTarget, setCreatorTarget, creatorValue, setCreatorValue,
+    includeSubfolders, setIncludeSubfolders, creatorFileCount, setCreatorFileCount,
+    aboutOpen, setAboutOpen, aboutVersion, setAboutVersion, aboutVersionFailed, setAboutVersionFailed,
+    dragFailure, setDragFailure, fileMenu, setFileMenu, sidebarWidth, setSidebarWidth,
+    inspectorWidth, setInspectorWidth, folderTagInput, setFolderTagInput, folderTagFileCount, setFolderTagFileCount,
+    namePrompt, setNamePrompt, deleteConfirm, setDeleteConfirm, error, setError, diskDialog, setDiskDialog,
+    toast, setToast, dragRef, filesRef, tryStartRef, prefetchRef, dragPrepCache, actions, themeItems, gridItems,
+    thumbNonce, setThumbNonce, thumbGeneration, gridScrollRef, dragIconRef, sidebarWidthRef, inspectorWidthRef,
+    previewIconsEnabled, setPreviewIconsEnabled, folderExpandHint, setFolderExpandHint, libraryBusy, diskProgress,
+    toastTimer, libraryName, targetFolderId, refreshLists, showToast, runDiskOp, openNewFolderPrompt,
+    openRenameFolderPrompt, openDeleteFolderConfirm, performDeleteFolder, runImportRef, refreshListsRef,
+    runImport, dialogOpen, browseKey, onSelect, selectedFile,
+  };
+  const drag = useLibraryEffects(model);
+  return { ...model, ...drag };
+}
+
+export type LibraryModel = ReturnType<typeof useLibrary>;

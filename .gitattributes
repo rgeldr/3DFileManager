@@ -1,0 +1,16 @@
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.stl binary
+*.3mf binary
+*.obj binary
+*.zip binary
+*.rar binary
+*.7z binary
+*.pdf binary
+
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
