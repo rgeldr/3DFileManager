@@ -1,0 +1,84 @@
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar-width, 240px) 4px minmax(0, 1fr);
+  height: 100%;
+}
+
+.sidebar {
+  background: var(--color-bg-sidebar);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.pane-splitter {
+  cursor: col-resize;
+  background: var(--color-divider);
+  padding: 0;
+  border: none;
+  touch-action: none;
+}
+
+.pane-splitter:hover,
+.pane-splitter:focus {
+  background: var(--color-accent);
+}
+
+.sidebar-head,
+.toolbar,
+.inspector-head {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+  padding: var(--space-2);
+  background: var(--color-bg-sidebar);
+}
+
+.sidebar-scroll {
+  overflow: auto;
+  padding-bottom: var(--space-3);
+}
+
+.tree-item,
+.folder-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--row-height);
+  padding: 0 var(--space-2);
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  margin: 1px var(--space-1);
+}
+
+.folder-row.child {
+  padding-left: var(--space-4);
+}
+
+.tree-item:hover,
+.folder-row:hover,
+.tile:hover {
+  background: var(--color-bg-hover);
+}
+
+.tree-item.active,
+.folder-row.active,
+.tile.selected {
+  background: var(--color-bg-selected);
+  border-color: var(--color-border);
+}
+
+.folder-row.drop {
+  outline: 1px solid var(--color-accent);
+}
+
+.folder-row.dragging {
+  opacity: 0.45;
+}
+
+.sidebar.folder-dragging {
+  user-select: none;
+}
+
