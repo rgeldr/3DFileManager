@@ -83,10 +83,13 @@
 }
 
 .tag-filter-chips {
-  flex: 1 0 100%;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-1);
+  min-width: 0;
+  max-height: calc(var(--row-height) * 3);
+  overflow: auto;
 }
 
 .tag-filter-chips .tag {

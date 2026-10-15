@@ -3,6 +3,7 @@ import type { CheckMenuItem } from "@tauri-apps/api/menu";
 import { api } from "../api";
 import { useTheme } from "../theme/ThemeProvider";
 import type { Browse, DragReport, FileRow, FolderRow, GridSize, ImportSummary, Settings, TagCount, TagMatchMode } from "../types";
+import { libraryListScope } from "../lib/tagFilter";
 import { useLibraryEffects } from "./useLibraryEffects";
 import { useSelection } from "./useSelection";
 import {
@@ -100,11 +101,13 @@ export function useLibrary() {
   const targetFolderId = browse.type === "folder" ? browse.id : null;
 
   const refreshLists = useCallback(async (nextBrowse = browse, nextQuery = query, nextCreator = creator, nextSort = sort) => {
-    const queryActive = /[\p{L}\p{N}]/u.test(nextQuery);
-    const finding = queryActive || nextCreator !== "";
-    const folder = finding ? "all" : nextBrowse.type === "root" ? "root" : "id";
-    const folderId = !finding && nextBrowse.type === "folder" ? nextBrowse.id : null;
-    const scope = { folder, folderId, query: nextQuery, creator: nextCreator };
+    const listed = libraryListScope({
+      browse: nextBrowse,
+      query: nextQuery,
+      creator: nextCreator,
+      selectedTagCount: selectedTagIds.length,
+    });
+    const scope = { folder: listed.folder, folderId: listed.folderId, query: nextQuery, creator: listed.creator };
     const [rows, creatorRows, tagRows, boot] = await Promise.all([
       api.listFiles({ ...scope, tag: "", tagIds: selectedTagIds, tagMatch, sort: nextSort }),
       api.listCreators(),

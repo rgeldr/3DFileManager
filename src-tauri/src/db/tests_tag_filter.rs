@@ -134,3 +134,60 @@
         assert!(!in_folder.iter().any(|row| row.id == sibling));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn tag_filter_without_creator_includes_nested_files() {
+        let (dir, db) = scratch_db("tag-scope");
+        let parent = db.create_folder(None, "3DFiles", 0).unwrap();
+        let child = db.create_folder(Some(parent.id), "Bits", 0).unwrap();
+        let blank = db
+            .insert_file("blank.stl", "3DFiles/Bits/blank.stl", "stl", 1, "sha-blank", 1, Some(child.id), None)
+            .unwrap();
+        let guild = db
+            .insert_file("guild.stl", "3DFiles/Bits/guild.stl", "stl", 1, "sha-guild", 1, Some(child.id), None)
+            .unwrap();
+        let plain = db
+            .insert_file("plain.stl", "3DFiles/Bits/plain.stl", "stl", 1, "sha-plain", 1, Some(child.id), None)
+            .unwrap();
+        db.set_tags(blank, &["Humans".into()]).unwrap();
+        db.set_tags(guild, &["Humans".into()]).unwrap();
+        db.update_file(guild, "guild", "Artisan Guild", "", Some(child.id)).unwrap();
+
+        let humans = db
+            .tag_counts(FolderFilter::All, "", "")
+            .unwrap()
+            .into_iter()
+            .find(|tag| tag.name == "Humans")
+            .unwrap();
+        assert_eq!(humans.file_count, 2);
+        let ids = |rows: Vec<FileRow>| rows.into_iter().map(|row| row.id).collect::<Vec<_>>();
+        let query = |folder, creator: &str, mode| {
+            db.query_files(FileQuery {
+                folder,
+                query: "",
+                creator,
+                tag: "",
+                tag_ids: &[humans.id],
+                tag_match: mode,
+                sort: "name",
+                limit: None,
+                offset: 0,
+            })
+            .unwrap()
+        };
+
+        let parent_only = query(FolderFilter::Id(parent.id), "", TagMatch::Any);
+        assert!(parent_only.is_empty());
+
+        let any = query(FolderFilter::All, "", TagMatch::Any);
+        assert!(any.iter().any(|row| row.id == blank && row.creator.is_empty()));
+        assert!(!any.iter().any(|row| row.id == plain));
+        assert_eq!(ids(any), vec![blank, guild]);
+
+        let all_match = query(FolderFilter::All, "", TagMatch::All);
+        assert_eq!(ids(all_match), vec![blank, guild]);
+
+        let named = query(FolderFilter::All, "Artisan Guild", TagMatch::Any);
+        assert_eq!(ids(named), vec![guild]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }

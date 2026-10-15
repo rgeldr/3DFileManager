@@ -2,7 +2,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "./api";
 import { FileGrid } from "./components/FileGrid";
-import { TagFilter } from "./components/TagFilter";
+import { TagChips, TagFilter } from "./components/TagFilter";
 import { MenuBar } from "./components/MenuBar";
 import { Sidebar } from "./components/Sidebar";
 import { Inspector } from "./components/Inspector";
@@ -24,6 +24,7 @@ import {
 import { useLibrary, type LibraryModel } from "./hooks/useLibrary";
 import { useThumbQueueCount } from "./hooks/useThumbQueueCount";
 import { clampInspector, clampSidebar } from "./lib/paneWidths";
+import { gridEmptyMessage } from "./lib/tagFilter";
 import type { GridSize } from "./types";
 
 export function App() {
@@ -256,28 +257,41 @@ function AppShell({ app }: { app: LibraryModel }) {
       />
       <section className="main">
         <div className="toolbar">
-          <input
-            type="search"
-            placeholder="Search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          <TagFilter
-            tags={tagCounts}
-            selectedIds={selectedTagIds}
-            match={tagMatch}
-            onSelectedIds={setSelectedTagIds}
-            onMatch={setTagMatch}
-          />
-          <select value={creator} onChange={(event) => setCreator(event.target.value)}>
-            <option value="">All creators</option>
-            {creators.map((item) => <option key={item} value={item}>{item}</option>)}
-          </select>
-          <select value={sort} onChange={(event) => setSort(event.target.value)}>
-            <option value="name">Sort name</option>
-            <option value="creator">Creator</option>
-            <option value="date">Date added</option>
-          </select>
+          <div className="toolbar-search">
+            <input
+              type="search"
+              placeholder="Search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+            <TagChips
+              tags={tagCounts}
+              selectedIds={selectedTagIds}
+              onSelectedIds={setSelectedTagIds}
+            />
+          </div>
+          <div className="toolbar-controls">
+            <div className="toolbar-row">
+              <TagFilter
+                tags={tagCounts}
+                selectedIds={selectedTagIds}
+                match={tagMatch}
+                onSelectedIds={setSelectedTagIds}
+                onMatch={setTagMatch}
+              />
+            </div>
+            <div className="toolbar-row">
+              <select aria-label="Creator" value={creator} onChange={(event) => setCreator(event.target.value)}>
+                <option value="">All creators</option>
+                {creators.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+              <select aria-label="Sort" value={sort} onChange={(event) => setSort(event.target.value)}>
+                <option value="name">Sort name</option>
+                <option value="creator">Creator</option>
+                <option value="date">Date added</option>
+              </select>
+            </div>
+          </div>
         </div>
         {missingCount > 0 ? (
           <div className="banner">
@@ -299,6 +313,7 @@ function AppShell({ app }: { app: LibraryModel }) {
           <div className="grid-wrap" ref={gridScrollRef} tabIndex={-1}>
             <FileGrid
               files={files}
+              emptyMessage={gridEmptyMessage({ selectedTagCount: selectedTagIds.length, creator, query })}
               gridSize={settings.gridSize}
               selected={selected}
               previewIconsEnabled={previewIconsEnabled}
