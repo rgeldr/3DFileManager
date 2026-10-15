@@ -28,19 +28,7 @@ import type { GridSize } from "./types";
 
 export function App() {
   const app = useLibrary();
-  return (
-    <>
-      <MenuBar
-        theme={app.theme}
-        settings={app.settings}
-        ready={app.ready}
-        actions={app.actions}
-        themeItems={app.themeItems}
-        gridItems={app.gridItems}
-      />
-      <AppShell app={app} />
-    </>
-  );
+  return <AppShell app={app} />;
 }
 
 function AppShell({ app }: { app: LibraryModel }) {
@@ -193,6 +181,15 @@ function AppShell({ app }: { app: LibraryModel }) {
       style={paneStyle}
       onPointerDown={onPointerDown}
     >
+      <MenuBar
+        theme={app.theme}
+        settings={settings}
+        ready={ready}
+        actions={actions}
+        themeItems={app.themeItems}
+        gridItems={app.gridItems}
+      />
+      <div className="app-panes">
       <Sidebar
         folders={folders}
         libraryName={libraryName}
@@ -387,6 +384,7 @@ function AppShell({ app }: { app: LibraryModel }) {
           </div>
         </footer>
       </section>
+      </div>
       <ImportProgressDialog app={app} />
       <ImportSummaryDialog app={app} />
       <FolderTagDialog app={app} />

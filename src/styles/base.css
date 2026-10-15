@@ -4,13 +4,26 @@
 
 html,
 body,
-#root {
+#root,
+.app {
   margin: 0;
   height: 100%;
+  overflow: hidden;
+}
+
+html,
+body,
+#root {
+  height: 100vh;
   background: var(--color-bg-app);
   color: var(--color-text);
   font-family: var(--font-ui);
   font-size: var(--font-size-ui);
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
 }
 
 button,
