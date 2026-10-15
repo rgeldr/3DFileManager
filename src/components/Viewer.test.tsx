@@ -64,6 +64,24 @@ describe("Viewer text preview", () => {
     expect(img?.getAttribute("src")).not.toContain("/thumbs/");
   });
 
+  it("shows markdown in the text preview", async () => {
+    render(
+      <ThemeProvider>
+        <Viewer file={file({ ext: "md", originalName: "notes.md", storedRelpath: "notes.md" })} />
+      </ThemeProvider>,
+    );
+    expect(await screen.findByText(/Hello/)).toBeTruthy();
+  });
+
+  it("does not offer a text preview for STEP files", () => {
+    render(
+      <ThemeProvider>
+        <Viewer file={file({ ext: "step", originalName: "part.step", storedRelpath: "part.step" })} />
+      </ThemeProvider>,
+    );
+    expect(screen.getByText("Preview unavailable")).toBeTruthy();
+  });
+
   it("shows file info when the preview has no printable text", async () => {
     render(
       <ThemeProvider>

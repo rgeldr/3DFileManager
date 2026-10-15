@@ -30,7 +30,7 @@ pub fn extract_thumbnail_png(path: &Path) -> Result<Option<Vec<u8>>, ThumbFail> 
             .and_then(|bytes| ctb::extract_preview_png(&bytes))
             .and_then(|raw| fit_png(&raw))),
         "3mf" => Ok(zip_preview(path, true)),
-        "lys" | "chitubox" | "ags" | "zip" => Ok(zip_preview(path, false)),
+        "lys" | "chitubox" | "ags" | "zip" | "f3d" => Ok(zip_preview(path, false)),
         "gcode" => Ok(gcode_preview(path)),
         "bgcode" => Ok(bgcode_preview(path)),
         _ => Ok(None),
@@ -412,6 +412,28 @@ mod tests {
         let path = dir.join("mesh.stl");
         fs::write(&path, b"solid mesh\nendsolid mesh\n").unwrap();
         assert!(extract_thumbnail_png(&path).unwrap().is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn f3d_zip_thumbnail_and_step_has_no_embedded_thumbnail() {
+        let dir = scratch("f3d-step");
+        let png_path = dir.join("src.png");
+        write_png(&png_path, 16, 16);
+        let png = fs::read(&png_path).unwrap();
+
+        let f3d = dir.join("design.f3d");
+        let file = fs::File::create(&f3d).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("preview.png", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(&png).unwrap();
+        zip.finish().unwrap();
+        assert!(extract_thumbnail_png(&f3d).unwrap().is_some());
+
+        let step = dir.join("part.step");
+        fs::write(&step, b"ISO-10303-21;\n").unwrap();
+        assert!(extract_thumbnail_png(&step).unwrap().is_none());
         let _ = fs::remove_dir_all(&dir);
     }
 }

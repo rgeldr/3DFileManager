@@ -87,5 +87,16 @@ fn migrate(conn: &Connection) -> Result<(), String> {
         [],
     )
     .map_err(|e| e.to_string())?;
+    let placeholders = crate::names::THUMBNAIL_EXTS
+        .iter()
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "UPDATE files SET thumb_status = 'unavailable' WHERE thumb_status IN ('none', 'rendering') AND ext NOT IN ({})",
+        placeholders
+    );
+    conn.execute(&sql, params_from_iter(crate::names::THUMBNAIL_EXTS.iter().copied()))
+        .map_err(|e| e.to_string())?;
     Ok(())
 }

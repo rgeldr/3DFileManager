@@ -87,6 +87,10 @@
             .unwrap();
         db.insert_file_with_thumb_status("e.png", "e.png", "png", 1, "", 1, None, None, "unhashed")
             .unwrap();
+        db.insert_file_with_thumb_status("g.png", "g.png", "png", 1, "sha-g", 1, None, None, "hashing")
+            .unwrap();
+        db.insert_file_with_thumb_status("h.png", "h.png", "png", 1, "sha-h", 1, None, None, "hash_error")
+            .unwrap();
         let missing = db
             .insert_file_with_thumb_status("f.png", "f.png", "png", 1, "sha-f", 1, None, None, "none")
             .unwrap();
@@ -94,6 +98,23 @@
             .execute("UPDATE files SET missing = 1 WHERE id = ?1", [missing])
             .unwrap();
         assert_eq!(db.pending_thumb_count().unwrap(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn set_file_sha_ready_skips_thumbnail_queue_for_step() {
+        let (dir, db) = scratch_db("thumb-sha-step");
+        let step = db
+            .insert_file_with_thumb_status("part.step", "part.step", "step", 1, "", 1, None, None, "unhashed")
+            .unwrap();
+        let stl = db
+            .insert_file_with_thumb_status("a.stl", "a.stl", "stl", 1, "", 1, None, None, "unhashed")
+            .unwrap();
+        db.set_file_sha_ready(step, "sha-step").unwrap();
+        db.set_file_sha_ready(stl, "sha-stl").unwrap();
+        assert_eq!(status_of(&db, step).0, "unavailable");
+        assert_eq!(status_of(&db, stl).0, "none");
+        assert_eq!(db.pending_thumb_count().unwrap(), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

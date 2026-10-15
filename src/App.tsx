@@ -362,7 +362,9 @@ function AppShell({ app }: { app: LibraryModel }) {
           <span>
             {files.length === 1 ? "1 file" : `${files.length} files`}
             {selected.length ? ` · ${selected.length} selected` : ""}
-            {thumbQueue > 0 ? ` · ${thumbQueue} thumbnail${thumbQueue === 1 ? "" : "s"} queued` : ""}
+            {thumbQueue > 0
+              ? ` · ${thumbQueue} thumbnail${thumbQueue === 1 ? "" : "s"} still generating`
+              : ""}
           </span>
           <div className="view-toggle">
             {(["medium", "large", "extraLarge"] as GridSize[]).map((size) => (

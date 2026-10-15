@@ -76,6 +76,17 @@ describe("LazyThumb", () => {
     expect(view.container.querySelector("img")).toBeNull();
   });
 
+  it("shows a bordered badge for markdown and OpenSCAD", () => {
+    const md = render(
+      <LazyThumb file={file({ ext: "md", thumbPath: null, originalName: "notes.md" })} previewIconsEnabled scrollRoot={null} />,
+    );
+    expect(md.container.querySelector(".type-icon-txt")?.textContent).toBe("MD");
+    const scad = render(
+      <LazyThumb file={file({ ext: "scad", thumbPath: null, originalName: "widget.scad" })} previewIconsEnabled scrollRoot={null} />,
+    );
+    expect(scad.container.querySelector(".type-icon-txt")?.textContent).toBe("SCAD");
+  });
+
   it("shows the extension when there is no thumbnail", () => {
     const view = render(<LazyThumb file={file({ thumbPath: null, ext: "png" })} previewIconsEnabled scrollRoot={null} />);
     expect(screen.getByText("PNG")).toBeTruthy();

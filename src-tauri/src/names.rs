@@ -111,6 +111,7 @@ pub fn is_supported_file(ext: &str) -> bool {
             | "pdf"
             | "txt"
             | "step"
+            | "stp"
             | "f3d"
             | "md"
             | "scad"
@@ -123,6 +124,26 @@ pub fn is_archive(ext: &str) -> bool {
 
 pub fn is_mesh(ext: &str) -> bool {
     matches!(ext, "stl" | "obj" | "3mf")
+}
+
+pub const THUMBNAIL_EXTS: &[&str] = &[
+    "png",
+    "jpg",
+    "jpeg",
+    "stl",
+    "obj",
+    "3mf",
+    "ctb",
+    "gcode",
+    "bgcode",
+    "lys",
+    "chitubox",
+    "ags",
+    "f3d",
+];
+
+pub fn queues_thumbnail(ext: &str) -> bool {
+    THUMBNAIL_EXTS.contains(&ext)
 }
 
 #[cfg(test)]
@@ -163,6 +184,7 @@ mod tests {
     fn cad_and_doc_extensions_are_supported_not_mesh_or_archive() {
         for (ext, sample) in [
             ("step", "part.STEP"),
+            ("stp", "part.STP"),
             ("f3d", "design.F3D"),
             ("md", "notes.MD"),
             ("scad", "widget.SCAD"),

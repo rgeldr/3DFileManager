@@ -45,3 +45,18 @@
         assert!(!from_file.contains('Z'));
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn text_preview_reads_markdown_and_scad_not_step() {
+        let dir = std::env::temp_dir().join(format!("filelib-text-ext-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("notes.md"), b"# Title").unwrap();
+        fs::write(dir.join("widget.scad"), b"module x() {}").unwrap();
+        assert_eq!(read_text_preview(&dir.join("notes.md")).unwrap(), "# Title");
+        assert_eq!(read_text_preview(&dir.join("widget.scad")).unwrap(), "module x() {}");
+        let ext = names::extension_of("part.step");
+        assert_eq!(ext, "step");
+        assert!(!matches!(ext.as_str(), "txt" | "md" | "scad"));
+        let _ = fs::remove_dir_all(&dir);
+    }

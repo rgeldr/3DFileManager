@@ -11,6 +11,7 @@ import { useTheme } from "../theme/ThemeProvider";
 
 const MESH = new Set(["stl", "obj", "3mf"]);
 const IMAGE = new Set(["png", "jpg", "jpeg"]);
+const TEXT_PREVIEW = new Set(["txt", "md", "scad"]);
 const LIMIT = 150 * 1024 * 1024;
 
 function isMeshPreview(file: FileRow | null): file is FileRow {
@@ -226,7 +227,7 @@ export function Viewer({ file }: { file: FileRow | null }) {
           : ""
       : staticMessage(file);
 
-  if (file?.ext === "txt") {
+  if (file && TEXT_PREVIEW.has(file.ext)) {
     return (
       <div className="viewer">
         <TextPreview fileId={file.id} />

@@ -40,6 +40,11 @@ impl AppDb {
         folder_id: Option<i64>,
         source_archive: Option<&str>,
     ) -> Result<i64, String> {
+        let thumb_status = if crate::names::queues_thumbnail(ext) {
+            "none"
+        } else {
+            "unavailable"
+        };
         self.insert_file_with_thumb_status(
             original_name,
             stored_relpath,
@@ -49,7 +54,7 @@ impl AppDb {
             mtime,
             folder_id,
             source_archive,
-            "none",
+            thumb_status,
         )
     }
 
@@ -145,10 +150,19 @@ impl AppDb {
     }
 
     pub fn set_file_sha_ready(&self, id: i64, sha256: &str) -> Result<(), String> {
+        let ext: String = self
+            .conn
+            .query_row("SELECT ext FROM files WHERE id = ?1", [id], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        let thumb_status = if crate::names::queues_thumbnail(&ext) {
+            "none"
+        } else {
+            "unavailable"
+        };
         self.conn
             .execute(
-                "UPDATE files SET sha256 = ?1, thumb_status = 'none' WHERE id = ?2",
-                params![sha256, id],
+                "UPDATE files SET sha256 = ?1, thumb_status = ?2 WHERE id = ?3",
+                params![sha256, thumb_status, id],
             )
             .map_err(|e| e.to_string())?;
         Ok(())

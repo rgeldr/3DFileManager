@@ -192,7 +192,8 @@ async fn text_preview(app: AppHandle, file_id: i64) -> Result<String, String> {
         let path = {
             let db = db.lock().map_err(|err| err.to_string())?;
             let loc = db.file_location(file_id)?;
-            if names::extension_of(&loc.stored_relpath) != "txt" {
+            let ext = names::extension_of(&loc.stored_relpath);
+            if !matches!(ext.as_str(), "txt" | "md" | "scad") {
                 return Ok(String::new());
             }
             let root = db.library_root()?;
