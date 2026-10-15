@@ -3,6 +3,7 @@ import type {
   Bootstrap,
   FileRow,
   FolderRow,
+  TagCount,
   ImportSummary,
   PreparedDrag,
   Settings,
@@ -31,6 +32,8 @@ export const api = {
     query: string;
     creator: string;
     tag: string;
+    tagIds: number[];
+    tagMatch: "any" | "all";
     sort: string;
   }) => invoke<FileRow[]>("list_files", { args }),
   missingFiles: () => invoke<FileRow[]>("missing_files"),
@@ -53,6 +56,12 @@ export const api = {
     invoke<number>("set_creator_under_folder", { folderId, creator, includeSubfolders }),
   listCreators: () => invoke<string[]>("list_creators"),
   listTags: () => invoke<string[]>("list_tags"),
+  listTagCounts: (args: {
+    folder: string;
+    folderId: number | null;
+    query: string;
+    creator: string;
+  }) => invoke<TagCount[]>("list_tag_counts", { args }),
   importPaths: (paths: string[], folderId: number | null) =>
     invoke<ImportSummary>("import_paths", { paths, folderId }),
   cancelImport: () => invoke<void>("cancel_import"),

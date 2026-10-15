@@ -82,6 +82,7 @@ pub fn run() {
             set_creator_under_folder,
             list_creators,
             list_tags,
+            list_tag_counts,
             import_paths,
             cancel_import,
             cancel_disk_op,

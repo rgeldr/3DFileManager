@@ -147,12 +147,48 @@ impl AppDb {
     }
 
     pub fn list_tags(&self) -> Result<Vec<String>, String> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT name FROM tags ORDER BY name COLLATE NOCASE")
-            .map_err(|e| e.to_string())?;
+        Ok(self.tag_counts(FolderFilter::All, "", "")?.into_iter().map(|tag| tag.name).collect())
+    }
+
+    pub fn tag_counts(&self, folder: FolderFilter, query: &str, creator: &str) -> Result<Vec<TagCount>, String> {
+        let fts = fts_match(query);
+        let mut sql = String::from(
+            "SELECT t.id, t.name, COUNT(DISTINCT f.id)
+             FROM tags t
+             LEFT JOIN file_tags ft ON ft.tag_id = t.id
+             LEFT JOIN files f ON f.id = ft.file_id AND f.missing = 0",
+        );
+        let mut param_values: Vec<String> = Vec::new();
+        if let Some(match_q) = &fts {
+            sql.push_str(" AND f.id IN (SELECT rowid FROM files_fts WHERE files_fts MATCH ?)");
+            param_values.push(match_q.clone());
+        }
+        match folder {
+            FolderFilter::All => {}
+            FolderFilter::Root => sql.push_str(" AND f.folder_id IS NULL"),
+            FolderFilter::Id(id) => {
+                sql.push_str(" AND f.folder_id = ?");
+                param_values.push(id.to_string());
+            }
+        }
+        if !creator.is_empty() {
+            sql.push_str(" AND f.creator = ? COLLATE NOCASE");
+            param_values.push(creator.to_string());
+        }
+        sql.push_str(" GROUP BY t.id, t.name ORDER BY t.name COLLATE NOCASE");
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let params_ref: Vec<&dyn rusqlite::ToSql> = param_values
+            .iter()
+            .map(|s| s as &dyn rusqlite::ToSql)
+            .collect();
         let rows = stmt
-            .query_map([], |r| r.get(0))
+            .query_map(params_ref.as_slice(), |r| {
+                Ok(TagCount {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    file_count: r.get(2)?,
+                })
+            })
             .map_err(|e| e.to_string())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;

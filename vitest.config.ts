@@ -15,6 +15,7 @@ export default defineConfig({
         "src/lib/paneWidths.ts",
         "src/lib/gridWindow.ts",
         "src/lib/deleteKey.ts",
+        "src/lib/tagFilter.ts",
         "src/components/FileGrid.tsx",
       ],
     },

@@ -1,0 +1,136 @@
+    #[test]
+    fn tag_filter_any_all_counts_and_page() {
+        let (dir, db) = scratch_db("tag-filter");
+        let models = db.create_folder(None, "Models", 0).unwrap();
+        let other = db.create_folder(None, "Other", 0).unwrap();
+        let both = db
+            .insert_file("both.stl", "Models/both.stl", "stl", 1, "sha-both", 1, Some(models.id), None)
+            .unwrap();
+        let only_a = db
+            .insert_file("onlya.stl", "Models/onlya.stl", "stl", 1, "sha-a", 1, Some(models.id), None)
+            .unwrap();
+        let only_b = db
+            .insert_file("onlyb.stl", "Models/onlyb.stl", "stl", 1, "sha-b", 1, Some(models.id), None)
+            .unwrap();
+        let plain = db
+            .insert_file("plain.stl", "Models/plain.stl", "stl", 1, "sha-p", 1, Some(models.id), None)
+            .unwrap();
+        let sibling = db
+            .insert_file("sib.stl", "Other/sib.stl", "stl", 1, "sha-s", 1, Some(other.id), None)
+            .unwrap();
+        db.set_tags(both, &["Alpha".into(), "Beta".into()]).unwrap();
+        db.set_tags(only_a, &["Alpha".into()]).unwrap();
+        db.set_tags(only_b, &["Beta".into()]).unwrap();
+        db.set_tags(sibling, &["Alpha".into()]).unwrap();
+
+        let counts = db.tag_counts(FolderFilter::Id(models.id), "", "").unwrap();
+        assert_eq!(
+            counts.iter().map(|tag| tag.name.as_str()).collect::<Vec<_>>(),
+            vec!["Alpha", "Beta"]
+        );
+        let alpha = counts.iter().find(|tag| tag.name == "Alpha").unwrap();
+        let beta = counts.iter().find(|tag| tag.name == "Beta").unwrap();
+        assert_eq!(alpha.file_count, 2);
+        assert_eq!(beta.file_count, 2);
+        let all_counts = db.tag_counts(FolderFilter::All, "", "").unwrap();
+        assert_eq!(all_counts.iter().find(|tag| tag.name == "Alpha").unwrap().file_count, 3);
+
+        let ids = |rows: Vec<FileRow>| rows.into_iter().map(|row| row.id).collect::<Vec<_>>();
+        let any = db
+            .query_files(FileQuery {
+                folder: FolderFilter::Id(models.id),
+                query: "",
+                creator: "",
+                tag: "",
+                tag_ids: &[alpha.id, beta.id],
+                tag_match: TagMatch::Any,
+                sort: "name",
+                limit: None,
+                offset: 0,
+            })
+            .unwrap();
+        assert_eq!(ids(any), vec![both, only_a, only_b]);
+
+        let all = db
+            .query_files(FileQuery {
+                folder: FolderFilter::Id(models.id),
+                query: "",
+                creator: "",
+                tag: "",
+                tag_ids: &[alpha.id, beta.id],
+                tag_match: TagMatch::All,
+                sort: "name",
+                limit: None,
+                offset: 0,
+            })
+            .unwrap();
+        assert_eq!(ids(all), vec![both]);
+
+        let page = db
+            .query_files(FileQuery {
+                folder: FolderFilter::Id(models.id),
+                query: "",
+                creator: "",
+                tag: "",
+                tag_ids: &[alpha.id, beta.id],
+                tag_match: TagMatch::Any,
+                sort: "name",
+                limit: Some(1),
+                offset: 1,
+            })
+            .unwrap();
+        assert_eq!(ids(page), vec![only_a]);
+
+        let library = db
+            .query_files(FileQuery {
+                folder: FolderFilter::All,
+                query: "",
+                creator: "",
+                tag: "",
+                tag_ids: &[alpha.id],
+                tag_match: TagMatch::Any,
+                sort: "name",
+                limit: None,
+                offset: 0,
+            })
+            .unwrap();
+        assert_eq!(ids(library), vec![both, only_a, sibling]);
+
+        let searched = db
+            .query_files(FileQuery {
+                folder: FolderFilter::Id(models.id),
+                query: "onlya",
+                creator: "",
+                tag: "",
+                tag_ids: &[alpha.id, beta.id],
+                tag_match: TagMatch::Any,
+                sort: "name",
+                limit: None,
+                offset: 0,
+            })
+            .unwrap();
+        assert_eq!(ids(searched), vec![only_a]);
+        let searched_counts = db.tag_counts(FolderFilter::Id(models.id), "onlya", "").unwrap();
+        assert_eq!(searched_counts.iter().find(|tag| tag.name == "Alpha").unwrap().file_count, 1);
+        assert_eq!(searched_counts.iter().find(|tag| tag.name == "Beta").unwrap().file_count, 0);
+
+        let deduped = db
+            .query_files(FileQuery {
+                folder: FolderFilter::Id(models.id),
+                query: "",
+                creator: "",
+                tag: "",
+                tag_ids: &[alpha.id, beta.id, alpha.id],
+                tag_match: TagMatch::All,
+                sort: "name",
+                limit: None,
+                offset: 0,
+            })
+            .unwrap();
+        assert_eq!(ids(deduped), vec![both]);
+
+        let in_folder = db.list_files(FolderFilter::Id(models.id), "", "", "", "name").unwrap();
+        assert!(in_folder.iter().any(|row| row.id == plain));
+        assert!(!in_folder.iter().any(|row| row.id == sibling));
+        let _ = std::fs::remove_dir_all(&dir);
+    }

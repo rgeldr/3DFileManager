@@ -7,8 +7,22 @@ impl AppDb {
         tag: &str,
         sort: &str,
     ) -> Result<Vec<FileRow>, String> {
+        self.query_files(FileQuery {
+            folder,
+            query,
+            creator,
+            tag,
+            tag_ids: &[],
+            tag_match: TagMatch::Any,
+            sort,
+            limit: None,
+            offset: 0,
+        })
+    }
+
+    pub fn query_files(&self, list: FileQuery<'_>) -> Result<Vec<FileRow>, String> {
         let root = self.library_root().unwrap_or_default();
-        let fts = fts_match(query);
+        let fts = fts_match(list.query);
         let mut sql = String::from(
             "SELECT f.id, f.original_name, f.sort_name, f.stored_relpath, f.ext, f.size_bytes, f.sha256, f.folder_id, f.creator, f.notes, f.source_archive, f.imported_at, f.thumb_status, f.missing
              FROM files f",
@@ -18,33 +32,32 @@ impl AppDb {
         }
         sql.push_str(" WHERE f.missing = 0");
         let mut param_values: Vec<String> = Vec::new();
-        match folder {
-            FolderFilter::All => {}
-            FolderFilter::Root => sql.push_str(" AND f.folder_id IS NULL"),
-            FolderFilter::Id(id) => {
-                sql.push_str(" AND f.folder_id = ?");
-                param_values.push(id.to_string());
-            }
-        }
-        if !creator.is_empty() {
+        push_folder_scope(&mut sql, &mut param_values, list.folder);
+        if !list.creator.is_empty() {
             sql.push_str(" AND f.creator = ? COLLATE NOCASE");
-            param_values.push(creator.to_string());
+            param_values.push(list.creator.to_string());
         }
-        if !tag.is_empty() {
+        if !list.tag.is_empty() {
             sql.push_str(
                 " AND EXISTS (SELECT 1 FROM file_tags ft JOIN tags t ON t.id = ft.tag_id WHERE ft.file_id = f.id AND t.name = ? COLLATE NOCASE)",
             );
-            param_values.push(tag.to_string());
+            param_values.push(list.tag.to_string());
         }
+        push_tag_ids(&mut sql, &mut param_values, list.tag_ids, list.tag_match);
         if let Some(match_q) = &fts {
             sql.push_str(" AND files_fts MATCH ?");
             param_values.push(match_q.clone());
         }
-        sql.push_str(match sort {
+        sql.push_str(match list.sort {
             "creator" => " ORDER BY f.creator COLLATE NOCASE, f.sort_name COLLATE NOCASE",
             "date" => " ORDER BY f.imported_at DESC, f.sort_name COLLATE NOCASE",
             _ => " ORDER BY f.sort_name COLLATE NOCASE",
         });
+        if let Some(limit) = list.limit {
+            sql.push_str(" LIMIT ? OFFSET ?");
+            param_values.push(limit.to_string());
+            param_values.push(list.offset.to_string());
+        }
         let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
         let params_ref: Vec<&dyn rusqlite::ToSql> = param_values
             .iter()
@@ -237,4 +250,51 @@ impl AppDb {
         Ok(false)
     }
 
+}
+
+fn push_folder_scope(sql: &mut String, params: &mut Vec<String>, folder: FolderFilter) {
+    match folder {
+        FolderFilter::All => {}
+        FolderFilter::Root => sql.push_str(" AND f.folder_id IS NULL"),
+        FolderFilter::Id(id) => {
+            sql.push_str(" AND f.folder_id = ?");
+            params.push(id.to_string());
+        }
+    }
+}
+
+fn unique_tag_ids(ids: &[i64]) -> Vec<i64> {
+    let mut out = Vec::new();
+    for id in ids {
+        if !out.contains(id) {
+            out.push(*id);
+        }
+    }
+    out
+}
+
+fn push_tag_ids(sql: &mut String, params: &mut Vec<String>, ids: &[i64], mode: TagMatch) {
+    let ids = unique_tag_ids(ids);
+    if ids.is_empty() {
+        return;
+    }
+    let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    match mode {
+        TagMatch::Any => {
+            sql.push_str(&format!(
+                " AND f.id IN (SELECT file_id FROM file_tags WHERE tag_id IN ({placeholders}))"
+            ));
+        }
+        TagMatch::All => {
+            sql.push_str(&format!(
+                " AND f.id IN (SELECT file_id FROM file_tags WHERE tag_id IN ({placeholders}) GROUP BY file_id HAVING COUNT(DISTINCT tag_id) = CAST(? AS INTEGER))"
+            ));
+        }
+    }
+    for id in &ids {
+        params.push(id.to_string());
+    }
+    if mode == TagMatch::All {
+        params.push(ids.len().to_string());
+    }
 }

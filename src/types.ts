@@ -36,6 +36,14 @@ export interface FolderRow {
   sortOrder: number;
 }
 
+export interface TagCount {
+  id: number;
+  name: string;
+  fileCount: number;
+}
+
+export type TagMatchMode = "any" | "all";
+
 export interface FileRow {
   id: number;
   originalName: string;
