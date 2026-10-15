@@ -10,16 +10,17 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { api } from "./api";
 import { FileGrid } from "./components/FileGrid";
+import { ImportProgressLines } from "./components/ImportProgress";
 import { Inspector } from "./components/Inspector";
 import { Sidebar } from "./components/Sidebar";
 import { debugLog } from "./debugLog";
 import { deleteKeyCommand, deleteKeyFocus, focusedFolderId, isTypingTarget } from "./lib/deleteKey";
-import { iconForDrag } from "./lib/dragPaths";
+import { dragSourceKey, dragSources, fileDragOptions, nativeDragDecision, pointerOutsideWindow, pointerPastSlop, suppressHtmlDrag } from "./lib/dragOut";
 import { importMetaPayload } from "./lib/importMeta";
 import { clampInspector, clampSidebar } from "./lib/paneWidths";
 import { renderMeshStill, MESH_BYTE_LIMIT } from "./lib/renderThumb";
 import { useTheme } from "./theme/ThemeProvider";
-import type { Browse, FileRow, FolderRow, GridSize, ImportSummary, Settings } from "./types";
+import type { Browse, DragReport, FileRow, FolderRow, GridSize, ImportSummary, Settings } from "./types";
 
 function Modal({ children }: { children: ReactNode }) {
   return createPortal(<div className="modal-back">{children}</div>, document.body);
@@ -76,6 +77,26 @@ function formatErrorForDisplay(message: string): string {
   return `${message.slice(0, ERROR_MESSAGE_MAX)}\n…(truncated)`;
 }
 
+type FileDrag = {
+  pointerId: number;
+  ids: number[];
+  originX: number;
+  originY: number;
+  x: number;
+  y: number;
+  buttonDown: boolean;
+  startedNative: boolean;
+  captureEl: HTMLElement | null;
+  prepKey: string;
+  paths: string[] | null;
+  pathsReady: boolean;
+  imageDrag: boolean;
+  skipped: string[];
+  reports: DragReport[];
+  prepareError: string | null;
+  loggedWait: boolean;
+};
+
 interface Actions {
   importFolder: () => void;
   importArchive: () => void;
@@ -131,7 +152,12 @@ export function App() {
   const [diskDialog, setDiskDialog] = useState<DiskDialog | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
-  const dragRef = useRef<{ ids: number[]; active: boolean; startedNative: boolean } | null>(null);
+  const dragRef = useRef<FileDrag | null>(null);
+  const filesRef = useRef(files);
+  filesRef.current = files;
+  const tryStartRef = useRef<() => void>(() => undefined);
+  const prefetchRef = useRef<(ids: number[]) => void>(() => undefined);
+  const dragPrepCache = useRef<{ key: string; paths: string[]; skipped: string[]; reports: DragReport[] } | null>(null);
   const actions = useRef<Actions>({
     importFolder: () => undefined,
     importArchive: () => undefined,
@@ -739,64 +765,128 @@ export function App() {
     void gridItems.current.extraLarge?.setChecked(size === "extraLarge");
   }, [settings?.gridSize]);
 
+  const releaseDragCapture = (node: HTMLElement | null, pointerId: number) => {
+    if (node?.hasPointerCapture(pointerId)) node.releasePointerCapture(pointerId);
+  };
+
+  prefetchRef.current = (ids) => {
+    const sources = dragSources(filesRef.current, ids);
+    if (sources.length === 0) return;
+    const key = dragSourceKey(sources);
+    const apply = (
+      prepared: { paths: string[]; skipped: string[]; reports: DragReport[] },
+      error: string | null,
+    ) => {
+      dragPrepCache.current = { key, paths: prepared.paths, skipped: prepared.skipped, reports: prepared.reports };
+      const drag = dragRef.current;
+      if (!drag || drag.prepKey !== key) return;
+      drag.paths = prepared.paths;
+      drag.skipped = prepared.skipped;
+      drag.reports = prepared.reports;
+      drag.prepareError = error;
+      drag.pathsReady = true;
+      tryStartRef.current();
+    };
+    const cached = dragPrepCache.current;
+    if (cached?.key === key) {
+      apply(cached, null);
+      return;
+    }
+    void api.prepareDragPaths(sources, dragIconRef.current ?? "").then(
+      (prepared) => apply(prepared, null),
+      (err: unknown) => apply({ paths: [], skipped: [], reports: [] }, String(err)),
+    );
+  };
+
+  tryStartRef.current = () => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const decision = nativeDragDecision({
+      buttonDown: drag.buttonDown,
+      pastSlop: pointerPastSlop(drag.originX, drag.originY, drag.x, drag.y),
+      outside: pointerOutsideWindow(drag.x, drag.y, window.innerWidth, window.innerHeight),
+      started: drag.startedNative,
+      pathsReady: drag.pathsReady,
+      imageDrag: drag.imageDrag,
+    });
+    if (decision === "wait-for-paths") {
+      if (!drag.loggedWait) {
+        drag.loggedWait = true;
+        debugLog("drag-wait", { reason: "paths", x: Math.round(drag.x), y: Math.round(drag.y) });
+      }
+      return;
+    }
+    if (decision !== "start" || !drag.paths) return;
+    drag.startedNative = true;
+    releaseDragCapture(drag.captureEl, drag.pointerId);
+    const fileId = drag.ids[0];
+    if (drag.paths.length === 0) {
+      const message = drag.prepareError
+        || drag.reports.map((item) => item.error).filter(Boolean).join("\n")
+        || "Could not drag these files.";
+      debugLog("drag-result", { result: "error", effect: "none", message });
+      setDragFailure({ message, fileId });
+      return;
+    }
+    if (drag.skipped.length > 0) showToast(`Skipped: ${drag.skipped.join(", ")}`);
+    const paths = drag.paths.slice();
+    const icon = dragIconRef.current ?? "";
+    let options: { item: string[]; icon: string };
+    try {
+      options = fileDragOptions(paths, icon);
+    } catch (err) {
+      debugLog("drag-result", { result: "error", effect: "none", message: String(err) });
+      setDragFailure({ message: String(err), fileId });
+      return;
+    }
+    debugLog("drag-start", { count: options.item.length, paths: options.item, icon: options.icon });
+    void startDrag({ item: options.item, icon: options.icon, mode: "copy" }, (payload) => {
+      debugLog("drag-result", { result: payload.result, effect: "copy", icon: options.icon });
+    }).catch((err: unknown) => {
+      debugLog("drag-result", { result: "error", effect: "none", message: String(err) });
+      setDragFailure({ message: String(err), fileId });
+    });
+  };
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => prefetchRef.current(selected), 200);
+    return () => window.clearTimeout(timer);
+  }, [selected]);
+
   useEffect(() => {
     const onMove = (event: PointerEvent) => {
       const drag = dragRef.current;
-      if (!drag) return;
-      drag.active = true;
-      const element = document.elementFromPoint(event.clientX, event.clientY);
-      const folder = element?.closest("[data-folder-id]")?.getAttribute("data-folder-id") ?? null;
-      setDropTarget(folder);
-      const outside = event.clientX <= 0 || event.clientY <= 0 || event.clientX >= window.innerWidth - 1 || event.clientY >= window.innerHeight - 1;
-      if (outside && !drag.startedNative) {
-        drag.startedNative = true;
-        const paths = files.filter((file) => drag.ids.includes(file.id)).map((file) => file.absolutePath);
-        const leftAt = performance.now();
-        if (paths.length > 0) {
-          const fileId = drag.ids[0];
-          void (async () => {
-            try {
-              const icon = iconForDrag(dragIconRef.current ?? (await fallbackDragIconPath()));
-              dragIconRef.current = icon;
-              const prepared = await api.prepareDragPaths(paths, icon);
-              debugLog("drag-out", {
-                selected: drag.ids.length,
-                iconKind: "drag.png",
-                iconBytes: prepared.iconBytes,
-                msToStart: Math.round(performance.now() - leftAt),
-                reports: prepared.reports,
-              });
-              if (prepared.skipped.length > 0) {
-                showToast(`Skipped: ${prepared.skipped.join(", ")}`);
-              }
-              if (prepared.paths.length === 0) {
-                const message = prepared.reports.map((item) => item.error).filter(Boolean).join("\n") || "Could not drag these files.";
-                setDragFailure({ message, fileId });
-                return;
-              }
-              await startDrag({ item: prepared.paths, icon });
-              debugLog("drag-result", { ok: true, ms: Math.round(performance.now() - leftAt) });
-            } catch (err) {
-              debugLog("drag-result", { ok: false, error: String(err), ms: Math.round(performance.now() - leftAt) });
-              setDragFailure({ message: String(err), fileId });
-            }
-          })();
-        }
-      }
-    };
-    const onUp = (event: PointerEvent) => {
-      const drag = dragRef.current;
-      dragRef.current = null;
-      if (!drag?.active || drag.startedNative) {
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      drag.x = event.clientX;
+      drag.y = event.clientY;
+      drag.buttonDown = (event.buttons & 1) === 1;
+      tryStartRef.current();
+      if (drag.startedNative) {
         setDropTarget(null);
         return;
       }
       const element = document.elementFromPoint(event.clientX, event.clientY);
-      const folder = element?.closest("[data-folder-id]")?.getAttribute("data-folder-id");
+      const folder = element?.closest("[data-folder-id]")?.getAttribute("data-folder-id") ?? null;
+      setDropTarget(folder);
+    };
+    const onUp = (event: PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      drag.buttonDown = false;
+      drag.x = event.clientX;
+      drag.y = event.clientY;
+      const started = drag.startedNative;
+      const moved = pointerPastSlop(drag.originX, drag.originY, drag.x, drag.y);
+      const ids = drag.ids.slice();
+      dragRef.current = null;
+      releaseDragCapture(drag.captureEl, event.pointerId);
       setDropTarget(null);
+      if (!moved || started) return;
+      const element = document.elementFromPoint(event.clientX, event.clientY);
+      const folder = element?.closest("[data-folder-id]")?.getAttribute("data-folder-id");
       if (!folder) return;
       const folderId = folder === "root" ? null : Number(folder);
-      const moving = files.filter((file) => drag.ids.includes(file.id));
+      const moving = filesRef.current.filter((file) => ids.includes(file.id));
       const title = moving.length === 1
         ? `Moving "${moving[0]?.sortName ?? "file"}"...`
         : `Moving ${moving.length} files...`;
@@ -805,16 +895,27 @@ export function App() {
         cancellable: true,
         success: moving.length === 1 ? `Moved "${moving[0]?.sortName ?? "file"}"` : `Moved ${moving.length} files`,
         cancelled: "Move cancelled",
-        run: () => api.moveFiles(drag.ids, folderId),
+        run: () => api.moveFiles(ids, folderId),
       });
+    };
+    const blockDrag = (event: DragEvent) => {
+      if (!suppressHtmlDrag(event)) return;
+      const drag = dragRef.current;
+      if (!drag || drag.startedNative) return;
+      drag.imageDrag = true;
+      tryStartRef.current();
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    window.addEventListener("dragstart", blockDrag, true);
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("dragstart", blockDrag, true);
     };
-  }, [files, runDiskOp, showToast]);
+  }, [runDiskOp]);
 
   const browseKey = browse.type === "folder" ? `folder:${browse.id}` : browse.type;
 
@@ -822,7 +923,9 @@ export function App() {
 
   const onSelect = (id: number, mode: "replace" | "toggle" | "range") => {
     if (mode === "toggle") {
-      setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+      const next = selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id];
+      setSelected(next);
+      prefetchRef.current(next);
       return;
     }
     if (mode === "range" && selected.length > 0) {
@@ -831,12 +934,14 @@ export function App() {
       const end = ids.indexOf(id);
       if (start >= 0 && end >= 0) {
         const [from, to] = start < end ? [start, end] : [end, start];
-        setSelected(ids.slice(from, to + 1));
+        const next = ids.slice(from, to + 1);
+        setSelected(next);
+        prefetchRef.current(next);
         return;
       }
     }
     setSelected([id]);
-    dragRef.current = { ids: [id], active: false, startedNative: false };
+    prefetchRef.current([id]);
   };
 
   const onPanePointerDown = (which: "sidebar" | "inspector") => (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -929,8 +1034,36 @@ export function App() {
         const tile = (event.target as HTMLElement).closest("[data-file-id]");
         if (!tile || event.button !== 0) return;
         const id = Number(tile.getAttribute("data-file-id"));
-        const ids = selected.includes(id) ? selected : [id];
-        dragRef.current = { ids, active: false, startedNative: false };
+        if (!Number.isFinite(id)) return;
+        const ids = selected.includes(id) ? selected.slice() : [id];
+        const sources = dragSources(filesRef.current, ids);
+        dragRef.current = {
+          pointerId: event.pointerId,
+          ids,
+          originX: event.clientX,
+          originY: event.clientY,
+          x: event.clientX,
+          y: event.clientY,
+          buttonDown: true,
+          startedNative: false,
+          captureEl: tile instanceof HTMLElement ? tile : null,
+          prepKey: dragSourceKey(sources),
+          paths: null,
+          pathsReady: false,
+          imageDrag: false,
+          skipped: [],
+          reports: [],
+          prepareError: null,
+          loggedWait: false,
+        };
+        if (tile instanceof HTMLElement) {
+          try {
+            tile.setPointerCapture(event.pointerId);
+          } catch {
+            // The pointer can already be gone.
+          }
+        }
+        prefetchRef.current(ids);
       }}
     >
       <Sidebar
@@ -1122,10 +1255,11 @@ export function App() {
         <Modal>
           <div className="card">
             <h2>{busy ?? "Working"}</h2>
-            <p>
-              {progress?.message}
-              {progress && progress.total > 0 ? ` · ${progress.current} of ${progress.total}` : null}
-            </p>
+            <ImportProgressLines
+              current={progress?.current ?? 0}
+              total={progress?.total ?? 0}
+              message={progress?.message ?? ""}
+            />
             <div className="progress-track">
               <div
                 className="progress-bar"

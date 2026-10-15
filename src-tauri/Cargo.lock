@@ -1139,6 +1139,7 @@ version = "26.10.15"
 dependencies = [
  "base64 0.22.1",
  "dirs 6.0.0",
+ "drag",
  "dunce",
  "flate2",
  "image",
@@ -1155,6 +1156,7 @@ dependencies = [
  "trash",
  "unrar",
  "walkdir",
+ "windows 0.52.0",
  "zip",
 ]
 

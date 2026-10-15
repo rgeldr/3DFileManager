@@ -29,6 +29,11 @@ button {
   cursor: pointer;
 }
 
+img,
+canvas {
+  -webkit-user-drag: none;
+}
+
 button:hover {
   background: var(--color-bg-hover);
 }
@@ -303,6 +308,7 @@ button:focus-visible {
   background: transparent;
   text-align: center;
   cursor: pointer;
+  -webkit-user-drag: none;
 }
 
 .thumb {
@@ -319,6 +325,8 @@ button:focus-visible {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  -webkit-user-drag: none;
+  pointer-events: none;
 }
 
 .type-icon {
@@ -397,6 +405,7 @@ button:focus-visible {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  -webkit-user-drag: none;
 }
 
 .viewer img,
@@ -545,6 +554,23 @@ button:focus-visible {
 .empty {
   color: var(--color-text-muted);
   padding: var(--space-4);
+}
+
+.progress-count {
+  width: 22ch;
+  overflow: hidden;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  line-height: 1.4;
+}
+
+.progress-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
 }
 
 .progress-track {

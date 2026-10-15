@@ -127,7 +127,14 @@ export function Viewer({ file }: { file: FileRow | null }) {
     const key = new THREE.DirectionalLight(light, 1.05);
     key.position.set(3, 4, 5);
     scene.add(key);
-    host.replaceChildren(renderer.domElement);
+    const canvas = renderer.domElement;
+    canvas.draggable = false;
+    const blockCanvasDrag = (event: Event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    canvas.addEventListener("dragstart", blockCanvasDrag);
+    host.replaceChildren(canvas);
 
     scene.background = new THREE.Color(cssVar("--viewer-bg"));
     material.color = new THREE.Color(cssVar("--viewer-mesh"));
@@ -203,7 +210,8 @@ export function Viewer({ file }: { file: FileRow | null }) {
       releaseScene(scene, material);
       renderer.forceContextLoss();
       renderer.dispose();
-      renderer.domElement.remove();
+      canvas.removeEventListener("dragstart", blockCanvasDrag);
+      canvas.remove();
     };
   }, [file, host, loadKey, mesh]);
 
@@ -229,7 +237,17 @@ export function Viewer({ file }: { file: FileRow | null }) {
   return (
     <div className="viewer">
       <div ref={setHost} className="viewer-canvas" hidden={!mesh} />
-      {imageUrl ? <img src={imageUrl} alt="" /> : null}
+      {imageUrl ? (
+        <img
+          src={imageUrl}
+          alt=""
+          draggable={false}
+          onDragStart={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+        />
+      ) : null}
       {message ? <p className="viewer-message">{message}</p> : null}
     </div>
   );

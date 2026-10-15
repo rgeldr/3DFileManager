@@ -55,6 +55,7 @@ describe("LazyThumb", () => {
     const img = view.container.querySelector("img");
     expect(img).toBeTruthy();
     expect(img?.getAttribute("src")).toContain("abc.png");
+    expect(img?.getAttribute("draggable")).toBe("false");
   });
 
   it("shows a PDF badge when the file is a document", () => {
@@ -111,6 +112,7 @@ describe("FileGrid", () => {
     );
     const tiles = view.container.querySelectorAll("[data-file-id]");
     expect(tiles[0]?.getAttribute("data-file-id")).toBe("8");
+    expect(tiles[0]?.getAttribute("draggable")).toBe("false");
     expect(tiles.length).toBe(49);
     expect(tiles[0]?.getAttribute("title")).toContain("File 8");
     const named = view.container.querySelector("[data-file-id='15']");
