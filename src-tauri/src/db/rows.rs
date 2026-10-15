@@ -55,6 +55,32 @@ pub enum FolderFilter {
     Id(i64),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TagMatch {
+    Any,
+    All,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagCount {
+    pub id: i64,
+    pub name: String,
+    pub file_count: i64,
+}
+
+pub struct FileQuery<'a> {
+    pub folder: FolderFilter,
+    pub query: &'a str,
+    pub creator: &'a str,
+    pub tag: &'a str,
+    pub tag_ids: &'a [i64],
+    pub tag_match: TagMatch,
+    pub sort: &'a str,
+    pub limit: Option<u32>,
+    pub offset: u32,
+}
+
 pub fn thumb_path(data_dir: &Path, sha: &str) -> PathBuf {
     data_dir.join("thumbs").join(format!("{sha}.png"))
 }

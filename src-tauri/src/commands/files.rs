@@ -47,7 +47,36 @@ struct ListFilesArgs {
     query: String,
     creator: String,
     tag: String,
+    #[serde(default)]
+    tag_ids: Vec<i64>,
+    #[serde(default = "default_tag_match")]
+    tag_match: String,
     sort: String,
+    #[serde(default)]
+    limit: Option<u32>,
+    #[serde(default)]
+    offset: u32,
+}
+
+fn default_tag_match() -> String {
+    "any".into()
+}
+
+fn folder_filter(folder: &str, folder_id: Option<i64>) -> Result<FolderFilter, String> {
+    match folder {
+        "all" => Ok(FolderFilter::All),
+        "root" => Ok(FolderFilter::Root),
+        "id" => Ok(FolderFilter::Id(folder_id.ok_or("Missing folder id")?)),
+        _ => Err("Unknown folder filter.".into()),
+    }
+}
+
+fn tag_match_mode(mode: &str) -> Result<db::TagMatch, String> {
+    match mode.to_ascii_lowercase().as_str() {
+        "any" | "" => Ok(db::TagMatch::Any),
+        "all" => Ok(db::TagMatch::All),
+        _ => Err("Unknown tag match.".into()),
+    }
 }
 
 #[tauri::command]
@@ -55,13 +84,39 @@ async fn list_files(app: AppHandle, args: ListFilesArgs) -> Result<Vec<db::FileR
     let db = app.state::<AppState>().db.clone();
     off_ui("list_files", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        let filter = match args.folder.as_str() {
-            "all" => FolderFilter::All,
-            "root" => FolderFilter::Root,
-            "id" => FolderFilter::Id(args.folder_id.ok_or("Missing folder id")?),
-            _ => return Err("Unknown folder filter.".into()),
-        };
-        db.list_files(filter, &args.query, &args.creator, &args.tag, &args.sort)
+        let filter = folder_filter(&args.folder, args.folder_id)?;
+        let tag_match = tag_match_mode(&args.tag_match)?;
+        db.query_files(db::FileQuery {
+            folder: filter,
+            query: &args.query,
+            creator: &args.creator,
+            tag: &args.tag,
+            tag_ids: &args.tag_ids,
+            tag_match,
+            sort: &args.sort,
+            limit: args.limit,
+            offset: args.offset,
+        })
+    })
+    .await
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TagCountArgs {
+    folder: String,
+    folder_id: Option<i64>,
+    query: String,
+    creator: String,
+}
+
+#[tauri::command]
+async fn list_tag_counts(app: AppHandle, args: TagCountArgs) -> Result<Vec<db::TagCount>, String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("list_tag_counts", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        let filter = folder_filter(&args.folder, args.folder_id)?;
+        db.tag_counts(filter, &args.query, &args.creator)
     })
     .await
 }

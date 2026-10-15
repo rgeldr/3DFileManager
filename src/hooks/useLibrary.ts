@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { CheckMenuItem } from "@tauri-apps/api/menu";
 import { api } from "../api";
 import { useTheme } from "../theme/ThemeProvider";
-import type { Browse, DragReport, FileRow, FolderRow, GridSize, ImportSummary, Settings } from "../types";
+import type { Browse, DragReport, FileRow, FolderRow, GridSize, ImportSummary, Settings, TagCount, TagMatchMode } from "../types";
 import { useLibraryEffects } from "./useLibraryEffects";
 import { useSelection } from "./useSelection";
 import {
@@ -22,10 +22,12 @@ export function useLibrary() {
   const [browse, setBrowse] = useState<Browse>({ type: "root" });
   const [query, setQuery] = useState("");
   const [creator, setCreator] = useState("");
-  const [tag, setTag] = useState("");
+  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
+  const [tagMatch, setTagMatch] = useState<TagMatchMode>("any");
   const [sort, setSort] = useState("name");
   const [creators, setCreators] = useState<string[]>([]);
   const [tags, setTags] = useState<string[]>([]);
+  const [tagCounts, setTagCounts] = useState<TagCount[]>([]);
   const [missingCount, setMissingCount] = useState(0);
   const [missingOpen, setMissingOpen] = useState(false);
   const [missingFiles, setMissingFiles] = useState<FileRow[]>([]);
@@ -97,24 +99,26 @@ export function useLibrary() {
 
   const targetFolderId = browse.type === "folder" ? browse.id : null;
 
-  const refreshLists = useCallback(async (nextBrowse = browse, nextQuery = query, nextCreator = creator, nextTag = tag, nextSort = sort) => {
+  const refreshLists = useCallback(async (nextBrowse = browse, nextQuery = query, nextCreator = creator, nextSort = sort) => {
     const queryActive = /[\p{L}\p{N}]/u.test(nextQuery);
-    const finding = queryActive || nextCreator !== "" || nextTag !== "";
+    const finding = queryActive || nextCreator !== "";
     const folder = finding ? "all" : nextBrowse.type === "root" ? "root" : "id";
     const folderId = !finding && nextBrowse.type === "folder" ? nextBrowse.id : null;
+    const scope = { folder, folderId, query: nextQuery, creator: nextCreator };
     const [rows, creatorRows, tagRows, boot] = await Promise.all([
-      api.listFiles({ folder, folderId, query: nextQuery, creator: nextCreator, tag: nextTag, sort: nextSort }),
+      api.listFiles({ ...scope, tag: "", tagIds: selectedTagIds, tagMatch, sort: nextSort }),
       api.listCreators(),
-      api.listTags(),
+      api.listTagCounts(scope),
       api.bootstrap(),
     ]);
     setFiles(rows);
     setCreators(creatorRows);
-    setTags(tagRows);
+    setTagCounts(tagRows);
+    setTags(tagRows.map((tag) => tag.name));
     setFolders(boot.folders);
     setMissingCount(boot.missingCount);
     setSettings(boot.settings);
-  }, [browse, creator, query, sort, tag]);
+  }, [browse, creator, query, selectedTagIds, sort, tagMatch]);
 
   const showToast = useCallback((message: string) => {
     if (toastTimer.current != null) window.clearTimeout(toastTimer.current);
@@ -257,8 +261,9 @@ export function useLibrary() {
   const browseKey = browse.type === "folder" ? `folder:${browse.id}` : browse.type;
   const model = {
     theme, setTheme, ready, setReady, settings, setSettings, folders, setFolders, files, setFiles,
-    browse, setBrowse, query, setQuery, creator, setCreator, tag, setTag, sort, setSort,
-    creators, setCreators, tags, setTags, selected, setSelected, missingCount, setMissingCount,
+    browse, setBrowse, query, setQuery, creator, setCreator, selectedTagIds, setSelectedTagIds,
+    tagMatch, setTagMatch, sort, setSort, creators, setCreators, tags, setTags, tagCounts,
+    selected, setSelected, missingCount, setMissingCount,
     missingOpen, setMissingOpen, missingFiles, setMissingFiles, chosenRoot, setChosenRoot,
     busy, setBusy, importing, setImporting, progress, setProgress, summary, setSummary,
     importCreator, setImportCreator, importTags, setImportTags, importTagText, setImportTagText,

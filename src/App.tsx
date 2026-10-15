@@ -2,6 +2,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "./api";
 import { FileGrid } from "./components/FileGrid";
+import { TagFilter } from "./components/TagFilter";
 import { MenuBar } from "./components/MenuBar";
 import { Sidebar } from "./components/Sidebar";
 import { Inspector } from "./components/Inspector";
@@ -56,8 +57,11 @@ function AppShell({ app }: { app: LibraryModel }) {
     setQuery,
     creator,
     setCreator,
-    tag,
-    setTag,
+    selectedTagIds,
+    setSelectedTagIds,
+    tagMatch,
+    setTagMatch,
+    tagCounts,
     sort,
     setSort,
     creators,
@@ -261,13 +265,16 @@ function AppShell({ app }: { app: LibraryModel }) {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
+          <TagFilter
+            tags={tagCounts}
+            selectedIds={selectedTagIds}
+            match={tagMatch}
+            onSelectedIds={setSelectedTagIds}
+            onMatch={setTagMatch}
+          />
           <select value={creator} onChange={(event) => setCreator(event.target.value)}>
             <option value="">All creators</option>
             {creators.map((item) => <option key={item} value={item}>{item}</option>)}
-          </select>
-          <select value={tag} onChange={(event) => setTag(event.target.value)}>
-            <option value="">All tags</option>
-            {tags.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
           <select value={sort} onChange={(event) => setSort(event.target.value)}>
             <option value="name">Sort name</option>
