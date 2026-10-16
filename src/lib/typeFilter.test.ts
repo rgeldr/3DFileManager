@@ -49,8 +49,8 @@ describe("type filter popover", () => {
   });
 
   it("labels the button with the selection count and searches only a long list", () => {
-    expect(typeFilterBadge(0)).toBe("Types");
-    expect(typeFilterBadge(2)).toBe("Types (2)");
+    expect(typeFilterBadge(0)).toBe("File Types");
+    expect(typeFilterBadge(2)).toBe("File Types (2)");
     expect(typeFilterShowsSearch(8)).toBe(false);
     expect(typeFilterShowsSearch(SUPPORTED_TYPE_GROUPS.length)).toBe(true);
   });

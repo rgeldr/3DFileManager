@@ -2,8 +2,9 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "./api";
 import { FileGrid } from "./components/FileGrid";
+import { LibrarySearch } from "./components/LibrarySearch";
 import { TagFilter } from "./components/TagFilter";
-import { FilterChips, TypeFilter } from "./components/TypeFilter";
+import { TypeFilter } from "./components/TypeFilter";
 import { MenuBar } from "./components/MenuBar";
 import { Sidebar } from "./components/Sidebar";
 import { Inspector } from "./components/Inspector";
@@ -264,22 +265,23 @@ function AppShell({ app }: { app: LibraryModel }) {
       />
       <section className="main">
         <div className="toolbar">
-          <div className="toolbar-search">
-            <input
-              type="search"
-              placeholder="Search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-            <FilterChips
-              tags={tagCounts}
-              types={typeCounts}
-              selectedTagIds={selectedTagIds}
-              selectedTypeIds={selectedTypeIds}
-              onSelectedTagIds={setSelectedTagIds}
-              onSelectedTypeIds={setSelectedTypeIds}
-            />
-          </div>
+          <LibrarySearch
+            query={query}
+            creator={creator}
+            selectedTagIds={selectedTagIds}
+            selectedTypeIds={selectedTypeIds}
+            tags={tagCounts}
+            types={typeCounts}
+            onQuery={setQuery}
+            onClear={() => {
+              setQuery("");
+              setCreator("");
+              setSelectedTypeIds([]);
+              setSelectedTagIds([]);
+            }}
+            onSelectedTagIds={setSelectedTagIds}
+            onSelectedTypeIds={setSelectedTypeIds}
+          />
           <div className="toolbar-controls">
             <div className="toolbar-row">
               <TypeFilter

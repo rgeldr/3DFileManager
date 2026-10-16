@@ -1,6 +1,8 @@
 import * as THREE from "three";
+import { ThreeMFLoader } from "three/addons/loaders/3MFLoader.js";
 import { debugLog } from "../debugLog";
 import { parseMeshInWorker, renderMeshInWorker } from "./meshParseClient";
+import { prepareLoadedPreview } from "./previewMaterials";
 import { addPreviewLights, previewMeshMaterial } from "./previewLights";
 import type { PackedMesh } from "../workers/meshParse.worker";
 
@@ -82,10 +84,14 @@ function groupFromPackedMeshes(meshes: PackedMesh[], material: THREE.Material): 
   return root;
 }
 
-function disposeMeshTree(object: THREE.Object3D) {
+function disposeMeshTree(object: THREE.Object3D, shared: THREE.Material | null) {
   object.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;
     child.geometry?.dispose();
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    for (const material of materials) {
+      if (material && material !== shared) material.dispose();
+    }
   });
 }
 
@@ -138,13 +144,19 @@ async function renderOnMainThread(buffer: ArrayBuffer, ext: string): Promise<Uin
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(cssVar("--viewer-bg"));
   const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 1000);
-  const material = previewMeshMaterial(cssVar("--viewer-mesh"));
+  const material = ext === "3mf" ? null : previewMeshMaterial(cssVar("--viewer-mesh"));
   addPreviewLights(scene, camera, cssVar("--color-accent-contrast"));
 
-  let parsed: THREE.Group | null = null;
+  let parsed: THREE.Object3D | null = null;
   try {
-    const meshes = await parseMeshInWorker(ext, buffer);
-    parsed = groupFromPackedMeshes(meshes, material);
+    if (ext === "3mf") {
+      parsed = new ThreeMFLoader().parse(buffer);
+      prepareLoadedPreview(parsed, buffer, cssVar("--viewer-mesh"));
+    } else if (material) {
+      const meshes = await parseMeshInWorker(ext, buffer);
+      parsed = groupFromPackedMeshes(meshes, material);
+    }
+    if (!parsed) throw new Error("No mesh geometry found.");
     scene.add(parsed);
     fitCamera(camera, parsed);
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -157,8 +169,8 @@ async function renderOnMainThread(buffer: ArrayBuffer, ext: string): Promise<Uin
     }
     return new Uint8Array(await blob.arrayBuffer());
   } finally {
-    if (parsed) disposeMeshTree(parsed);
-    material.dispose();
+    if (parsed) disposeMeshTree(parsed, material);
+    material?.dispose();
     scene.clear();
   }
 }

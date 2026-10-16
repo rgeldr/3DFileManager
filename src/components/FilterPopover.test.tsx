@@ -94,7 +94,7 @@ describe("filter popovers", () => {
     });
 
     render(<TypeFilter types={mergeTypeCounts([])} selectedIds={[]} onSelectedIds={() => undefined} />);
-    fireEvent.click(screen.getByRole("button", { name: "Types" }));
+    fireEvent.click(screen.getByRole("button", { name: "File Types" }));
     const dialog = screen.getByRole("dialog", { name: "Filter by type" });
     expect(dialog.parentElement).toBe(document.body);
 
@@ -144,9 +144,9 @@ describe("filter popovers", () => {
     fireEvent.scroll(outside);
     expect(screen.queryByRole("dialog")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Types" }));
+    fireEvent.click(screen.getByRole("button", { name: "File Types" }));
     expect(screen.getByRole("dialog", { name: "Filter by type" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Types" }));
+    fireEvent.click(screen.getByRole("button", { name: "File Types" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(errors.join("\n")).not.toMatch(/Maximum update depth|Minified React error #185/);
     outside.remove();

@@ -27,7 +27,7 @@ export function toggleTypeId(ids: string[], id: string): string[] {
 }
 
 export function typeFilterBadge(count: number): string {
-  return count > 0 ? `Types (${count})` : "Types";
+  return count > 0 ? `File Types (${count})` : "File Types";
 }
 
 export function extsForSelectedTypes(ids: string[]): string[] {

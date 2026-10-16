@@ -2,6 +2,10 @@
   position: relative;
 }
 
+.tag-filter-button {
+  white-space: nowrap;
+}
+
 .tag-filter-button.is-active {
   border-color: var(--color-accent);
 }

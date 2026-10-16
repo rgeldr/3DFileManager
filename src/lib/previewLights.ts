@@ -14,11 +14,16 @@ const KEY_OFFSET = new THREE.Vector3(-0.7, 0.9, 0.15);
 const FILL_OFFSET = new THREE.Vector3(0.9, -0.45, 0.2);
 const VIEW_AIM = new THREE.Vector3(0, 0, -1);
 
-export function previewMeshMaterial(color: THREE.ColorRepresentation): THREE.MeshStandardMaterial {
+export function previewMeshMaterial(
+  color: THREE.ColorRepresentation,
+  options?: { vertexColors?: boolean; flatShading?: boolean },
+): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
     color,
     metalness: 0.02,
     roughness: 0.66,
+    vertexColors: options?.vertexColors ?? false,
+    flatShading: options?.flatShading ?? false,
   });
 }
 

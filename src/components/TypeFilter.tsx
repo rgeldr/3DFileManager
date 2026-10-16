@@ -81,6 +81,7 @@ export function TypeFilter({
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-controls={listId}
+        aria-label={typeFilterBadge(selectedIds.length)}
         onClick={() => setOpen((value) => !value)}
       >
         {typeFilterBadge(selectedIds.length)}

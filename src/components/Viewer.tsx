@@ -7,6 +7,7 @@ import { ThreeMFLoader } from "three/addons/loaders/3MFLoader.js";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { api } from "../api";
 import type { FileRow } from "../types";
+import { prepareLoadedPreview } from "../lib/previewMaterials";
 import { addPreviewLights, previewMeshMaterial } from "../lib/previewLights";
 import { useTheme } from "../theme/ThemeProvider";
 
@@ -175,7 +176,7 @@ export function Viewer({ file }: { file: FileRow | null }) {
           group.add(loaded);
         } else {
           const loaded = new ThreeMFLoader().parse(buffer);
-          assignSharedMaterial(loaded, material);
+          prepareLoadedPreview(loaded, buffer, cssVar("--viewer-mesh"));
           group.add(loaded);
         }
         scene.add(group);

@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { ThreeMFLoader } from "three/addons/loaders/3MFLoader.js";
+import { prepareLoadedPreview } from "../lib/previewMaterials";
 import { addPreviewLights, previewMeshMaterial } from "../lib/previewLights";
 
 export interface PackedMesh {
@@ -166,16 +167,19 @@ async function renderThumbnail(
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(colors.background);
   const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 1000);
-  const material = previewMeshMaterial(colors.mesh);
+  const material = ext === "3mf" ? null : previewMeshMaterial(colors.mesh);
   let object: THREE.Object3D | null = null;
   try {
     object = parsedObject(ext, buffer);
+    if (ext === "3mf") prepareLoadedPreview(object, buffer, colors.mesh);
     let meshes = 0;
     object.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
       meshes += 1;
-      child.material = material;
-      if (!child.geometry.getAttribute("normal")) child.geometry.computeVertexNormals();
+      if (material) {
+        child.material = material;
+        if (!child.geometry.getAttribute("normal")) child.geometry.computeVertexNormals();
+      }
     });
     if (meshes === 0) throw new Error("No mesh geometry found.");
     scene.add(object);
@@ -188,10 +192,15 @@ async function renderThumbnail(
     if (renderer.getContext()?.isContextLost()) discardWorkerRenderer();
     throw err;
   } finally {
-    material.dispose();
     object?.traverse((child) => {
-      if (child instanceof THREE.Mesh) child.geometry?.dispose();
+      if (!(child instanceof THREE.Mesh)) return;
+      child.geometry?.dispose();
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      for (const item of materials) {
+        if (item && item !== material) item.dispose();
+      }
     });
+    material?.dispose();
     scene.clear();
   }
 }

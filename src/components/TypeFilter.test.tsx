@@ -9,7 +9,7 @@ describe("Types popover", () => {
   it("offers the supported import types, including jpg and jpeg as one row", () => {
     const onSelectedIds = vi.fn();
     render(<TypeFilter types={mergeTypeCounts([])} selectedIds={[]} onSelectedIds={onSelectedIds} />);
-    fireEvent.click(screen.getByRole("button", { name: "Types" }));
+    fireEvent.click(screen.getByRole("button", { name: "File Types" }));
     const options = screen.getAllByRole("option").map((option) => option.parentElement?.textContent ?? "");
     expect(options).toHaveLength(SUPPORTED_TYPE_GROUPS.length);
     for (const group of SUPPORTED_TYPE_GROUPS) {
@@ -30,7 +30,7 @@ describe("Types popover", () => {
     const onSelectedIds = vi.fn();
     const types = mergeTypeCounts([]).slice(0, 3);
     render(<TypeFilter types={types} selectedIds={["stl"]} onSelectedIds={onSelectedIds} />);
-    fireEvent.click(screen.getByRole("button", { name: "Types (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "File Types (1)" }));
     expect(screen.queryByPlaceholderText("Filter types")).toBeNull();
     const dialog = screen.getByRole("dialog", { name: "Filter by type" });
     fireEvent.keyDown(dialog, { key: "ArrowDown" });
