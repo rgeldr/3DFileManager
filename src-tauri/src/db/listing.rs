@@ -15,6 +15,7 @@ impl AppDb {
             tag,
             tag_ids: &[],
             tag_match: TagMatch::Any,
+            exts: &[],
             sort,
             limit: None,
             offset: 0,
@@ -45,6 +46,7 @@ impl AppDb {
             param_values.push(list.tag.to_string());
         }
         push_tag_ids(&mut sql, &mut param_values, list.tag_ids, list.tag_match);
+        push_ext_in(&mut sql, &mut param_values, list.exts);
         if let Some(match_q) = &fts {
             sql.push_str(" AND files_fts MATCH ?");
             param_values.push(match_q.clone());
@@ -249,6 +251,58 @@ impl AppDb {
             )
             .map_err(|e| e.to_string())?;
         Ok(false)
+    }
+
+    pub fn type_counts(
+        &self,
+        folder: FolderFilter,
+        query: &str,
+        creator: &str,
+        tag_ids: &[i64],
+        tag_match: TagMatch,
+    ) -> Result<Vec<TypeCount>, String> {
+        let fts = fts_match(query);
+        let mut sql = String::from("SELECT lower(f.ext), COUNT(*) FROM files f");
+        if fts.is_some() {
+            sql.push_str(" JOIN files_fts ON files_fts.rowid = f.id");
+        }
+        sql.push_str(" WHERE f.missing = 0");
+        let mut param_values: Vec<String> = Vec::new();
+        push_folder_scope(&mut sql, &mut param_values, folder);
+        if !creator.is_empty() {
+            sql.push_str(" AND f.creator = ? COLLATE NOCASE");
+            param_values.push(creator.to_string());
+        }
+        push_tag_ids(&mut sql, &mut param_values, tag_ids, tag_match);
+        if let Some(match_q) = &fts {
+            sql.push_str(" AND files_fts MATCH ?");
+            param_values.push(match_q.clone());
+        }
+        sql.push_str(" GROUP BY lower(f.ext)");
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let params_ref: Vec<&dyn rusqlite::ToSql> = param_values
+            .iter()
+            .map(|s| s as &dyn rusqlite::ToSql)
+            .collect();
+        let rows = stmt
+            .query_map(params_ref.as_slice(), |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        drop(stmt);
+        let mut totals = std::collections::HashMap::<String, i64>::new();
+        for (ext, count) in rows {
+            totals.insert(ext, count);
+        }
+        Ok(crate::names::supported_types()
+            .iter()
+            .map(|group| TypeCount {
+                file_count: group.exts.iter().map(|ext| totals.get(ext).copied().unwrap_or(0)).sum(),
+                id: group.id.clone(),
+                label: group.label.clone(),
+                exts: group.exts.clone(),
+            })
+            .collect())
     }
 
 }

@@ -18,6 +18,7 @@ export default defineConfig({
         "src/lib/gridWindow.ts",
         "src/lib/deleteKey.ts",
         "src/lib/tagFilter.ts",
+        "src/lib/typeFilter.ts",
         "src/components/FileGrid.tsx",
       ],
     },

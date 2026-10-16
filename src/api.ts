@@ -4,6 +4,7 @@ import type {
   FileRow,
   FolderRow,
   TagCount,
+  TypeCount,
   ImportSummary,
   PreparedDrag,
   Settings,
@@ -36,6 +37,7 @@ export const api = {
     tag: string;
     tagIds: number[];
     tagMatch: "any" | "all";
+    exts: string[];
     sort: string;
   }) => invoke<FileRow[]>("list_files", { args }),
   missingFiles: () => invoke<FileRow[]>("missing_files"),
@@ -63,7 +65,16 @@ export const api = {
     folderId: number | null;
     query: string;
     creator: string;
+    exts: string[];
   }) => invoke<TagCount[]>("list_tag_counts", { args }),
+  listTypeCounts: (args: {
+    folder: string;
+    folderId: number | null;
+    query: string;
+    creator: string;
+    tagIds: number[];
+    tagMatch: "any" | "all";
+  }) => invoke<TypeCount[]>("list_type_counts", { args }),
   importPaths: (paths: string[], folderId: number | null) =>
     invoke<ImportSummary>("import_paths", { paths, folderId }),
   cancelImport: () => invoke<void>("cancel_import"),

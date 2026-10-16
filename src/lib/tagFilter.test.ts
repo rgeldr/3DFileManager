@@ -45,33 +45,40 @@ describe("libraryListScope", () => {
   const folder = { type: "folder" as const, id: 9 };
 
   it("searches the whole library for a tag filter and leaves a blank creator blank", () => {
-    expect(libraryListScope({ browse: folder, query: "", creator: "", selectedTagCount: 1 })).toEqual({
+    expect(libraryListScope({ browse: folder, query: "", creator: "", selectedTagCount: 1, selectedTypeCount: 0 })).toEqual({
       folder: "all",
       folderId: null,
       creator: "",
     });
-    expect(libraryListScope({ browse: folder, query: "orc", creator: "Artisan Guild", selectedTagCount: 2 })).toEqual({
+    expect(libraryListScope({ browse: folder, query: "orc", creator: "Artisan Guild", selectedTagCount: 2, selectedTypeCount: 1 })).toEqual({
       folder: "all",
       folderId: null,
       creator: "Artisan Guild",
     });
+    expect(libraryListScope({ browse: folder, query: "", creator: "", selectedTagCount: 0, selectedTypeCount: 1 })).toEqual({
+      folder: "all",
+      folderId: null,
+      creator: "",
+    });
   });
 
   it("keeps an unfiltered browse inside the current folder", () => {
-    expect(libraryListScope({ browse: folder, query: "", creator: "", selectedTagCount: 0 })).toEqual({
+    expect(libraryListScope({ browse: folder, query: "", creator: "", selectedTagCount: 0, selectedTypeCount: 0 })).toEqual({
       folder: "id",
       folderId: 9,
       creator: "",
     });
-    expect(libraryListScope({ browse: { type: "root" }, query: "   ", creator: "", selectedTagCount: 0 }).folder).toBe("root");
+    expect(libraryListScope({ browse: { type: "root" }, query: "   ", creator: "", selectedTagCount: 0, selectedTypeCount: 0 }).folder).toBe("root");
   });
 });
 
 describe("gridEmptyMessage", () => {
   it("explains an empty tag filter instead of calling the folder empty", () => {
-    expect(gridEmptyMessage({ selectedTagCount: 1, creator: "", query: "" })).toBe("No files match the selected tags");
-    expect(gridEmptyMessage({ selectedTagCount: 0, creator: "Artisan Guild", query: "" })).toBe("No files match the current filters");
-    expect(gridEmptyMessage({ selectedTagCount: 0, creator: "", query: "" })).toBe("This folder is empty. Drop files here to import them.");
+    expect(gridEmptyMessage({ selectedTagCount: 1, selectedTypeCount: 0, creator: "", query: "" })).toBe("No files match the selected tags");
+    expect(gridEmptyMessage({ selectedTagCount: 0, selectedTypeCount: 1, creator: "", query: "" })).toBe("No files match the selected types");
+    expect(gridEmptyMessage({ selectedTagCount: 1, selectedTypeCount: 1, creator: "", query: "" })).toBe("No files match the current filters");
+    expect(gridEmptyMessage({ selectedTagCount: 0, selectedTypeCount: 0, creator: "Artisan Guild", query: "" })).toBe("No files match the current filters");
+    expect(gridEmptyMessage({ selectedTagCount: 0, selectedTypeCount: 0, creator: "", query: "" })).toBe("This folder is empty. Drop files here to import them.");
   });
 });
 

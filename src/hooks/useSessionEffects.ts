@@ -39,6 +39,7 @@ export function useSessionEffects(s: {
   query: string;
   creator: string;
   selectedTagIds: number[];
+  selectedTypeIds: string[];
   tagMatch: "any" | "all";
   sort: string;
   setPreviewIconsEnabled: (enabled: boolean) => void;
@@ -71,7 +72,7 @@ export function useSessionEffects(s: {
     dialogOpen,
     ready, settings, setSettings, setSidebarWidth, setInspectorWidth, setPreviewHeight, setFolders, setMissingCount,
     setTheme, refreshLists, setReady, setError, dragIconRef, runImportRef, setProgress, setThumbNonce,
-    browse, query, creator, selectedTagIds, tagMatch, sort, setPreviewIconsEnabled, aboutOpen, setAboutVersion,
+    browse, query, creator, selectedTagIds, selectedTypeIds, tagMatch, sort, setPreviewIconsEnabled, aboutOpen, setAboutVersion,
     setAboutVersionFailed, creatorTarget, setCreatorFileCount, includeSubfolders, fileMenu, setFileMenu,
     folderTagTarget, setFolderTagFileCount, diskProgress, setDiskDialog, toastTimer, actions, runDiskOp,
     runImport, setAboutOpen,
@@ -215,7 +216,7 @@ export function useSessionEffects(s: {
       void refreshLists().catch((err) => setError(String(err)));
     }, 200);
     return () => clearTimeout(timer);
-  }, [browse, query, creator, selectedTagIds, tagMatch, sort, ready, refreshLists]);
+  }, [browse, query, creator, selectedTagIds, selectedTypeIds, tagMatch, sort, ready, refreshLists]);
 
   useEffect(() => {
     if (!ready || !settings?.libraryRoot) return;

@@ -69,6 +69,15 @@ pub struct TagCount {
     pub file_count: i64,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TypeCount {
+    pub id: String,
+    pub label: String,
+    pub exts: Vec<String>,
+    pub file_count: i64,
+}
+
 pub struct FileQuery<'a> {
     pub folder: FolderFilter,
     pub query: &'a str,
@@ -76,9 +85,27 @@ pub struct FileQuery<'a> {
     pub tag: &'a str,
     pub tag_ids: &'a [i64],
     pub tag_match: TagMatch,
+    pub exts: &'a [&'a str],
     pub sort: &'a str,
     pub limit: Option<u32>,
     pub offset: u32,
+}
+
+pub fn push_ext_in(sql: &mut String, params: &mut Vec<String>, exts: &[&str]) {
+    let mut unique = Vec::new();
+    for ext in exts {
+        let ext = ext.trim().to_ascii_lowercase();
+        if ext.is_empty() || !crate::names::is_supported_file(&ext) || unique.contains(&ext) {
+            continue;
+        }
+        unique.push(ext);
+    }
+    if unique.is_empty() {
+        return;
+    }
+    let placeholders = unique.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    sql.push_str(&format!(" AND lower(f.ext) IN ({placeholders})"));
+    params.extend(unique);
 }
 
 pub fn thumb_path(data_dir: &Path, sha: &str) -> PathBuf {

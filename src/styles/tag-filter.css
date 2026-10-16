@@ -96,3 +96,9 @@
   border: none;
   cursor: pointer;
 }
+
+.tag-filter-chips .type-chip {
+  background: var(--color-bg-selected);
+  color: var(--color-text);
+  border: 1px solid var(--color-accent);
+}

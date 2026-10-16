@@ -51,6 +51,8 @@ struct ListFilesArgs {
     tag_ids: Vec<i64>,
     #[serde(default = "default_tag_match")]
     tag_match: String,
+    #[serde(default)]
+    exts: Vec<String>,
     sort: String,
     #[serde(default)]
     limit: Option<u32>,
@@ -86,6 +88,8 @@ async fn list_files(app: AppHandle, args: ListFilesArgs) -> Result<Vec<db::FileR
         let db = db.lock().map_err(|e| e.to_string())?;
         let filter = folder_filter(&args.folder, args.folder_id)?;
         let tag_match = tag_match_mode(&args.tag_match)?;
+        let exts = crate::names::ext_filter_values(&args.exts);
+        let ext_refs: Vec<&str> = exts.iter().map(String::as_str).collect();
         db.query_files(db::FileQuery {
             folder: filter,
             query: &args.query,
@@ -93,6 +97,7 @@ async fn list_files(app: AppHandle, args: ListFilesArgs) -> Result<Vec<db::FileR
             tag: &args.tag,
             tag_ids: &args.tag_ids,
             tag_match,
+            exts: &ext_refs,
             sort: &args.sort,
             limit: args.limit,
             offset: args.offset,
@@ -108,6 +113,8 @@ struct TagCountArgs {
     folder_id: Option<i64>,
     query: String,
     creator: String,
+    #[serde(default)]
+    exts: Vec<String>,
 }
 
 #[tauri::command]
@@ -116,7 +123,34 @@ async fn list_tag_counts(app: AppHandle, args: TagCountArgs) -> Result<Vec<db::T
     off_ui("list_tag_counts", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         let filter = folder_filter(&args.folder, args.folder_id)?;
-        db.tag_counts(filter, &args.query, &args.creator)
+        let exts = crate::names::ext_filter_values(&args.exts);
+        let ext_refs: Vec<&str> = exts.iter().map(String::as_str).collect();
+        db.tag_counts(filter, &args.query, &args.creator, &ext_refs)
+    })
+    .await
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TypeCountArgs {
+    folder: String,
+    folder_id: Option<i64>,
+    query: String,
+    creator: String,
+    #[serde(default)]
+    tag_ids: Vec<i64>,
+    #[serde(default = "default_tag_match")]
+    tag_match: String,
+}
+
+#[tauri::command]
+async fn list_type_counts(app: AppHandle, args: TypeCountArgs) -> Result<Vec<db::TypeCount>, String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("list_type_counts", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        let filter = folder_filter(&args.folder, args.folder_id)?;
+        let tag_match = tag_match_mode(&args.tag_match)?;
+        db.type_counts(filter, &args.query, &args.creator, &args.tag_ids, tag_match)
     })
     .await
 }

@@ -88,6 +88,7 @@ mod tests {
     include!("tests_thumbs.rs");
     include!("tests_tags.rs");
     include!("tests_tag_filter.rs");
+    include!("tests_type_filter.rs");
     include!("tests_folders.rs");
     include!("tests_files.rs");
     include!("tests_support.rs");

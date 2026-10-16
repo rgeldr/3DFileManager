@@ -2,7 +2,8 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "./api";
 import { FileGrid } from "./components/FileGrid";
-import { TagChips, TagFilter } from "./components/TagFilter";
+import { TagFilter } from "./components/TagFilter";
+import { FilterChips, TypeFilter } from "./components/TypeFilter";
 import { MenuBar } from "./components/MenuBar";
 import { Sidebar } from "./components/Sidebar";
 import { Inspector } from "./components/Inspector";
@@ -48,6 +49,9 @@ function AppShell({ app }: { app: LibraryModel }) {
     setCreator,
     selectedTagIds,
     setSelectedTagIds,
+    selectedTypeIds,
+    setSelectedTypeIds,
+    typeCounts,
     tagMatch,
     setTagMatch,
     tagCounts,
@@ -266,14 +270,22 @@ function AppShell({ app }: { app: LibraryModel }) {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
-            <TagChips
+            <FilterChips
               tags={tagCounts}
-              selectedIds={selectedTagIds}
-              onSelectedIds={setSelectedTagIds}
+              types={typeCounts}
+              selectedTagIds={selectedTagIds}
+              selectedTypeIds={selectedTypeIds}
+              onSelectedTagIds={setSelectedTagIds}
+              onSelectedTypeIds={setSelectedTypeIds}
             />
           </div>
           <div className="toolbar-controls">
             <div className="toolbar-row">
+              <TypeFilter
+                types={typeCounts}
+                selectedIds={selectedTypeIds}
+                onSelectedIds={setSelectedTypeIds}
+              />
               <TagFilter
                 tags={tagCounts}
                 selectedIds={selectedTagIds}
@@ -315,7 +327,12 @@ function AppShell({ app }: { app: LibraryModel }) {
           <div className="grid-wrap" ref={gridScrollRef} tabIndex={-1}>
             <FileGrid
               files={files}
-              emptyMessage={gridEmptyMessage({ selectedTagCount: selectedTagIds.length, creator, query })}
+              emptyMessage={gridEmptyMessage({
+                selectedTagCount: selectedTagIds.length,
+                selectedTypeCount: selectedTypeIds.length,
+                creator,
+                query,
+              })}
               gridSize={settings.gridSize}
               selected={selected}
               previewIconsEnabled={previewIconsEnabled}

@@ -49,7 +49,7 @@ export function TagFilter({
   }, [open]);
 
   useEffect(() => {
-    listRef.current?.querySelector(".is-highlight")?.scrollIntoView({ block: "nearest" });
+    listRef.current?.querySelector<HTMLElement>(".is-highlight")?.scrollIntoView?.({ block: "nearest" });
   }, [highlight, filter, open]);
 
   const onKeyDown = (event: KeyboardEvent) => {
