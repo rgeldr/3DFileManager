@@ -91,5 +91,6 @@ mod tests {
     include!("tests_type_filter.rs");
     include!("tests_folders.rs");
     include!("tests_files.rs");
+    include!("tests_library_move.rs");
     include!("tests_support.rs");
 }

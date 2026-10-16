@@ -17,6 +17,7 @@ export const api = {
   bootstrap: () => invoke<Bootstrap>("bootstrap"),
   getSettings: () => invoke<Settings>("get_settings"),
   setLibraryRoot: (path: string) => invoke<Bootstrap>("set_library_root", { path }),
+  moveLibraryRoot: (path: string) => invoke<DiskOutcome>("move_library_root", { path }),
   setTheme: (theme: string) => invoke<void>("set_theme", { theme }),
   setGridSize: (gridSize: string) => invoke<void>("set_grid_size", { gridSize }),
   setPaneWidths: (sidebarWidth: number, inspectorWidth: number) =>
