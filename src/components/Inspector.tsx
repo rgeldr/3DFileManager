@@ -43,6 +43,14 @@ export function Inspector({
     setTagText("");
   }, [file]);
 
+  const commitPendingTag = (current: string[], pending: string) => {
+    const next = pending.trim();
+    if (!next || current.some((tag) => tag.toLowerCase() === next.toLowerCase())) {
+      return current;
+    }
+    return [...current, next];
+  };
+
   if (!file) {
     return (
       <aside ref={split.paneRef} className="inspector">
@@ -71,6 +79,9 @@ export function Inspector({
         className="inspector-body"
         onSubmit={(event) => {
           event.preventDefault();
+          const nextTags = commitPendingTag(tags, tagText);
+          setTags(nextTags);
+          setTagText("");
           onSave(
             {
               ...file,
@@ -79,7 +90,7 @@ export function Inspector({
               notes,
               folderId: folderId === "root" ? null : Number(folderId),
             },
-            tags,
+            nextTags,
           );
         }}
       >
@@ -133,10 +144,7 @@ export function Inspector({
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.preventDefault();
-                const next = tagText.trim();
-                if (next && !tags.some((tag) => tag.toLowerCase() === next.toLowerCase())) {
-                  setTags([...tags, next]);
-                }
+                setTags(commitPendingTag(tags, tagText));
                 setTagText("");
               }
             }}

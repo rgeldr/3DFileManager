@@ -54,6 +54,14 @@ pub struct Bootstrap {
     pub missing_count: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryStats {
+    pub file_count: i64,
+    pub folder_count: i64,
+    pub size_bytes: i64,
+}
+
 include!("schema.rs");
 
 pub fn open(data_dir: &Path) -> Result<AppDb, String> {
@@ -91,6 +99,7 @@ mod tests {
     include!("tests_type_filter.rs");
     include!("tests_folders.rs");
     include!("tests_files.rs");
+    include!("tests_stats.rs");
     include!("tests_library_move.rs");
     include!("tests_support.rs");
 }

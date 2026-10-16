@@ -1,4 +1,14 @@
 #[tauri::command]
+async fn library_stats(app: AppHandle) -> Result<db::LibraryStats, String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("library_stats", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.library_stats()
+    })
+    .await
+}
+
+#[tauri::command]
 async fn bootstrap(app: AppHandle) -> Result<db::Bootstrap, String> {
     let db = app.state::<AppState>().db.clone();
     off_ui("bootstrap", move || {

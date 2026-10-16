@@ -137,7 +137,14 @@ export function TypeFilter({
             ))}
           </div>
           <div className="tag-filter-match">
-            <button type="button" className="tag-filter-clear" onClick={() => onSelectedIds([])}>Clear</button>
+            <button
+              type="button"
+              className="tag-filter-clear"
+              onClick={() => onSelectedIds([...new Set([...selectedIds, ...visible.map((type) => type.id)])])}
+            >
+              Select all
+            </button>
+            <button type="button" onClick={() => onSelectedIds([])}>Select none</button>
           </div>
         </FilterPopover>
         </AppErrorBoundary>
