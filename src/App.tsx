@@ -367,6 +367,7 @@ function AppShell({ app }: { app: LibraryModel }) {
                 void api.openInDefaultApp(file.id).catch((err) => setError(String(err)));
               }}
               onContextMenu={(event, file) => {
+                if (!selected.includes(file.id)) onSelect(file.id, "replace");
                 setFileMenu({ x: event.clientX, y: event.clientY, fileId: file.id });
               }}
             />
