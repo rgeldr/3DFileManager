@@ -305,6 +305,25 @@ impl AppDb {
             .collect())
     }
 
+    pub fn library_stats(&self) -> Result<LibraryStats, String> {
+        self.conn
+            .query_row(
+                "SELECT
+                    (SELECT COUNT(*) FROM files),
+                    (SELECT COUNT(*) FROM folders),
+                    (SELECT COALESCE(SUM(size_bytes), 0) FROM files)",
+                [],
+                |row| {
+                    Ok(LibraryStats {
+                        file_count: row.get(0)?,
+                        folder_count: row.get(1)?,
+                        size_bytes: row.get(2)?,
+                    })
+                },
+            )
+            .map_err(|err| err.to_string())
+    }
+
 }
 
 fn push_folder_scope(sql: &mut String, params: &mut Vec<String>, folder: FolderFilter) {

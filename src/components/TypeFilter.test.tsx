@@ -36,7 +36,29 @@ describe("Types popover", () => {
     fireEvent.keyDown(dialog, { key: "ArrowDown" });
     fireEvent.keyDown(dialog, { key: " " });
     expect(onSelectedIds).toHaveBeenCalledWith(["stl", "obj"]);
-    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select none" }));
     expect(onSelectedIds).toHaveBeenCalledWith([]);
+  });
+
+  it("selects all types when Select all is clicked", () => {
+    const onSelectedIds = vi.fn();
+    const types = mergeTypeCounts([]);
+    const allIds = SUPPORTED_TYPE_GROUPS.map((group) => group.id);
+    render(<TypeFilter types={types} selectedIds={["stl"]} onSelectedIds={onSelectedIds} />);
+    fireEvent.click(screen.getByRole("button", { name: "File Types (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+    const selected = onSelectedIds.mock.calls[0]?.[0] as string[];
+    expect(selected).toHaveLength(allIds.length);
+    expect(new Set(selected)).toEqual(new Set(allIds));
+  });
+
+  it("selects only visible types when Select all is clicked with a search filter", () => {
+    const onSelectedIds = vi.fn();
+    const types = mergeTypeCounts([]);
+    render(<TypeFilter types={types} selectedIds={["stl"]} onSelectedIds={onSelectedIds} />);
+    fireEvent.click(screen.getByRole("button", { name: "File Types (1)" }));
+    fireEvent.change(screen.getByPlaceholderText("Filter types"), { target: { value: "obj" } });
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+    expect(onSelectedIds).toHaveBeenCalledWith(["stl", "obj"]);
   });
 });

@@ -60,6 +60,54 @@ function renderInspector(previewHeight: number, onPreviewHeight = vi.fn()) {
 
 afterEach(() => cleanup());
 
+describe("inspector tag save", () => {
+  it("includes a typed tag when Save is clicked without pressing Enter", () => {
+    const onSave = vi.fn();
+    render(
+      <ThemeProvider>
+        <Inspector
+          file={file()}
+          folders={[]}
+          creators={[]}
+          knownTags={[]}
+          previewHeight={240}
+          onPreviewHeight={() => undefined}
+          onSave={onSave}
+          onDelete={() => undefined}
+        />
+      </ThemeProvider>,
+    );
+    fireEvent.change(screen.getByPlaceholderText("Add a tag"), { target: { value: "terrain" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0][1]).toEqual(["terrain"]);
+  });
+
+  it("keeps Enter-committed tags and flushes a pending tag on Save", () => {
+    const onSave = vi.fn();
+    render(
+      <ThemeProvider>
+        <Inspector
+          file={file()}
+          folders={[]}
+          creators={[]}
+          knownTags={[]}
+          previewHeight={240}
+          onPreviewHeight={() => undefined}
+          onSave={onSave}
+          onDelete={() => undefined}
+        />
+      </ThemeProvider>,
+    );
+    const input = screen.getByPlaceholderText("Add a tag");
+    fireEvent.change(input, { target: { value: "alpha" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.change(input, { target: { value: "beta" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSave.mock.calls[0][1]).toEqual(["alpha", "beta"]);
+  });
+});
+
 describe("inspector preview splitter", () => {
   it("shows a focusable horizontal splitter above the scrolling details form", () => {
     const { splitter } = renderInspector(240);
