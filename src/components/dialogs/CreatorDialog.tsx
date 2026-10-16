@@ -4,6 +4,7 @@ import { api } from "../../api";
 
 export function CreatorDialog({ app }: { app: LibraryModel }) {
   const { creators, creatorTarget, setCreatorTarget, creatorValue, setCreatorValue, includeSubfolders, setIncludeSubfolders, creatorFileCount, setError, refreshLists } = app;
+  const fileIds = creatorTarget?.fileIds;
   return (
     <>
       {creatorTarget ? (
@@ -11,16 +12,18 @@ export function CreatorDialog({ app }: { app: LibraryModel }) {
           <div className="card">
             <h2>Set creator</h2>
             <p>
-              Set the creator on files in <strong>{creatorTarget.name}</strong>.
+              Set the creator on {fileIds ? "" : "files in "}<strong>{creatorTarget.name}</strong>.
             </p>
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={includeSubfolders}
-                onChange={(event) => setIncludeSubfolders(event.target.checked)}
-              />
-              Include subfolders
-            </label>
+            {fileIds ? null : (
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={includeSubfolders}
+                  onChange={(event) => setIncludeSubfolders(event.target.checked)}
+                />
+                Include subfolders
+              </label>
+            )}
             {creatorFileCount === 0 ? <p className="muted">This folder has no files.</p> : null}
             {creatorFileCount != null && creatorFileCount > 0 ? (
               <p className="muted">{creatorFileCount} files will be updated.</p>
@@ -43,8 +46,11 @@ export function CreatorDialog({ app }: { app: LibraryModel }) {
                 className="primary"
                 disabled={creatorFileCount === 0 || creatorValue.trim() === ""}
                 onClick={() => {
-                  void api
-                    .setCreatorUnderFolder(creatorTarget.folderId, creatorValue.trim(), includeSubfolders)
+                  const creator = creatorValue.trim();
+                  const run: Promise<unknown> = fileIds
+                    ? api.applyBulkMeta(fileIds, creator, null)
+                    : api.setCreatorUnderFolder(creatorTarget.folderId, creator, includeSubfolders);
+                  void run
                     .then(() => refreshLists())
                     .catch((err) => setError(String(err)))
                     .finally(() => setCreatorTarget(null));

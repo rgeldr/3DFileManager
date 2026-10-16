@@ -31,13 +31,17 @@ impl AppDb {
     }
 
     pub fn add_tags_under_folder(&self, folder_id: Option<i64>, tags: &[String]) -> Result<i64, String> {
+        let file_ids = self.file_ids_under_folder(folder_id)?;
+        self.add_tags_to_files(&file_ids, tags)
+    }
+
+    pub fn add_tags_to_files(&self, file_ids: &[i64], tags: &[String]) -> Result<i64, String> {
         let names: Vec<String> = tags
             .iter()
             .map(|t| t.trim())
             .filter(|t| !t.is_empty())
             .map(|t| t.to_string())
             .collect();
-        let file_ids = self.file_ids_under_folder(folder_id)?;
         if names.is_empty() {
             return Ok(file_ids.len() as i64);
         }
@@ -46,7 +50,20 @@ impl AppDb {
             .iter()
             .map(|name| self.ensure_tag_id(name))
             .collect::<Result<Vec<_>, _>>()?;
-        for file_id in &file_ids {
+        let mut updated = 0;
+        for file_id in file_ids {
+            let present = tx
+                .query_row(
+                    "SELECT 1 FROM files WHERE id = ?1 AND missing = 0",
+                    [file_id],
+                    |_| Ok(true),
+                )
+                .optional()
+                .map_err(|e| e.to_string())?
+                .unwrap_or(false);
+            if !present {
+                continue;
+            }
             for tag_id in &tag_ids {
                 tx.execute(
                     "INSERT OR IGNORE INTO file_tags (file_id, tag_id) VALUES (?1, ?2)",
@@ -60,9 +77,10 @@ impl AppDb {
                 params![tags, file_id],
             )
             .map_err(|e| e.to_string())?;
+            updated += 1;
         }
         tx.commit().map_err(|e| e.to_string())?;
-        Ok(file_ids.len() as i64)
+        Ok(updated)
     }
 
     fn file_ids_under_folder(&self, folder_id: Option<i64>) -> Result<Vec<i64>, String> {
