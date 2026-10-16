@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   Bootstrap,
   FileRow,
+  LibraryStats,
   FolderRow,
   TagCount,
   TypeCount,
@@ -15,6 +16,7 @@ export type DiskOutcome = { cancelled: boolean };
 
 export const api = {
   bootstrap: () => invoke<Bootstrap>("bootstrap"),
+  libraryStats: () => invoke<LibraryStats>("library_stats"),
   getSettings: () => invoke<Settings>("get_settings"),
   setLibraryRoot: (path: string) => invoke<Bootstrap>("set_library_root", { path }),
   setTheme: (theme: string) => invoke<void>("set_theme", { theme }),

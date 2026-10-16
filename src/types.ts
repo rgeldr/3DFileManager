@@ -78,6 +78,12 @@ export interface Bootstrap {
   missingCount: number;
 }
 
+export interface LibraryStats {
+  fileCount: number;
+  folderCount: number;
+  sizeBytes: number;
+}
+
 export interface ImportSummary {
   importedIds: number[];
   importedCount: number;

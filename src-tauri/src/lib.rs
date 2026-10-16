@@ -62,6 +62,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             bootstrap,
+            library_stats,
             get_settings,
             set_library_root,
             set_theme,
