@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use rusqlite::Connection;
@@ -284,6 +284,7 @@ fn dir_is_empty(path: &Path) -> Result<bool, String> {
 mod tests {
     use super::*;
     use crate::db;
+    use std::path::PathBuf;
     use std::sync::atomic::AtomicBool;
 
     fn scratch(name: &str) -> (PathBuf, AppDb, PathBuf) {
