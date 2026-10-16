@@ -19,6 +19,7 @@ export default defineConfig({
         "src/lib/deleteKey.ts",
         "src/lib/tagFilter.ts",
         "src/lib/typeFilter.ts",
+        "src/lib/popoverPosition.ts",
         "src/components/FileGrid.tsx",
       ],
     },

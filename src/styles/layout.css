@@ -5,7 +5,8 @@
   min-height: 0;
   min-width: 0;
   height: 100%;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: hidden;
 }
 
 .app-panes {

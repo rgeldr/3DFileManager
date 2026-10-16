@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { focusWithoutScroll, scrollListOption } from "../lib/popoverPosition";
 import {
   filterTagOptions,
   moveTagHighlight,
@@ -7,6 +8,7 @@ import {
   toggleTagId,
 } from "../lib/tagFilter";
 import type { TagCount, TagMatchMode } from "../types";
+import { FilterPopover } from "./FilterPopover";
 
 export function TagFilter({
   tags,
@@ -34,22 +36,11 @@ export function TagFilter({
     if (!open) {
       setFilter("");
       setHighlight(0);
-      return;
     }
-    searchRef.current?.focus();
   }, [open]);
 
   useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!anchorRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [open]);
-
-  useEffect(() => {
-    listRef.current?.querySelector<HTMLElement>(".is-highlight")?.scrollIntoView?.({ block: "nearest" });
+    scrollListOption(listRef.current);
   }, [highlight, filter, open]);
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -71,11 +62,11 @@ export function TagFilter({
     }
     if (action === "up" || action === "down") {
       if (action === "up" && highlight === 0 && !inSearch) {
-        searchRef.current?.focus();
+        focusWithoutScroll(searchRef.current);
         return;
       }
       setHighlight((index) => moveTagHighlight(index, visible.length, action));
-      if (inSearch) listRef.current?.focus();
+      if (inSearch) focusWithoutScroll(listRef.current);
       return;
     }
     const tag = visible[highlight];
@@ -95,11 +86,12 @@ export function TagFilter({
           {tagFilterBadge(selectedIds.length)}
         </button>
         {open ? (
-          <div
-            className="tag-filter-popover"
-            role="dialog"
-            aria-label="Filter by tags"
+          <FilterPopover
+            anchorRef={anchorRef}
+            label="Filter by tags"
+            onClose={() => setOpen(false)}
             onKeyDown={onKeyDown}
+            focusRef={searchRef}
           >
             <input
               ref={searchRef}
@@ -145,7 +137,7 @@ export function TagFilter({
               <button type="button" aria-pressed={match === "all"} onClick={() => onMatch("all")}>All</button>
               <button type="button" className="tag-filter-clear" onClick={() => onSelectedIds([])}>Clear</button>
             </div>
-          </div>
+          </FilterPopover>
         ) : null}
       </div>
   );

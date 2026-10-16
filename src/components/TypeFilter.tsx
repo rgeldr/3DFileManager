@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { focusWithoutScroll, scrollListOption } from "../lib/popoverPosition";
 import { moveTagHighlight, tagFilterKeyAction } from "../lib/tagFilter";
 import {
   filterTypeOptions,
@@ -7,6 +8,7 @@ import {
   typeFilterShowsSearch,
 } from "../lib/typeFilter";
 import type { TagCount, TypeCount } from "../types";
+import { FilterPopover } from "./FilterPopover";
 
 export function TypeFilter({
   types,
@@ -27,27 +29,17 @@ export function TypeFilter({
   const showSearch = typeFilterShowsSearch(types.length);
   const visible = filterTypeOptions(types, showSearch ? filter : "");
 
+  const focusRef = showSearch ? searchRef : listRef;
+
   useEffect(() => {
     if (!open) {
       setFilter("");
       setHighlight(0);
-      return;
     }
-    if (showSearch) searchRef.current?.focus();
-    else listRef.current?.focus();
-  }, [open, showSearch]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!anchorRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [open]);
 
   useEffect(() => {
-    listRef.current?.querySelector<HTMLElement>(".is-highlight")?.scrollIntoView?.({ block: "nearest" });
+    scrollListOption(listRef.current);
   }, [highlight, filter, open]);
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -69,11 +61,11 @@ export function TypeFilter({
     }
     if (action === "up" || action === "down") {
       if (action === "up" && highlight === 0 && !inSearch && showSearch) {
-        searchRef.current?.focus();
+        focusWithoutScroll(searchRef.current);
         return;
       }
       setHighlight((index) => moveTagHighlight(index, visible.length, action));
-      if (inSearch) listRef.current?.focus();
+      if (inSearch) focusWithoutScroll(listRef.current);
       return;
     }
     const type = visible[highlight];
@@ -93,7 +85,13 @@ export function TypeFilter({
         {typeFilterBadge(selectedIds.length)}
       </button>
       {open ? (
-        <div className="tag-filter-popover" role="dialog" aria-label="Filter by type" onKeyDown={onKeyDown}>
+        <FilterPopover
+          anchorRef={anchorRef}
+          label="Filter by type"
+          onClose={() => setOpen(false)}
+          onKeyDown={onKeyDown}
+          focusRef={focusRef}
+        >
           {showSearch ? (
             <input
               ref={searchRef}
@@ -137,7 +135,7 @@ export function TypeFilter({
           <div className="tag-filter-match">
             <button type="button" className="tag-filter-clear" onClick={() => onSelectedIds([])}>Clear</button>
           </div>
-        </div>
+        </FilterPopover>
       ) : null}
     </div>
   );

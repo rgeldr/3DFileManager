@@ -7,14 +7,14 @@
 }
 
 .tag-filter-popover {
-  position: absolute;
-  top: calc(100% + var(--space-1));
-  left: 0;
-  z-index: 30;
+  position: fixed;
+  z-index: 40;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
   width: 240px;
+  box-sizing: border-box;
+  overflow: hidden;
   padding: var(--space-2);
   background: var(--color-bg-sidebar);
   border: 1px solid var(--color-border);
@@ -27,8 +27,11 @@
 }
 
 .tag-filter-list {
+  flex: 1 1 auto;
+  min-height: 0;
   max-height: 220px;
   overflow: auto;
+  overscroll-behavior: contain;
   outline: none;
 }
 
