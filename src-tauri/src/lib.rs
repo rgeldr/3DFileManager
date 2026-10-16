@@ -81,6 +81,7 @@ pub fn run() {
             update_file,
             set_tags,
             add_tags_under_folder,
+            add_tags_to_files,
             apply_bulk_meta,
             count_files_for_scope,
             set_creator_under_folder,

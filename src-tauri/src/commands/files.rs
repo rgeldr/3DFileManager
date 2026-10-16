@@ -219,6 +219,16 @@ async fn add_tags_under_folder(
 }
 
 #[tauri::command]
+async fn add_tags_to_files(app: AppHandle, ids: Vec<i64>, tags: Vec<String>) -> Result<i64, String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("add_tags_to_files", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.add_tags_to_files(&ids, &tags)
+    })
+    .await
+}
+
+#[tauri::command]
 async fn apply_bulk_meta(
     app: AppHandle,
     ids: Vec<i64>,

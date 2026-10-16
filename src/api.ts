@@ -55,6 +55,8 @@ export const api = {
   setTags: (id: number, tags: string[]) => invoke<void>("set_tags", { id, tags }),
   addTagsUnderFolder: (folderId: number | null, tags: string[]) =>
     invoke<number>("add_tags_under_folder", { folderId, tags }),
+  addTagsToFiles: (ids: number[], tags: string[]) =>
+    invoke<number>("add_tags_to_files", { ids, tags }),
   applyBulkMeta: (ids: number[], creator: string | null, tags: string[] | null) =>
     invoke<void>("apply_bulk_meta", { ids, creator, tags }),
   countFilesForScope: (folderId: number | null, includeSubfolders: boolean) =>
