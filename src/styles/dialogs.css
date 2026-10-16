@@ -1,3 +1,25 @@
+.app-crash,
+.popover-crash {
+  color: var(--color-text);
+}
+
+.app-crash {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--color-bg-app);
+  z-index: 80;
+}
+
+.popover-crash {
+  position: fixed;
+  z-index: 40;
+  right: 8px;
+  top: 48px;
+  width: min(280px, calc(100vw - 16px));
+}
+
 .setup {
   position: fixed;
   inset: 0;

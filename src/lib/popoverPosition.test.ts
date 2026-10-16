@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { POPOVER_GAP, POPOVER_MARGIN, POPOVER_WIDTH, clampPopover, type AnchorRect } from "./popoverPosition";
+import { POPOVER_GAP, POPOVER_MARGIN, POPOVER_WIDTH, clampPopover, isIgnoredPopoverScroll, type AnchorRect } from "./popoverPosition";
 
 function anchor(rect: Pick<AnchorRect, "top" | "right" | "bottom" | "left">): AnchorRect {
   return rect;
@@ -11,6 +11,30 @@ function expectInside(box: { top: number; left: number; width: number; maxHeight
   expect(box.top).toBeGreaterThanOrEqual(POPOVER_MARGIN);
   expect(box.top + box.maxHeight).toBeLessThanOrEqual(viewportHeight - POPOVER_MARGIN);
 }
+
+describe("isIgnoredPopoverScroll", () => {
+  it("ignores viewport, focus, and in-popover scrolls", () => {
+    const popover = document.createElement("div");
+    const list = document.createElement("div");
+    popover.append(list);
+    const anchor = document.createElement("div");
+    const button = document.createElement("button");
+    anchor.append(button);
+    const root = document.createElement("div");
+    root.id = "root";
+    const app = document.createElement("div");
+    app.className = "app";
+    const grid = document.createElement("div");
+    expect(isIgnoredPopoverScroll(document, popover, anchor)).toBe(true);
+    expect(isIgnoredPopoverScroll(document.documentElement, popover, anchor)).toBe(true);
+    expect(isIgnoredPopoverScroll(document.body, popover, anchor)).toBe(true);
+    expect(isIgnoredPopoverScroll(root, popover, anchor)).toBe(true);
+    expect(isIgnoredPopoverScroll(app, popover, anchor)).toBe(true);
+    expect(isIgnoredPopoverScroll(list, popover, anchor)).toBe(true);
+    expect(isIgnoredPopoverScroll(button, popover, anchor)).toBe(true);
+    expect(isIgnoredPopoverScroll(grid, popover, anchor)).toBe(false);
+  });
+});
 
 describe("clampPopover", () => {
   it("right-aligns under the button when the popover fits", () => {

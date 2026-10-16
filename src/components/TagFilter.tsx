@@ -8,6 +8,7 @@ import {
   toggleTagId,
 } from "../lib/tagFilter";
 import type { TagCount, TagMatchMode } from "../types";
+import { AppErrorBoundary } from "./AppErrorBoundary";
 import { FilterPopover } from "./FilterPopover";
 
 export function TagFilter({
@@ -86,9 +87,11 @@ export function TagFilter({
           {tagFilterBadge(selectedIds.length)}
         </button>
         {open ? (
+          <AppErrorBoundary title="The tag filter could not open." onReset={() => setOpen(false)}>
           <FilterPopover
             anchorRef={anchorRef}
             label="Filter by tags"
+            layoutKey={`${filter}:${visible.length}`}
             onClose={() => setOpen(false)}
             onKeyDown={onKeyDown}
             focusRef={searchRef}
@@ -138,6 +141,7 @@ export function TagFilter({
               <button type="button" className="tag-filter-clear" onClick={() => onSelectedIds([])}>Clear</button>
             </div>
           </FilterPopover>
+          </AppErrorBoundary>
         ) : null}
       </div>
   );

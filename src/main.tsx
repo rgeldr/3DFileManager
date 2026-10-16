@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { installDebugProbes } from "./debugLog";
 import { readStoredTheme, ThemeProvider } from "./theme/ThemeProvider";
 import "./styles/tokens.css";
@@ -10,8 +11,10 @@ installDebugProbes();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ThemeProvider initial={readStoredTheme()}>
-      <App />
-    </ThemeProvider>
+    <AppErrorBoundary>
+      <ThemeProvider initial={readStoredTheme()}>
+        <App />
+      </ThemeProvider>
+    </AppErrorBoundary>
   </StrictMode>,
 );

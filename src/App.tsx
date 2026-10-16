@@ -246,6 +246,7 @@ function AppShell({ app }: { app: LibraryModel }) {
             success: `Moved "${name}"`,
             cancelled: "Move cancelled",
             run: () => api.moveFolder(id, parentId),
+            tree: true,
             after: async () => {
               setFolderExpandHint((hint) => ({ key: expandKey, nonce: (hint?.nonce ?? 0) + 1 }));
               await refreshLists();
@@ -393,6 +394,7 @@ function AppShell({ app }: { app: LibraryModel }) {
                 success: `Deleted "${name}"`,
                 cancelled: "Delete cancelled",
                 run: () => api.deleteFiles([id]),
+                tree: true,
                 after: async () => {
                   setSelected([]);
                   await refreshLists();

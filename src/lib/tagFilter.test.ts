@@ -3,6 +3,7 @@ import {
   filterTagOptions,
   gridEmptyMessage,
   libraryListScope,
+  libraryRefreshKey,
   moveTagHighlight,
   tagFilterBadge,
   tagFilterKeyAction,
@@ -69,6 +70,24 @@ describe("libraryListScope", () => {
       creator: "",
     });
     expect(libraryListScope({ browse: { type: "root" }, query: "   ", creator: "", selectedTagCount: 0, selectedTypeCount: 0 }).folder).toBe("root");
+  });
+});
+
+describe("libraryRefreshKey", () => {
+  const base = {
+    browse: { type: "folder" as const, id: 4 },
+    query: "",
+    creator: "",
+    selectedTagIds: [2, 1],
+    selectedTypeIds: ["jpg", "stl"],
+    tagMatch: "any",
+    sort: "name",
+  };
+
+  it("stays the same until a list input changes", () => {
+    expect(libraryRefreshKey(base)).toBe(libraryRefreshKey({ ...base, selectedTagIds: [1, 2], selectedTypeIds: ["stl", "jpg"] }));
+    expect(libraryRefreshKey(base)).not.toBe(libraryRefreshKey({ ...base, browse: { type: "folder", id: 5 } }));
+    expect(libraryRefreshKey(base)).not.toBe(libraryRefreshKey({ ...base, query: "lion" }));
   });
 });
 

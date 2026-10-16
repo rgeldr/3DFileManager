@@ -44,8 +44,11 @@ describe("filter popovers", () => {
       }
       return rect({});
     });
-    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
-      return this.classList.contains("tag-filter-popover") ? 320 : 0;
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+      if (!this.classList.contains("tag-filter-popover")) return 0;
+      const max = this.style.maxHeight;
+      if (max && max !== "none") return Math.round(Number.parseFloat(max) + 48);
+      return 320;
     });
     const focus = vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(() => undefined);
 
@@ -63,10 +66,15 @@ describe("filter popovers", () => {
     expect(Number.parseFloat(dialog.style.left) + Number.parseFloat(dialog.style.width)).toBe(1272);
     expect(focus).toHaveBeenCalledWith({ preventScroll: true });
 
+    fireEvent.change(screen.getByPlaceholderText("Filter tags"), { target: { value: "An" } });
+    fireEvent.change(screen.getByPlaceholderText("Filter tags"), { target: { value: "Ang" } });
+    expect(screen.getByRole("dialog", { name: "Filter by tags" }).style.maxHeight).toBe("320px");
+
     fireEvent.scroll(screen.getByRole("listbox"));
     expect(screen.getByRole("dialog", { name: "Filter by tags" })).toBeTruthy();
     fireEvent.scroll(document);
-    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.scroll(document.documentElement);
+    expect(screen.getByRole("dialog", { name: "Filter by tags" })).toBeTruthy();
   });
 
   it("closes the Types popover on an outside press and repositions on resize", () => {
@@ -78,8 +86,12 @@ describe("filter popovers", () => {
       }
       return rect({});
     });
-    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(200);
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(200);
     vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(() => undefined);
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
 
     render(<TypeFilter types={mergeTypeCounts([])} selectedIds={[]} onSelectedIds={() => undefined} />);
     fireEvent.click(screen.getByRole("button", { name: "Types" }));
@@ -92,5 +104,51 @@ describe("filter popovers", () => {
 
     fireEvent.pointerDown(document.documentElement);
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("opens and closes both popovers without exceeding the update depth", () => {
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      errors.push(args.map(String).join(" "));
+    });
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+      if (!this.classList.contains("tag-filter-popover")) return 0;
+      const max = this.style.maxHeight;
+      if (max && max !== "none") return Math.round(Number.parseFloat(max) + 48);
+      return 280;
+    });
+    vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(() => undefined);
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+
+    render(
+      <>
+        <TagFilter
+          tags={[{ id: 1, name: "Angels", fileCount: 4 }]}
+          selectedIds={[]}
+          match="any"
+          onSelectedIds={() => undefined}
+          onMatch={() => undefined}
+        />
+        <TypeFilter types={mergeTypeCounts([])} selectedIds={[]} onSelectedIds={() => undefined} />
+      </>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Tags" }));
+    expect(screen.getByRole("dialog", { name: "Filter by tags" })).toBeTruthy();
+    const outside = document.createElement("div");
+    outside.className = "grid-wrap";
+    document.body.append(outside);
+    fireEvent.scroll(outside);
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Types" }));
+    expect(screen.getByRole("dialog", { name: "Filter by type" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Types" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(errors.join("\n")).not.toMatch(/Maximum update depth|Minified React error #185/);
+    outside.remove();
   });
 });

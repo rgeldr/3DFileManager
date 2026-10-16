@@ -51,6 +51,17 @@ export function clampPopover(input: {
   return { top, left, width, maxHeight };
 }
 
+export function isIgnoredPopoverScroll(
+  target: EventTarget | null,
+  popover: HTMLElement | null,
+  anchor: HTMLElement | null,
+): boolean {
+  if (!(target instanceof Node)) return true;
+  if (popover?.contains(target) || anchor?.contains(target)) return true;
+  if (target === document || target === document.documentElement || target === document.body) return true;
+  return target instanceof Element && (target.id === "root" || target.classList.contains("app"));
+}
+
 export function resetHorizontalScroll(doc: Document = document): void {
   const nodes = [doc.documentElement, doc.body, doc.getElementById("root"), doc.querySelector(".app")];
   for (const node of nodes) {

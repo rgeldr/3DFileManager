@@ -8,6 +8,7 @@ import {
   typeFilterShowsSearch,
 } from "../lib/typeFilter";
 import type { TagCount, TypeCount } from "../types";
+import { AppErrorBoundary } from "./AppErrorBoundary";
 import { FilterPopover } from "./FilterPopover";
 
 export function TypeFilter({
@@ -85,9 +86,11 @@ export function TypeFilter({
         {typeFilterBadge(selectedIds.length)}
       </button>
       {open ? (
+        <AppErrorBoundary title="The type filter could not open." onReset={() => setOpen(false)}>
         <FilterPopover
           anchorRef={anchorRef}
           label="Filter by type"
+          layoutKey={`${filter}:${visible.length}`}
           onClose={() => setOpen(false)}
           onKeyDown={onKeyDown}
           focusRef={focusRef}
@@ -136,6 +139,7 @@ export function TypeFilter({
             <button type="button" className="tag-filter-clear" onClick={() => onSelectedIds([])}>Clear</button>
           </div>
         </FilterPopover>
+        </AppErrorBoundary>
       ) : null}
     </div>
   );

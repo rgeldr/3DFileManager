@@ -17,6 +17,26 @@ export function tagFilterBadge(count: number): string {
   return count > 0 ? `Tags (${count})` : "Tags";
 }
 
+export function libraryRefreshKey(input: {
+  browse: Browse;
+  query: string;
+  creator: string;
+  selectedTagIds: number[];
+  selectedTypeIds: string[];
+  tagMatch: string;
+  sort: string;
+}): string {
+  return JSON.stringify({
+    folder: input.browse.type === "folder" ? input.browse.id : input.browse.type,
+    query: input.query,
+    creator: input.creator,
+    tags: [...input.selectedTagIds].sort((a, b) => a - b),
+    types: [...input.selectedTypeIds].sort(),
+    tagMatch: input.tagMatch,
+    sort: input.sort,
+  });
+}
+
 export function libraryListScope(input: {
   browse: Browse;
   query: string;
