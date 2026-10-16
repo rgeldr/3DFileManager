@@ -65,6 +65,7 @@ pub fn run() {
             library_stats,
             get_settings,
             set_library_root,
+            move_library_root,
             set_theme,
             set_grid_size,
             set_pane_widths,

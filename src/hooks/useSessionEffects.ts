@@ -112,6 +112,23 @@ export function useSessionEffects(s: {
           else if (Array.isArray(path)) void runImport(path);
         });
       },
+      moveLibrary: () => {
+        void open({ directory: true, multiple: false }).then((path) => {
+          if (typeof path !== "string") return;
+          void runDiskOp({
+            title: "Moving library...",
+            cancellable: true,
+            success: "Library moved",
+            cancelled: "Library move cancelled",
+            run: () => api.moveLibraryRoot(path),
+            after: async () => {
+              await refreshLists();
+              setThumbNonce((nonce) => nonce + 1);
+            },
+            tree: true,
+          });
+        });
+      },
       rescan: () => {
         void runDiskOp({
           title: "Rescanning library...",

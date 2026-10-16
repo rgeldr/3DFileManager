@@ -75,6 +75,7 @@ export type FileDrag = {
 export interface Actions {
   importFolder: () => void;
   importArchive: () => void;
+  moveLibrary: () => void;
   rescan: () => void;
   clearThumbs: () => void;
   setTheme: (theme: "dark" | "light") => void;

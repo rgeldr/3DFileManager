@@ -100,5 +100,6 @@ mod tests {
     include!("tests_folders.rs");
     include!("tests_files.rs");
     include!("tests_stats.rs");
+    include!("tests_library_move.rs");
     include!("tests_support.rs");
 }

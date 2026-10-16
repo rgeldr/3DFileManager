@@ -73,6 +73,7 @@ export function useLibrary() {
   const actions = useRef<Actions>({
     importFolder: () => undefined,
     importArchive: () => undefined,
+    moveLibrary: () => undefined,
     rescan: () => undefined,
     clearThumbs: () => undefined,
     setTheme: () => undefined,

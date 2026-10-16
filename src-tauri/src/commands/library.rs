@@ -84,3 +84,21 @@ async fn rescan_library(app: AppHandle) -> Result<rescan::RescanSummary, String>
     })
     .await
 }
+
+#[tauri::command]
+async fn move_library_root(app: AppHandle, path: String) -> Result<DiskOutcome, String> {
+    let _timer = CommandTimer::start("move_library_root");
+    let scope_app = app.clone();
+    block_on_disk(app, move |db, cancel, handle| {
+        let cancelled = db.move_library_root(PathBuf::from(path).as_path(), cancel, |progress| {
+            emit_disk(&handle, &progress)
+        })?;
+        if !cancelled {
+            if let Ok(root) = db.library_root() {
+                allow_asset_scope(&scope_app, &root);
+            }
+        }
+        Ok(DiskOutcome { cancelled })
+    })
+    .await
+}
