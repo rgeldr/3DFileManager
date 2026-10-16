@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { ThreeMFLoader } from "three/addons/loaders/3MFLoader.js";
+import { addPreviewLights, previewMeshMaterial } from "../lib/previewLights";
 
 export interface PackedMesh {
   position: ArrayBuffer;
@@ -165,11 +166,7 @@ async function renderThumbnail(
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(colors.background);
   const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 1000);
-  const material = new THREE.MeshStandardMaterial({
-    color: colors.mesh,
-    metalness: 0.05,
-    roughness: 0.65,
-  });
+  const material = previewMeshMaterial(colors.mesh);
   let object: THREE.Object3D | null = null;
   try {
     object = parsedObject(ext, buffer);
@@ -182,10 +179,7 @@ async function renderThumbnail(
     });
     if (meshes === 0) throw new Error("No mesh geometry found.");
     scene.add(object);
-    scene.add(new THREE.AmbientLight(colors.light, 0.65));
-    const key = new THREE.DirectionalLight(colors.light, 1.1);
-    key.position.set(2, 3, 4);
-    scene.add(key);
+    addPreviewLights(scene, camera, colors.light);
     fitCamera(camera, object);
     renderer.render(scene, camera);
     const blob = await canvas.convertToBlob({ type: "image/png" });

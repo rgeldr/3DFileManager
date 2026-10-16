@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { debugLog } from "../debugLog";
 import { parseMeshInWorker, renderMeshInWorker } from "./meshParseClient";
+import { addPreviewLights, previewMeshMaterial } from "./previewLights";
 import type { PackedMesh } from "../workers/meshParse.worker";
 
 export const MESH_BYTE_LIMIT = 150 * 1024 * 1024;
@@ -137,16 +138,8 @@ async function renderOnMainThread(buffer: ArrayBuffer, ext: string): Promise<Uin
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(cssVar("--viewer-bg"));
   const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 1000);
-  const material = new THREE.MeshStandardMaterial({
-    color: cssVar("--viewer-mesh"),
-    metalness: 0.05,
-    roughness: 0.65,
-  });
-  const light = cssVar("--color-accent-contrast");
-  scene.add(new THREE.AmbientLight(light, 0.65));
-  const key = new THREE.DirectionalLight(light, 1.1);
-  key.position.set(2, 3, 4);
-  scene.add(key);
+  const material = previewMeshMaterial(cssVar("--viewer-mesh"));
+  addPreviewLights(scene, camera, cssVar("--color-accent-contrast"));
 
   let parsed: THREE.Group | null = null;
   try {

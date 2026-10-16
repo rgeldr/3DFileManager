@@ -14,6 +14,7 @@ export default defineConfig({
         "src/lib/importMeta.ts",
         "src/lib/paneWidths.ts",
         "src/lib/previewSplit.ts",
+        "src/lib/previewLights.ts",
         "src/lib/gridWindow.ts",
         "src/lib/deleteKey.ts",
         "src/lib/tagFilter.ts",

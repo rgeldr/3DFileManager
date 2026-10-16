@@ -8,7 +8,7 @@
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
-  --viewer-mesh: #9a9da0;
+  --viewer-mesh: #b0b3b6;
 }
 
 :root[data-theme="dark"] {
