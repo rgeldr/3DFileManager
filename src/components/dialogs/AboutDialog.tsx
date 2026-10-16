@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api } from "../../api";
 import type { LibraryModel } from "../../hooks/useLibrary";
-import { formatBytes } from "../../hooks/libraryTypes";
 import type { LibraryStats } from "../../types";
 import { Modal } from "./Modal";
 
@@ -48,7 +47,7 @@ export function AboutDialog({ app }: { app: LibraryModel }) {
             <p>{aboutVersionFailed ? "Version unavailable" : aboutVersion ?? "…"}</p>
             <p>Files: {stats ? stats.fileCount : "…"}</p>
             <p>Folders: {stats ? stats.folderCount : "…"}</p>
-            <p>Size on disk: {stats ? formatBytes(stats.sizeBytes) : "…"}</p>
+            <p>Size on disk: {stats ? formatAboutSize(stats.sizeBytes) : "…"}</p>
             <div className="row">
               <button
                 type="button"
