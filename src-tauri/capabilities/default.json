@@ -13,7 +13,10 @@
     "dialog:default",
     {
       "identifier": "opener:allow-open-url",
-      "allow": [{ "url": "https://github.com/rgeldr/3DFileManager#readme" }]
+      "allow": [
+        { "url": "https://github.com/rgeldr/3DFileManager#readme" },
+        { "url": "https://github.com/rgeldr/3DFileManager/releases" }
+      ]
     },
     "drag:default"
   ]
