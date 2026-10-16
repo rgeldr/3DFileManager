@@ -93,12 +93,20 @@
 }
 
 .tag-filter-chips .tag {
-  border: none;
+  background: var(--chip-tag-bg);
+  color: var(--chip-tag-fg);
+  border: 1px solid var(--chip-tag-border);
   cursor: pointer;
 }
 
-.tag-filter-chips .type-chip {
-  background: var(--color-bg-selected);
-  color: var(--color-text);
-  border: 1px solid var(--color-accent);
+.tag-filter-chips .tag:hover {
+  background: var(--chip-tag-bg);
+  color: var(--chip-tag-fg);
+}
+
+.tag-filter-chips .type-chip,
+.tag-filter-chips .type-chip:hover {
+  background: var(--chip-type-bg);
+  color: var(--chip-type-fg);
+  border-color: var(--chip-type-border);
 }

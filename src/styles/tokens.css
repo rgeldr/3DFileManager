@@ -29,6 +29,12 @@
   --color-accent: #0079a6;
   --color-accent-contrast: #ffffff;
   --viewer-bg: #191b1c;
+  --chip-type-bg: #12386b;
+  --chip-type-fg: #f3f7ff;
+  --chip-type-border: #8fb7ea;
+  --chip-tag-bg: #0f4a34;
+  --chip-tag-fg: #f2fbf6;
+  --chip-tag-border: #7dccaa;
 }
 
 :root[data-theme="light"] {
@@ -49,4 +55,10 @@
   --color-accent: #0079a6;
   --color-accent-contrast: #ffffff;
   --viewer-bg: #f3f3f3;
+  --chip-type-bg: #d3e4f8;
+  --chip-type-fg: #0b2544;
+  --chip-type-border: #2f68a8;
+  --chip-tag-bg: #d4f0e0;
+  --chip-tag-fg: #0c3322;
+  --chip-tag-border: #26764c;
 }
