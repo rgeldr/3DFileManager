@@ -2,9 +2,20 @@ import { useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api } from "../../api";
 import type { LibraryModel } from "../../hooks/useLibrary";
-import { formatBytes } from "../../hooks/libraryTypes";
 import type { LibraryStats } from "../../types";
 import { Modal } from "./Modal";
+
+function formatAboutSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(1)} ${units[unit]}`;
+}
 
 export function AboutDialog({ app }: { app: LibraryModel }) {
   const { aboutOpen, setAboutOpen, aboutVersion, aboutVersionFailed, setError } = app;
@@ -36,7 +47,7 @@ export function AboutDialog({ app }: { app: LibraryModel }) {
             <p>{aboutVersionFailed ? "Version unavailable" : aboutVersion ?? "…"}</p>
             <p>Files: {stats ? stats.fileCount : "…"}</p>
             <p>Folders: {stats ? stats.folderCount : "…"}</p>
-            <p>Size on disk: {stats ? formatBytes(stats.sizeBytes) : "…"}</p>
+            <p>Size on disk: {stats ? formatAboutSize(stats.sizeBytes) : "…"}</p>
             <div className="row">
               <button
                 type="button"

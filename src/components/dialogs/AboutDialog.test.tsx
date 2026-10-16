@@ -32,7 +32,7 @@ function app(aboutOpen: boolean): LibraryModel {
 
 describe("About dialog", () => {
   it("loads catalog counts when the dialog opens", async () => {
-    libraryStats.mockResolvedValue({ fileCount: 2, folderCount: 3, sizeBytes: 1_610_612_736 });
+    libraryStats.mockResolvedValue({ fileCount: 2, folderCount: 3, sizeBytes: 13_314_398_618 });
     const view = render(<AboutDialog app={app(false)} />);
     expect(libraryStats).not.toHaveBeenCalled();
     expect(screen.queryByText("Files: 2")).toBeNull();
@@ -40,7 +40,7 @@ describe("About dialog", () => {
     view.rerender(<AboutDialog app={app(true)} />);
     expect(await screen.findByText("Files: 2")).toBeTruthy();
     expect(screen.getByText("Folders: 3")).toBeTruthy();
-    expect(screen.getByText("Size on disk: 1.5 GB")).toBeTruthy();
+    expect(screen.getByText("Size on disk: 12.4 GB")).toBeTruthy();
     expect(libraryStats).toHaveBeenCalledTimes(1);
   });
 });
