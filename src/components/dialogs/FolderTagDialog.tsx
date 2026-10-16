@@ -4,15 +4,20 @@ import { api } from "../../api";
 
 export function FolderTagDialog({ app }: { app: LibraryModel }) {
   const { tags, folderTagTarget, setFolderTagTarget, folderTagInput, setFolderTagInput, folderTagFileCount, setError, refreshLists } = app;
+  const fileIds = folderTagTarget?.fileIds;
   return (
     <>
       {folderTagTarget ? (
         <Modal>
           <div className="card">
-            <h2>Tag folder contents</h2>
+            <h2>{fileIds ? "Add tags" : "Tag folder contents"}</h2>
             <p>
-              Add tags to every file in <strong>{folderTagTarget.name}</strong> and its subfolders.
-              Tags already on those files are kept.
+              {fileIds ? (
+                <>Add tags to <strong>{folderTagTarget.name}</strong>.</>
+              ) : (
+                <>Add tags to every file in <strong>{folderTagTarget.name}</strong> and its subfolders.</>
+              )}
+              {" "}Tags already on those files are kept.
             </p>
             {folderTagFileCount === 0 ? <p className="muted">This folder has no files.</p> : null}
             {folderTagFileCount != null && folderTagFileCount > 0 ? (
@@ -46,8 +51,10 @@ export function FolderTagDialog({ app }: { app: LibraryModel }) {
                     setFolderTagTarget(null);
                     return;
                   }
-                  void api
-                    .addTagsUnderFolder(folderTagTarget.folderId, nextTags)
+                  const run: Promise<unknown> = fileIds
+                    ? api.addTagsToFiles(fileIds, nextTags)
+                    : api.addTagsUnderFolder(folderTagTarget.folderId, nextTags);
+                  void run
                     .then(() => refreshLists())
                     .catch((err) => setError(String(err)))
                     .finally(() => setFolderTagTarget(null));

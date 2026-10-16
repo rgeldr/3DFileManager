@@ -52,12 +52,12 @@ export function useSessionEffects(s: {
   aboutOpen: boolean;
   setAboutVersion: (version: string | null) => void;
   setAboutVersionFailed: (failed: boolean) => void;
-  creatorTarget: { folderId: number | null; name: string } | null;
+  creatorTarget: { folderId: number | null; name: string; fileIds?: number[] } | null;
   setCreatorFileCount: (count: number | null) => void;
   includeSubfolders: boolean;
   fileMenu: { x: number; y: number; fileId: number } | null;
   setFileMenu: (menu: { x: number; y: number; fileId: number } | null) => void;
-  folderTagTarget: { folderId: number | null; name: string } | null;
+  folderTagTarget: { folderId: number | null; name: string; fileIds?: number[] } | null;
   setFolderTagFileCount: (count: number | null) => void;
   diskProgress: { current: DiskProgress };
   setDiskDialog: React.Dispatch<React.SetStateAction<import("./libraryTypes").DiskDialog | null>>;
@@ -316,6 +316,10 @@ export function useSessionEffects(s: {
       setCreatorFileCount(null);
       return;
     }
+    if (creatorTarget.fileIds) {
+      setCreatorFileCount(creatorTarget.fileIds.length);
+      return;
+    }
     void api
       .countFilesForScope(creatorTarget.folderId, includeSubfolders)
       .then(setCreatorFileCount)
@@ -344,6 +348,10 @@ export function useSessionEffects(s: {
   useEffect(() => {
     if (!folderTagTarget) {
       setFolderTagFileCount(null);
+      return;
+    }
+    if (folderTagTarget.fileIds) {
+      setFolderTagFileCount(folderTagTarget.fileIds.length);
       return;
     }
     void api

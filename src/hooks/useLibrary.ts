@@ -43,8 +43,8 @@ export function useLibrary() {
   const [importCreator, setImportCreator] = useState("");
   const [importTags, setImportTags] = useState<string[]>([]);
   const [importTagText, setImportTagText] = useState("");
-  const [folderTagTarget, setFolderTagTarget] = useState<{ folderId: number | null; name: string } | null>(null);
-  const [creatorTarget, setCreatorTarget] = useState<{ folderId: number | null; name: string } | null>(null);
+  const [folderTagTarget, setFolderTagTarget] = useState<{ folderId: number | null; name: string; fileIds?: number[] } | null>(null);
+  const [creatorTarget, setCreatorTarget] = useState<{ folderId: number | null; name: string; fileIds?: number[] } | null>(null);
   const [creatorValue, setCreatorValue] = useState("");
   const [includeSubfolders, setIncludeSubfolders] = useState(true);
   const [creatorFileCount, setCreatorFileCount] = useState<number | null>(null);
