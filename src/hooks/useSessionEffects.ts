@@ -129,6 +129,38 @@ export function useSessionEffects(s: {
           });
         });
       },
+      backupLibrary: () => {
+        void open({ directory: true, multiple: false }).then((path) => {
+          if (typeof path !== "string") return;
+          void runDiskOp({
+            title: "Backing up library...",
+            cancellable: true,
+            success: "Library backup saved",
+            cancelled: "Library backup cancelled",
+            run: () => api.exportLibraryBackup(path),
+          });
+        });
+      },
+      restoreLibrary: () => {
+        void open({ directory: true, multiple: false }).then((backupPath) => {
+          if (typeof backupPath !== "string") return;
+          void open({ directory: true, multiple: false }).then((libraryPath) => {
+            if (typeof libraryPath !== "string") return;
+            void runDiskOp({
+              title: "Restoring library...",
+              cancellable: true,
+              success: "Library restored",
+              cancelled: "Library restore cancelled",
+              run: () => api.restoreLibraryBackup(backupPath, libraryPath),
+              after: async () => {
+                await refreshLists();
+                setThumbNonce((nonce) => nonce + 1);
+              },
+              tree: true,
+            });
+          });
+        });
+      },
       rescan: () => {
         void runDiskOp({
           title: "Rescanning library...",

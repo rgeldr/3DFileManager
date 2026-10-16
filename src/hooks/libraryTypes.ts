@@ -76,6 +76,8 @@ export interface Actions {
   importFolder: () => void;
   importArchive: () => void;
   moveLibrary: () => void;
+  backupLibrary: () => void;
+  restoreLibrary: () => void;
   rescan: () => void;
   clearThumbs: () => void;
   setTheme: (theme: "dark" | "light") => void;

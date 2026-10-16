@@ -56,6 +56,8 @@ export function MenuBar(s: {
               await MenuItem.new({ text: "Import archive...", action: () => actions.current.importArchive() }),
               await PredefinedMenuItem.new({ item: "Separator" }),
               await MenuItem.new({ text: "Move library...", action: () => actions.current.moveLibrary() }),
+              await MenuItem.new({ text: "Backup library...", action: () => actions.current.backupLibrary() }),
+              await MenuItem.new({ text: "Restore library...", action: () => actions.current.restoreLibrary() }),
               await MenuItem.new({ text: "Rescan library", action: () => actions.current.rescan() }),
               await MenuItem.new({ text: "Clear thumbnail cache", action: () => actions.current.clearThumbs() }),
               await PredefinedMenuItem.new({ item: "Separator" }),

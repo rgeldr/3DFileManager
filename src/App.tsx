@@ -177,8 +177,17 @@ function AppShell({ app }: { app: LibraryModel }) {
               Continue
             </button>
           </div>
+          <p className="muted">Or migrate from another computer:</p>
+          <div className="row">
+            <button type="button" onClick={() => actions.current.restoreLibrary()}>
+              Restore library…
+            </button>
+          </div>
           {error ? <p>{error}</p> : null}
         </div>
+        <DiskProgressDialog app={app} />
+        <ErrorDialog app={app} />
+        <Toast app={app} />
       </div>
     );
   }
