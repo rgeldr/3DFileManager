@@ -141,23 +141,29 @@ export function useSessionEffects(s: {
           });
         });
       },
-      restoreLibrary: () => {
+      restoreLibrary: (libraryPath) => {
         void open({ directory: true, multiple: false }).then((backupPath) => {
           if (typeof backupPath !== "string") return;
-          void open({ directory: true, multiple: false }).then((libraryPath) => {
-            if (typeof libraryPath !== "string") return;
+          const runRestore = (dest: string) => {
             void runDiskOp({
-              title: "Restoring library...",
+              title: "Importing backup...",
               cancellable: true,
-              success: "Library restored",
-              cancelled: "Library restore cancelled",
-              run: () => api.restoreLibraryBackup(backupPath, libraryPath),
+              success: "Library imported from backup",
+              cancelled: "Backup import cancelled",
+              run: () => api.restoreLibraryBackup(backupPath, dest),
               after: async () => {
                 await refreshLists();
                 setThumbNonce((nonce) => nonce + 1);
               },
               tree: true,
             });
+          };
+          if (typeof libraryPath === "string" && libraryPath.length > 0) {
+            runRestore(libraryPath);
+            return;
+          }
+          void open({ directory: true, multiple: false }).then((dest) => {
+            if (typeof dest === "string") runRestore(dest);
           });
         });
       },

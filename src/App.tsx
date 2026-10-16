@@ -147,7 +147,10 @@ function AppShell({ app }: { app: LibraryModel }) {
       <div className="setup">
         <div className="card">
           <h1>3D File Library</h1>
-          <p>Choose where this app should store its library copies.</p>
+          <p>Start a new library, or import a backup from another computer or drive.</p>
+
+          <h2>New library</h2>
+          <p className="muted">Choose an empty folder for this app to store library copies.</p>
           <p className="muted">{chosenRoot ?? "No folder selected"}</p>
           <div className="row">
             <button
@@ -177,10 +180,19 @@ function AppShell({ app }: { app: LibraryModel }) {
               Continue
             </button>
           </div>
-          <p className="muted">Or migrate from another computer:</p>
+
+          <h2>Import backup</h2>
+          <p className="muted">
+            Pick a folder created by Backup library… Then choose where the restored library files should live
+            {chosenRoot ? " (or use the folder selected above)." : "."}
+          </p>
           <div className="row">
-            <button type="button" onClick={() => actions.current.restoreLibrary()}>
-              Restore library…
+            <button
+              type="button"
+              className="primary"
+              onClick={() => actions.current.restoreLibrary(chosenRoot ?? undefined)}
+            >
+              Import backup folder…
             </button>
           </div>
           {error ? <p>{error}</p> : null}
