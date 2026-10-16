@@ -44,7 +44,24 @@ export function AboutDialog({ app }: { app: LibraryModel }) {
         <Modal>
           <div className="card">
             <h2 style={{ fontSize: 32 }}>3D File Library</h2>
-            <p style={{ fontSize: 18 }}>Version: {aboutVersionFailed ? "Version unavailable" : aboutVersion ?? "…"}</p>
+            <p style={{ fontSize: 18 }}>
+                Version:{" "}
+                {aboutVersionFailed ? (
+                  "Version unavailable"
+                ) : aboutVersion ? (
+                  <a
+                    href="https://github.com/rgeldr/3DFileManager/releases"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      void openUrl("https://github.com/rgeldr/3DFileManager/releases").catch((err) => setError(String(err)));
+                    }}
+                  >
+                    {aboutVersion}
+                  </a>
+                ) : (
+                  "…"
+                )}
+              </p>
             <p>Files: {stats ? stats.fileCount : "…"}</p>
             <p>Folders: {stats ? stats.folderCount : "…"}</p>
             <p>Size on disk: {stats ? formatAboutSize(stats.sizeBytes) : "…"}</p>
