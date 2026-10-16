@@ -121,7 +121,7 @@
     }
 
     #[test]
-    fn add_tags_to_files_keeps_existing_and_skips_unlisted() {
+    fn add_tags_to_files_keeps_existing_and_skips_unlisted_and_missing() {
         let (dir, db) = scratch_db("tag-files");
         let first = db
             .insert_file("a.stl", "a.stl", "stl", 1, "sha-a", 1, None, None)
@@ -132,12 +132,21 @@
         let unlisted = db
             .insert_file("c.stl", "c.stl", "stl", 1, "sha-c", 1, None, None)
             .unwrap();
+        let gone = db
+            .insert_file("d.stl", "d.stl", "stl", 1, "sha-d", 1, None, None)
+            .unwrap();
         db.set_tags(first, &["existing".into()]).unwrap();
+        db.mark_missing(gone, true).unwrap();
 
         let count = db
-            .add_tags_to_files(&[first, second, 999_999], &["newtag".into(), "  ".into()])
+            .add_tags_to_files(&[first, second, gone, 999_999], &["newtag".into(), "  ".into()])
             .unwrap();
         assert_eq!(count, 2);
+        let gone_tags: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM file_tags WHERE file_id = ?1", [gone], |row| row.get(0))
+            .unwrap();
+        assert_eq!(gone_tags, 0);
 
         let rows = db.list_files(FolderFilter::All, "", "", "", "name").unwrap();
         let tags_of = |id: i64| rows.iter().find(|file| file.id == id).unwrap().tags.clone();

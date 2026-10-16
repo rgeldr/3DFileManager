@@ -47,11 +47,23 @@ describe("File context menu", () => {
     const { model, calls } = app([2], 2);
     render(<FileContextMenu app={model} />);
     fireEvent.click(screen.getByRole("menuitem", { name: "Add tags…" }));
+    expect(calls.setFileMenu).toHaveBeenCalledWith(null);
     expect(calls.setFolderTagInput).toHaveBeenCalledWith("");
     expect(calls.setFolderTagTarget).toHaveBeenCalledWith({
       folderId: null,
       name: "cube",
       fileIds: [2],
+    });
+  });
+
+  it("targets only the clicked file when it is outside the selection", () => {
+    const { model, calls } = app([1, 2], 3);
+    render(<FileContextMenu app={model} />);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Set Creator…" }));
+    expect(calls.setCreatorTarget).toHaveBeenCalledWith({
+      folderId: null,
+      name: "1 file",
+      fileIds: [3],
     });
   });
 });
