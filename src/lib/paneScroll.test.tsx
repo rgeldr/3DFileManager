@@ -58,7 +58,8 @@ describe("pane scroll containers", () => {
     grid.dispatchEvent(new Event("scroll"));
     expect(heard).toEqual(["grid"]);
 
-    expect(baseCss).toMatch(/html,\s*body,\s*#root,\s*\.app\s*\{[^}]*overflow:\s*hidden/s);
+    expect(baseCss).toMatch(/html,\s*body,\s*#root,\s*\.app\s*\{[^}]*overflow-x:\s*hidden;[^}]*overflow-y:\s*hidden/s);
+    expect(layoutCss).toMatch(/\.app\s*\{[^}]*overflow-x:\s*hidden;[^}]*overflow-y:\s*hidden/s);
     expect(baseCss).toMatch(/height:\s*100vh/);
     expect(layoutCss).toMatch(/\.sidebar-scroll\s*\{[^}]*min-height:\s*0;[^}]*overflow:\s*auto/s);
     expect(workspaceCss).toMatch(/\.grid-wrap\s*\{[^}]*min-height:\s*0;[^}]*overflow:\s*auto/s);

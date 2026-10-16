@@ -3,7 +3,7 @@ import type { LibraryModel } from "../../hooks/useLibrary";
 import { api } from "../../api";
 
 export function MissingFilesDialog({ app }: { app: LibraryModel }) {
-  const { missingOpen, setMissingOpen, missingFiles, refreshLists } = app;
+  const { missingOpen, setMissingOpen, missingFiles, refreshLists, reloadTree } = app;
   return (
     <>
       {missingOpen ? (
@@ -16,7 +16,7 @@ export function MissingFilesDialog({ app }: { app: LibraryModel }) {
               <button
                 type="button"
                 onClick={() => {
-                  void api.removeMissing().then(() => refreshLists()).finally(() => setMissingOpen(false));
+                  void api.removeMissing().then(() => reloadTree()).then(() => refreshLists()).finally(() => setMissingOpen(false));
                 }}
               >
                 Remove entries

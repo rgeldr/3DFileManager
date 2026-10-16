@@ -2,7 +2,9 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "./api";
 import { FileGrid } from "./components/FileGrid";
-import { TagChips, TagFilter } from "./components/TagFilter";
+import { LibrarySearch } from "./components/LibrarySearch";
+import { TagFilter } from "./components/TagFilter";
+import { TypeFilter } from "./components/TypeFilter";
 import { MenuBar } from "./components/MenuBar";
 import { Sidebar } from "./components/Sidebar";
 import { Inspector } from "./components/Inspector";
@@ -48,6 +50,9 @@ function AppShell({ app }: { app: LibraryModel }) {
     setCreator,
     selectedTagIds,
     setSelectedTagIds,
+    selectedTypeIds,
+    setSelectedTypeIds,
+    typeCounts,
     tagMatch,
     setTagMatch,
     tagCounts,
@@ -242,6 +247,7 @@ function AppShell({ app }: { app: LibraryModel }) {
             success: `Moved "${name}"`,
             cancelled: "Move cancelled",
             run: () => api.moveFolder(id, parentId),
+            tree: true,
             after: async () => {
               setFolderExpandHint((hint) => ({ key: expandKey, nonce: (hint?.nonce ?? 0) + 1 }));
               await refreshLists();
@@ -259,21 +265,30 @@ function AppShell({ app }: { app: LibraryModel }) {
       />
       <section className="main">
         <div className="toolbar">
-          <div className="toolbar-search">
-            <input
-              type="search"
-              placeholder="Search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-            <TagChips
-              tags={tagCounts}
-              selectedIds={selectedTagIds}
-              onSelectedIds={setSelectedTagIds}
-            />
-          </div>
+          <LibrarySearch
+            query={query}
+            creator={creator}
+            selectedTagIds={selectedTagIds}
+            selectedTypeIds={selectedTypeIds}
+            tags={tagCounts}
+            types={typeCounts}
+            onQuery={setQuery}
+            onClear={() => {
+              setQuery("");
+              setCreator("");
+              setSelectedTypeIds([]);
+              setSelectedTagIds([]);
+            }}
+            onSelectedTagIds={setSelectedTagIds}
+            onSelectedTypeIds={setSelectedTypeIds}
+          />
           <div className="toolbar-controls">
             <div className="toolbar-row">
+              <TypeFilter
+                types={typeCounts}
+                selectedIds={selectedTypeIds}
+                onSelectedIds={setSelectedTypeIds}
+              />
               <TagFilter
                 tags={tagCounts}
                 selectedIds={selectedTagIds}
@@ -315,7 +330,12 @@ function AppShell({ app }: { app: LibraryModel }) {
           <div className="grid-wrap" ref={gridScrollRef} tabIndex={-1}>
             <FileGrid
               files={files}
-              emptyMessage={gridEmptyMessage({ selectedTagCount: selectedTagIds.length, creator, query })}
+              emptyMessage={gridEmptyMessage({
+                selectedTagCount: selectedTagIds.length,
+                selectedTypeCount: selectedTypeIds.length,
+                creator,
+                query,
+              })}
               gridSize={settings.gridSize}
               selected={selected}
               previewIconsEnabled={previewIconsEnabled}
@@ -376,6 +396,7 @@ function AppShell({ app }: { app: LibraryModel }) {
                 success: `Deleted "${name}"`,
                 cancelled: "Delete cancelled",
                 run: () => api.deleteFiles([id]),
+                tree: true,
                 after: async () => {
                   setSelected([]);
                   await refreshLists();

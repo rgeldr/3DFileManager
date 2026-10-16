@@ -7,6 +7,8 @@ import { ThreeMFLoader } from "three/addons/loaders/3MFLoader.js";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { api } from "../api";
 import type { FileRow } from "../types";
+import { prepareLoadedPreview } from "../lib/previewMaterials";
+import { addPreviewLights, previewMeshMaterial } from "../lib/previewLights";
 import { useTheme } from "../theme/ThemeProvider";
 
 const MESH = new Set(["stl", "obj", "3mf"]);
@@ -122,12 +124,8 @@ export function Viewer({ file }: { file: FileRow | null }) {
     const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 10000);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    const material = new THREE.MeshStandardMaterial({ metalness: 0.05, roughness: 0.62 });
-    const light = cssVar("--color-accent-contrast");
-    scene.add(new THREE.AmbientLight(light, 0.7));
-    const key = new THREE.DirectionalLight(light, 1.05);
-    key.position.set(3, 4, 5);
-    scene.add(key);
+    const material = previewMeshMaterial(cssVar("--viewer-mesh"));
+    addPreviewLights(scene, camera, cssVar("--color-accent-contrast"));
     const canvas = renderer.domElement;
     canvas.draggable = false;
     const blockCanvasDrag = (event: Event) => {
@@ -138,7 +136,6 @@ export function Viewer({ file }: { file: FileRow | null }) {
     host.replaceChildren(canvas);
 
     scene.background = new THREE.Color(cssVar("--viewer-bg"));
-    material.color = new THREE.Color(cssVar("--viewer-mesh"));
 
     const resize = () => {
       const width = host.clientWidth || 1;
@@ -179,7 +176,7 @@ export function Viewer({ file }: { file: FileRow | null }) {
           group.add(loaded);
         } else {
           const loaded = new ThreeMFLoader().parse(buffer);
-          assignSharedMaterial(loaded, material);
+          prepareLoadedPreview(loaded, buffer, cssVar("--viewer-mesh"));
           group.add(loaded);
         }
         scene.add(group);

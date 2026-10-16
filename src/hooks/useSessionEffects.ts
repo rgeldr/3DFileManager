@@ -28,7 +28,13 @@ export function useSessionEffects(s: {
   setFolders: React.Dispatch<React.SetStateAction<import("../types").FolderRow[]>>;
   setMissingCount: React.Dispatch<React.SetStateAction<number>>;
   setTheme: (theme: "dark" | "light") => void;
-  refreshLists: () => Promise<void>;
+  refreshLists: (
+    nextBrowse?: import("../types").Browse,
+    nextQuery?: string,
+    nextCreator?: string,
+    nextSort?: string,
+    mode?: "passive",
+  ) => Promise<void>;
   setReady: (ready: boolean) => void;
   setError: (message: string | null) => void;
   dragIconRef: { current: string | null };
@@ -39,6 +45,7 @@ export function useSessionEffects(s: {
   query: string;
   creator: string;
   selectedTagIds: number[];
+  selectedTypeIds: string[];
   tagMatch: "any" | "all";
   sort: string;
   setPreviewIconsEnabled: (enabled: boolean) => void;
@@ -63,6 +70,7 @@ export function useSessionEffects(s: {
     cancelled: string;
     run: () => Promise<{ cancelled: boolean }>;
     after?: () => Promise<void> | void;
+    tree?: boolean;
   }) => Promise<void>;
   runImport: (paths: string[]) => Promise<void>;
   setAboutOpen: (open: boolean) => void;
@@ -71,7 +79,7 @@ export function useSessionEffects(s: {
     dialogOpen,
     ready, settings, setSettings, setSidebarWidth, setInspectorWidth, setPreviewHeight, setFolders, setMissingCount,
     setTheme, refreshLists, setReady, setError, dragIconRef, runImportRef, setProgress, setThumbNonce,
-    browse, query, creator, selectedTagIds, tagMatch, sort, setPreviewIconsEnabled, aboutOpen, setAboutVersion,
+    browse, query, creator, selectedTagIds, selectedTypeIds, tagMatch, sort, setPreviewIconsEnabled, aboutOpen, setAboutVersion,
     setAboutVersionFailed, creatorTarget, setCreatorFileCount, includeSubfolders, fileMenu, setFileMenu,
     folderTagTarget, setFolderTagFileCount, diskProgress, setDiskDialog, toastTimer, actions, runDiskOp,
     runImport, setAboutOpen,
@@ -115,6 +123,7 @@ export function useSessionEffects(s: {
             await refreshLists();
             setThumbNonce((nonce) => nonce + 1);
           },
+          tree: true,
         });
       },
       clearThumbs: () => {
@@ -212,10 +221,10 @@ export function useSessionEffects(s: {
   useEffect(() => {
     if (!ready) return;
     const timer = setTimeout(() => {
-      void refreshLists().catch((err) => setError(String(err)));
+      void refreshLists(browse, query, creator, sort, "passive").catch((err) => setError(String(err)));
     }, 200);
     return () => clearTimeout(timer);
-  }, [browse, query, creator, selectedTagIds, tagMatch, sort, ready, refreshLists]);
+  }, [browse, query, creator, selectedTagIds, selectedTypeIds, tagMatch, sort, ready, refreshLists]);
 
   useEffect(() => {
     if (!ready || !settings?.libraryRoot) return;

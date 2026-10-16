@@ -97,9 +97,16 @@
 }
 
 .tag {
-  background: var(--color-bg-input);
+  background: var(--chip-tag-bg);
+  color: var(--chip-tag-fg);
+  border: 1px solid var(--chip-tag-border);
   border-radius: var(--radius-sm);
   padding: 0 var(--space-1);
+}
+
+.tag:hover {
+  background: var(--chip-tag-bg);
+  color: var(--chip-tag-fg);
 }
 
 .status {

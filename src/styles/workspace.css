@@ -24,10 +24,29 @@
   min-width: 0;
 }
 
-.toolbar-search input[type="search"] {
-  flex: 0 0 auto;
-  width: 100%;
+.toolbar-search-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   min-width: 0;
+}
+
+.toolbar-search-row input[type="search"] {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.toolbar-clear {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.toolbar-clear:disabled,
+.toolbar-clear:disabled:hover {
+  color: var(--color-text-subtle);
+  background: var(--color-bg-input);
+  opacity: 0.55;
 }
 
 .toolbar-controls {

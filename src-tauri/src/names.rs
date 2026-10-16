@@ -1,4 +1,41 @@
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+use serde::Deserialize;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SupportedType {
+    pub id: String,
+    pub label: String,
+    pub exts: Vec<String>,
+}
+
+pub fn supported_types() -> &'static [SupportedType] {
+    static TYPES: OnceLock<Vec<SupportedType>> = OnceLock::new();
+    TYPES.get_or_init(|| {
+        serde_json::from_str(include_str!("../../src/supportedTypes.json"))
+            .expect("supportedTypes.json")
+    })
+}
+
+pub fn is_supported_file(ext: &str) -> bool {
+    supported_types()
+        .iter()
+        .any(|group| group.exts.iter().any(|item| item == ext))
+}
+
+pub fn ext_filter_values(exts: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for ext in exts {
+        let ext = ext.trim().to_ascii_lowercase();
+        if ext.is_empty() || !is_supported_file(&ext) || out.contains(&ext) {
+            continue;
+        }
+        out.push(ext);
+    }
+    out
+}
 
 const RESERVED: &[&str] = &[
     "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
@@ -93,31 +130,6 @@ pub fn unique_dir_name(parent: &Path, name: &str) -> String {
     format!("{safe}-copy")
 }
 
-pub fn is_supported_file(ext: &str) -> bool {
-    matches!(
-        ext,
-        "stl"
-            | "3mf"
-            | "obj"
-            | "gcode"
-            | "bgcode"
-            | "ctb"
-            | "chitubox"
-            | "ags"
-            | "lys"
-            | "png"
-            | "jpg"
-            | "jpeg"
-            | "pdf"
-            | "txt"
-            | "step"
-            | "stp"
-            | "f3d"
-            | "md"
-            | "scad"
-    )
-}
-
 pub fn is_archive(ext: &str) -> bool {
     matches!(ext, "zip" | "rar" | "7z")
 }
@@ -178,6 +190,32 @@ mod tests {
         assert!(is_supported_file(&extension_of("Read Me.TXT")));
         assert!(!is_mesh("txt"));
         assert!(!is_archive("txt"));
+    }
+
+    #[test]
+    fn supported_types_match_import_classification() {
+        let groups = supported_types();
+        let jpg = groups.iter().find(|group| group.id == "jpg").unwrap();
+        assert_eq!(jpg.exts, vec!["jpg".to_string(), "jpeg".to_string()]);
+        assert!(groups.iter().filter(|group| group.exts.iter().any(|ext| ext == "jpg")).count() == 1);
+        assert!(groups.iter().all(|group| group.exts.iter().all(|ext| is_supported_file(ext))));
+        assert!(!is_supported_file("lychee"));
+        assert!(!is_supported_file("zip"));
+        assert!(!is_supported_file("exe"));
+        let mut flat = Vec::new();
+        for group in groups {
+            for ext in &group.exts {
+                assert!(!flat.contains(ext), "duplicate ext {ext}");
+                flat.push(ext.clone());
+            }
+        }
+        for ext in [
+            "stl", "3mf", "obj", "gcode", "bgcode", "ctb", "chitubox", "ags", "lys", "png", "jpg",
+            "jpeg", "pdf", "txt", "step", "stp", "f3d", "md", "scad",
+        ] {
+            assert!(flat.iter().any(|item| item == ext), "missing {ext}");
+        }
+        assert_eq!(ext_filter_values(&["JPG".into(), "jpg".into(), "exe".into(), "jpeg".into()]), vec!["jpg".to_string(), "jpeg".to_string()]);
     }
 
     #[test]

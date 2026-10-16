@@ -23,7 +23,7 @@
         db.set_tags(only_b, &["Beta".into()]).unwrap();
         db.set_tags(sibling, &["Alpha".into()]).unwrap();
 
-        let counts = db.tag_counts(FolderFilter::Id(models.id), "", "").unwrap();
+        let counts = db.tag_counts(FolderFilter::Id(models.id), "", "", &[]).unwrap();
         assert_eq!(
             counts.iter().map(|tag| tag.name.as_str()).collect::<Vec<_>>(),
             vec!["Alpha", "Beta"]
@@ -32,7 +32,7 @@
         let beta = counts.iter().find(|tag| tag.name == "Beta").unwrap();
         assert_eq!(alpha.file_count, 2);
         assert_eq!(beta.file_count, 2);
-        let all_counts = db.tag_counts(FolderFilter::All, "", "").unwrap();
+        let all_counts = db.tag_counts(FolderFilter::All, "", "", &[]).unwrap();
         assert_eq!(all_counts.iter().find(|tag| tag.name == "Alpha").unwrap().file_count, 3);
 
         let ids = |rows: Vec<FileRow>| rows.into_iter().map(|row| row.id).collect::<Vec<_>>();
@@ -44,6 +44,7 @@
                 tag: "",
                 tag_ids: &[alpha.id, beta.id],
                 tag_match: TagMatch::Any,
+                exts: &[],
                 sort: "name",
                 limit: None,
                 offset: 0,
@@ -59,6 +60,7 @@
                 tag: "",
                 tag_ids: &[alpha.id, beta.id],
                 tag_match: TagMatch::All,
+                exts: &[],
                 sort: "name",
                 limit: None,
                 offset: 0,
@@ -74,6 +76,7 @@
                 tag: "",
                 tag_ids: &[alpha.id, beta.id],
                 tag_match: TagMatch::Any,
+                exts: &[],
                 sort: "name",
                 limit: Some(1),
                 offset: 1,
@@ -89,6 +92,7 @@
                 tag: "",
                 tag_ids: &[alpha.id],
                 tag_match: TagMatch::Any,
+                exts: &[],
                 sort: "name",
                 limit: None,
                 offset: 0,
@@ -104,13 +108,14 @@
                 tag: "",
                 tag_ids: &[alpha.id, beta.id],
                 tag_match: TagMatch::Any,
+                exts: &[],
                 sort: "name",
                 limit: None,
                 offset: 0,
             })
             .unwrap();
         assert_eq!(ids(searched), vec![only_a]);
-        let searched_counts = db.tag_counts(FolderFilter::Id(models.id), "onlya", "").unwrap();
+        let searched_counts = db.tag_counts(FolderFilter::Id(models.id), "onlya", "", &[]).unwrap();
         assert_eq!(searched_counts.iter().find(|tag| tag.name == "Alpha").unwrap().file_count, 1);
         assert_eq!(searched_counts.iter().find(|tag| tag.name == "Beta").unwrap().file_count, 0);
 
@@ -122,6 +127,7 @@
                 tag: "",
                 tag_ids: &[alpha.id, beta.id, alpha.id],
                 tag_match: TagMatch::All,
+                exts: &[],
                 sort: "name",
                 limit: None,
                 offset: 0,
@@ -154,7 +160,7 @@
         db.update_file(guild, "guild", "Artisan Guild", "", Some(child.id)).unwrap();
 
         let humans = db
-            .tag_counts(FolderFilter::All, "", "")
+            .tag_counts(FolderFilter::All, "", "", &[])
             .unwrap()
             .into_iter()
             .find(|tag| tag.name == "Humans")
@@ -169,6 +175,7 @@
                 tag: "",
                 tag_ids: &[humans.id],
                 tag_match: mode,
+                exts: &[],
                 sort: "name",
                 limit: None,
                 offset: 0,

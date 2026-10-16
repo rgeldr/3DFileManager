@@ -2,19 +2,23 @@
   position: relative;
 }
 
+.tag-filter-button {
+  white-space: nowrap;
+}
+
 .tag-filter-button.is-active {
   border-color: var(--color-accent);
 }
 
 .tag-filter-popover {
-  position: absolute;
-  top: calc(100% + var(--space-1));
-  left: 0;
-  z-index: 30;
+  position: fixed;
+  z-index: 40;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
   width: 240px;
+  box-sizing: border-box;
+  overflow: hidden;
   padding: var(--space-2);
   background: var(--color-bg-sidebar);
   border: 1px solid var(--color-border);
@@ -27,8 +31,11 @@
 }
 
 .tag-filter-list {
+  flex: 1 1 auto;
+  min-height: 0;
   max-height: 220px;
   overflow: auto;
+  overscroll-behavior: contain;
   outline: none;
 }
 
@@ -93,6 +100,20 @@
 }
 
 .tag-filter-chips .tag {
-  border: none;
+  background: var(--chip-tag-bg);
+  color: var(--chip-tag-fg);
+  border: 1px solid var(--chip-tag-border);
   cursor: pointer;
+}
+
+.tag-filter-chips .tag:hover {
+  background: var(--chip-tag-bg);
+  color: var(--chip-tag-fg);
+}
+
+.tag-filter-chips .type-chip,
+.tag-filter-chips .type-chip:hover {
+  background: var(--chip-type-bg);
+  color: var(--chip-type-fg);
+  border-color: var(--chip-type-border);
 }

@@ -1,0 +1,19 @@
+[
+  { "id": "stl", "label": "stl", "exts": ["stl"] },
+  { "id": "obj", "label": "obj", "exts": ["obj"] },
+  { "id": "3mf", "label": "3mf", "exts": ["3mf"] },
+  { "id": "lys", "label": "lys", "exts": ["lys"] },
+  { "id": "png", "label": "png", "exts": ["png"] },
+  { "id": "jpg", "label": "jpg / jpeg", "exts": ["jpg", "jpeg"] },
+  { "id": "pdf", "label": "pdf", "exts": ["pdf"] },
+  { "id": "txt", "label": "txt", "exts": ["txt"] },
+  { "id": "step", "label": "step / stp", "exts": ["step", "stp"] },
+  { "id": "gcode", "label": "gcode", "exts": ["gcode"] },
+  { "id": "bgcode", "label": "bgcode", "exts": ["bgcode"] },
+  { "id": "ctb", "label": "ctb", "exts": ["ctb"] },
+  { "id": "chitubox", "label": "chitubox", "exts": ["chitubox"] },
+  { "id": "ags", "label": "ags", "exts": ["ags"] },
+  { "id": "f3d", "label": "f3d", "exts": ["f3d"] },
+  { "id": "md", "label": "md", "exts": ["md"] },
+  { "id": "scad", "label": "scad", "exts": ["scad"] }
+]

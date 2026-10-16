@@ -2,8 +2,9 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { CheckMenuItem } from "@tauri-apps/api/menu";
 import { api } from "../api";
 import { useTheme } from "../theme/ThemeProvider";
-import type { Browse, DragReport, FileRow, FolderRow, GridSize, ImportSummary, Settings, TagCount, TagMatchMode } from "../types";
-import { libraryListScope } from "../lib/tagFilter";
+import type { Browse, DragReport, FileRow, FolderRow, GridSize, ImportSummary, Settings, TagCount, TagMatchMode, TypeCount } from "../types";
+import { libraryListScope, libraryRefreshKey } from "../lib/tagFilter";
+import { extsForSelectedTypes, mergeTypeCounts } from "../lib/typeFilter";
 import { useLibraryEffects } from "./useLibraryEffects";
 import { useSelection } from "./useSelection";
 import {
@@ -24,6 +25,8 @@ export function useLibrary() {
   const [query, setQuery] = useState("");
   const [creator, setCreator] = useState("");
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
+  const [selectedTypeIds, setSelectedTypeIds] = useState<string[]>([]);
+  const [typeCounts, setTypeCounts] = useState<TypeCount[]>(() => mergeTypeCounts([]));
   const [tagMatch, setTagMatch] = useState<TagMatchMode>("any");
   const [sort, setSort] = useState("name");
   const [creators, setCreators] = useState<string[]>([]);
@@ -100,29 +103,68 @@ export function useLibrary() {
   }, [settings]);
 
   const targetFolderId = browse.type === "folder" ? browse.id : null;
+  const listKeyRef = useRef<string | null>(null);
+  const inflightRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
+  const refreshGen = useRef(0);
 
-  const refreshLists = useCallback(async (nextBrowse = browse, nextQuery = query, nextCreator = creator, nextSort = sort) => {
+  const refreshLists = useCallback(async (
+    nextBrowse = browse,
+    nextQuery = query,
+    nextCreator = creator,
+    nextSort = sort,
+    mode?: "passive",
+  ) => {
+    const key = libraryRefreshKey({
+      browse: nextBrowse,
+      query: nextQuery,
+      creator: nextCreator,
+      selectedTagIds,
+      selectedTypeIds,
+      tagMatch,
+      sort: nextSort,
+    });
+    if (mode === "passive" && (listKeyRef.current === key || inflightRef.current?.key === key)) return;
+    const pending = inflightRef.current;
+    if (pending?.key === key) return pending.promise;
+    const gen = ++refreshGen.current;
     const listed = libraryListScope({
       browse: nextBrowse,
       query: nextQuery,
       creator: nextCreator,
       selectedTagCount: selectedTagIds.length,
+      selectedTypeCount: selectedTypeIds.length,
     });
     const scope = { folder: listed.folder, folderId: listed.folderId, query: nextQuery, creator: listed.creator };
-    const [rows, creatorRows, tagRows, boot] = await Promise.all([
-      api.listFiles({ ...scope, tag: "", tagIds: selectedTagIds, tagMatch, sort: nextSort }),
-      api.listCreators(),
-      api.listTagCounts(scope),
-      api.bootstrap(),
-    ]);
-    setFiles(rows);
-    setCreators(creatorRows);
-    setTagCounts(tagRows);
-    setTags(tagRows.map((tag) => tag.name));
+    const exts = extsForSelectedTypes(selectedTypeIds);
+    const promise = (async () => {
+      const [rows, creatorRows, tagRows, typeRows] = await Promise.all([
+        api.listFiles({ ...scope, tag: "", tagIds: selectedTagIds, tagMatch, exts, sort: nextSort }),
+        api.listCreators(),
+        api.listTagCounts({ ...scope, exts }),
+        api.listTypeCounts({ ...scope, tagIds: selectedTagIds, tagMatch }),
+      ]);
+      if (gen !== refreshGen.current) return;
+      setFiles(rows);
+      setCreators(creatorRows);
+      setTagCounts(tagRows);
+      setTypeCounts(mergeTypeCounts(typeRows));
+      setTags(tagRows.map((tag) => tag.name));
+      listKeyRef.current = key;
+    })();
+    inflightRef.current = { key, promise };
+    try {
+      await promise;
+    } finally {
+      if (inflightRef.current?.promise === promise) inflightRef.current = null;
+    }
+  }, [browse, creator, query, selectedTagIds, selectedTypeIds, sort, tagMatch]);
+
+  const reloadTree = useCallback(async () => {
+    const boot = await api.bootstrap();
     setFolders(boot.folders);
     setMissingCount(boot.missingCount);
     setSettings(boot.settings);
-  }, [browse, creator, query, selectedTagIds, sort, tagMatch]);
+  }, []);
 
   const showToast = useCallback((message: string) => {
     if (toastTimer.current != null) window.clearTimeout(toastTimer.current);
@@ -137,6 +179,7 @@ export function useLibrary() {
     cancelled: string;
     run: () => Promise<{ cancelled: boolean }>;
     after?: () => Promise<void> | void;
+    tree?: boolean;
   }) => {
     if (libraryBusy.current) {
       setError("Another library change is already running.");
@@ -160,6 +203,7 @@ export function useLibrary() {
       setDiskDialog(null);
       if (opts.after) await opts.after();
       else await refreshLists();
+      if (opts.tree) await reloadTree();
       if (revealed) showToast(outcome.cancelled ? opts.cancelled : opts.success);
     } catch (err) {
       window.clearTimeout(timer);
@@ -169,7 +213,7 @@ export function useLibrary() {
     } finally {
       libraryBusy.current = false;
     }
-  }, [refreshLists, showToast]);
+  }, [refreshLists, reloadTree, showToast]);
 
   const openNewFolderPrompt = useCallback((parentId: number | null) => {
     setNamePrompt({
@@ -178,14 +222,15 @@ export function useLibrary() {
       onOk: (value) => {
         const expandKey = parentId == null ? "root" : `folder:${parentId}`;
         void api.createFolder(parentId, value)
-          .then(() => {
+          .then(async () => {
             setFolderExpandHint((hint) => ({ key: expandKey, nonce: (hint?.nonce ?? 0) + 1 }));
+            await reloadTree();
             return refreshLists();
           })
           .catch((err) => setError(String(err)));
       },
     });
-  }, [refreshLists]);
+  }, [refreshLists, reloadTree]);
 
   const openRenameFolderPrompt = useCallback((folderId: number) => {
     const folder = folders.find((item) => item.id === folderId);
@@ -200,6 +245,7 @@ export function useLibrary() {
           success: `Renamed "${value}"`,
           cancelled: "Rename cancelled",
           run: () => api.renameFolder(folder.id, value),
+          tree: true,
         });
       },
     });
@@ -222,6 +268,7 @@ export function useLibrary() {
         setBrowse({ type: "root" });
         await refreshLists({ type: "root" });
       },
+      tree: true,
     });
   }, [refreshLists, runDiskOp]);
 
@@ -266,6 +313,7 @@ export function useLibrary() {
   const model = {
     theme, setTheme, ready, setReady, settings, setSettings, folders, setFolders, files, setFiles,
     browse, setBrowse, query, setQuery, creator, setCreator, selectedTagIds, setSelectedTagIds,
+    selectedTypeIds, setSelectedTypeIds, typeCounts, setTypeCounts,
     tagMatch, setTagMatch, sort, setSort, creators, setCreators, tags, setTags, tagCounts,
     selected, setSelected, missingCount, setMissingCount,
     missingOpen, setMissingOpen, missingFiles, setMissingFiles, chosenRoot, setChosenRoot,
@@ -281,7 +329,7 @@ export function useLibrary() {
     toast, setToast, dragRef, filesRef, tryStartRef, prefetchRef, dragPrepCache, actions, themeItems, gridItems,
     thumbNonce, setThumbNonce, thumbGeneration, gridScrollRef, dragIconRef, sidebarWidthRef, inspectorWidthRef,
     previewIconsEnabled, setPreviewIconsEnabled, folderExpandHint, setFolderExpandHint, libraryBusy, diskProgress,
-    toastTimer, libraryName, targetFolderId, refreshLists, showToast, runDiskOp, openNewFolderPrompt,
+    toastTimer, libraryName, targetFolderId, refreshLists, reloadTree, showToast, runDiskOp, openNewFolderPrompt,
     openRenameFolderPrompt, openDeleteFolderConfirm, performDeleteFolder, runImportRef, refreshListsRef,
     runImport, dialogOpen, browseKey, onSelect, selectedFile,
   };

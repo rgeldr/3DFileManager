@@ -3,6 +3,8 @@ import * as THREE from "three";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { ThreeMFLoader } from "three/addons/loaders/3MFLoader.js";
+import { prepareLoadedPreview } from "../lib/previewMaterials";
+import { addPreviewLights, previewMeshMaterial } from "../lib/previewLights";
 
 export interface PackedMesh {
   position: ArrayBuffer;
@@ -165,27 +167,23 @@ async function renderThumbnail(
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(colors.background);
   const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 1000);
-  const material = new THREE.MeshStandardMaterial({
-    color: colors.mesh,
-    metalness: 0.05,
-    roughness: 0.65,
-  });
+  const material = ext === "3mf" ? null : previewMeshMaterial(colors.mesh);
   let object: THREE.Object3D | null = null;
   try {
     object = parsedObject(ext, buffer);
+    if (ext === "3mf") prepareLoadedPreview(object, buffer, colors.mesh);
     let meshes = 0;
     object.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
       meshes += 1;
-      child.material = material;
-      if (!child.geometry.getAttribute("normal")) child.geometry.computeVertexNormals();
+      if (material) {
+        child.material = material;
+        if (!child.geometry.getAttribute("normal")) child.geometry.computeVertexNormals();
+      }
     });
     if (meshes === 0) throw new Error("No mesh geometry found.");
     scene.add(object);
-    scene.add(new THREE.AmbientLight(colors.light, 0.65));
-    const key = new THREE.DirectionalLight(colors.light, 1.1);
-    key.position.set(2, 3, 4);
-    scene.add(key);
+    addPreviewLights(scene, camera, colors.light);
     fitCamera(camera, object);
     renderer.render(scene, camera);
     const blob = await canvas.convertToBlob({ type: "image/png" });
@@ -194,10 +192,15 @@ async function renderThumbnail(
     if (renderer.getContext()?.isContextLost()) discardWorkerRenderer();
     throw err;
   } finally {
-    material.dispose();
     object?.traverse((child) => {
-      if (child instanceof THREE.Mesh) child.geometry?.dispose();
+      if (!(child instanceof THREE.Mesh)) return;
+      child.geometry?.dispose();
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      for (const item of materials) {
+        if (item && item !== material) item.dispose();
+      }
     });
+    material?.dispose();
     scene.clear();
   }
 }

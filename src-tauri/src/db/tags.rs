@@ -147,10 +147,10 @@ impl AppDb {
     }
 
     pub fn list_tags(&self) -> Result<Vec<String>, String> {
-        Ok(self.tag_counts(FolderFilter::All, "", "")?.into_iter().map(|tag| tag.name).collect())
+        Ok(self.tag_counts(FolderFilter::All, "", "", &[])?.into_iter().map(|tag| tag.name).collect())
     }
 
-    pub fn tag_counts(&self, folder: FolderFilter, query: &str, creator: &str) -> Result<Vec<TagCount>, String> {
+    pub fn tag_counts(&self, folder: FolderFilter, query: &str, creator: &str, exts: &[&str]) -> Result<Vec<TagCount>, String> {
         let fts = fts_match(query);
         let mut sql = String::from(
             "SELECT t.id, t.name, COUNT(DISTINCT f.id)
@@ -175,6 +175,7 @@ impl AppDb {
             sql.push_str(" AND f.creator = ? COLLATE NOCASE");
             param_values.push(creator.to_string());
         }
+        push_ext_in(&mut sql, &mut param_values, exts);
         sql.push_str(" GROUP BY t.id, t.name ORDER BY t.name COLLATE NOCASE");
         let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
         let params_ref: Vec<&dyn rusqlite::ToSql> = param_values

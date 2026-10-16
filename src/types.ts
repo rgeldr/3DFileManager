@@ -43,6 +43,13 @@ export interface TagCount {
   fileCount: number;
 }
 
+export interface TypeCount {
+  id: string;
+  label: string;
+  exts: string[];
+  fileCount: number;
+}
+
 export type TagMatchMode = "any" | "all";
 
 export interface FileRow {

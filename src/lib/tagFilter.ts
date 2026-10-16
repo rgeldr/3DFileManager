@@ -17,23 +17,51 @@ export function tagFilterBadge(count: number): string {
   return count > 0 ? `Tags (${count})` : "Tags";
 }
 
+export function libraryRefreshKey(input: {
+  browse: Browse;
+  query: string;
+  creator: string;
+  selectedTagIds: number[];
+  selectedTypeIds: string[];
+  tagMatch: string;
+  sort: string;
+}): string {
+  return JSON.stringify({
+    folder: input.browse.type === "folder" ? input.browse.id : input.browse.type,
+    query: input.query,
+    creator: input.creator,
+    tags: [...input.selectedTagIds].sort((a, b) => a - b),
+    types: [...input.selectedTypeIds].sort(),
+    tagMatch: input.tagMatch,
+    sort: input.sort,
+  });
+}
+
 export function libraryListScope(input: {
   browse: Browse;
   query: string;
   creator: string;
   selectedTagCount: number;
+  selectedTypeCount: number;
 }): { folder: "all" | "root" | "id"; folderId: number | null; creator: string } {
   const queryActive = /[\p{L}\p{N}]/u.test(input.query);
-  const finding = queryActive || input.creator !== "" || input.selectedTagCount > 0;
+  const finding = queryActive || input.creator !== "" || input.selectedTagCount > 0 || input.selectedTypeCount > 0;
   const folder = finding ? "all" : input.browse.type === "root" ? "root" : "id";
   const folderId = !finding && input.browse.type === "folder" ? input.browse.id : null;
   return { folder, folderId, creator: input.creator };
 }
 
-export function gridEmptyMessage(input: { selectedTagCount: number; creator: string; query: string }): string {
-  if (input.selectedTagCount > 0) return "No files match the selected tags";
+export function gridEmptyMessage(input: {
+  selectedTagCount: number;
+  selectedTypeCount: number;
+  creator: string;
+  query: string;
+}): string {
   const queryActive = /[\p{L}\p{N}]/u.test(input.query);
-  if (queryActive || input.creator !== "") return "No files match the current filters";
+  const other = queryActive || input.creator !== "";
+  if (input.selectedTagCount > 0 && input.selectedTypeCount === 0 && !other) return "No files match the selected tags";
+  if (input.selectedTypeCount > 0 && input.selectedTagCount === 0 && !other) return "No files match the selected types";
+  if (input.selectedTagCount > 0 || input.selectedTypeCount > 0 || other) return "No files match the current filters";
   return "This folder is empty. Drop files here to import them.";
 }
 

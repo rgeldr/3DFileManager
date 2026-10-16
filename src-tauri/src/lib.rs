@@ -84,6 +84,7 @@ pub fn run() {
             list_creators,
             list_tags,
             list_tag_counts,
+            list_type_counts,
             import_paths,
             cancel_import,
             cancel_disk_op,
