@@ -74,6 +74,8 @@ export function useLibrary() {
     importFolder: () => undefined,
     importArchive: () => undefined,
     moveLibrary: () => undefined,
+    backupLibrary: () => undefined,
+    restoreLibrary: () => undefined,
     rescan: () => undefined,
     clearThumbs: () => undefined,
     setTheme: () => undefined,

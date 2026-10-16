@@ -102,3 +102,51 @@ async fn move_library_root(app: AppHandle, path: String) -> Result<DiskOutcome, 
     })
     .await
 }
+
+#[tauri::command]
+async fn export_library_backup(app: AppHandle, path: String) -> Result<DiskOutcome, String> {
+    let _timer = CommandTimer::start("export_library_backup");
+    block_on_disk(app, move |db, cancel, handle| {
+        let cancelled = backup::export_library(db, PathBuf::from(path).as_path(), cancel, |progress| {
+            emit_disk(&handle, &progress)
+        })?;
+        Ok(DiskOutcome { cancelled })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn restore_library_backup(
+    app: AppHandle,
+    backup_path: String,
+    library_path: String,
+) -> Result<DiskOutcome, String> {
+    let _timer = CommandTimer::start("restore_library_backup");
+    let _guard = acquire_disk(&app)?;
+    let cancel = app.state::<AppState>().disk_cancel.clone();
+    let db = app.state::<AppState>().db.clone();
+    let thumbs = app.state::<AppState>().thumbs.clone();
+    let scope_app = app.clone();
+    let worker = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut db = db.lock().map_err(|e| e.to_string())?;
+        let mut thumbs = thumbs.lock().map_err(|e| e.to_string())?;
+        let cancelled = backup::restore_library(
+            &mut db,
+            &mut thumbs,
+            PathBuf::from(backup_path).as_path(),
+            PathBuf::from(library_path).as_path(),
+            &cancel,
+            |progress| emit_disk(&worker, &progress),
+        )?;
+        if !cancelled {
+            if let Ok(root) = db.library_root() {
+                allow_asset_scope(&scope_app, &root);
+            }
+            allow_asset_scope(&scope_app, &db.data_dir.join("thumbs"));
+        }
+        Ok(DiskOutcome { cancelled })
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}

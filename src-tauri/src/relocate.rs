@@ -100,7 +100,7 @@ pub fn move_file<F: FnMut(DiskProgress)>(
     }
 }
 
-fn copy_tree<F: FnMut(DiskProgress)>(
+pub fn copy_tree<F: FnMut(DiskProgress)>(
     from: &Path,
     to: &Path,
     cancel: &AtomicBool,

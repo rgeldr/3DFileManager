@@ -76,6 +76,9 @@ export interface Actions {
   importFolder: () => void;
   importArchive: () => void;
   moveLibrary: () => void;
+  backupLibrary: () => void;
+  /** Optional `libraryPath` skips the second folder picker (setup can pass the chosen root). */
+  restoreLibrary: (libraryPath?: string) => void;
   rescan: () => void;
   clearThumbs: () => void;
   setTheme: (theme: "dark" | "light") => void;

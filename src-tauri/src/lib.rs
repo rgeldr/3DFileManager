@@ -1,3 +1,4 @@
+mod backup;
 mod ctb;
 mod db;
 mod drag_out;
@@ -95,6 +96,8 @@ pub fn run() {
             move_files,
             delete_files,
             rescan_library,
+            export_library_backup,
+            restore_library_backup,
             next_thumbnail,
             pending_thumbnail_count,
             save_rendered_thumb,

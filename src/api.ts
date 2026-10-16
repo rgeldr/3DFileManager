@@ -97,6 +97,10 @@ export const api = {
       missing: number;
       cancelled: boolean;
     }>("rescan_library"),
+  exportLibraryBackup: (path: string) =>
+    invoke<DiskOutcome>("export_library_backup", { path }),
+  restoreLibraryBackup: (backupPath: string, libraryPath: string) =>
+    invoke<DiskOutcome>("restore_library_backup", { backupPath, libraryPath }),
   nextThumbnail: () => invoke<ThumbJob | null>("next_thumbnail"),
   pendingThumbnailCount: () => invoke<number>("pending_thumbnail_count"),
   saveRenderedThumb: (id: number, png: number[]) =>
