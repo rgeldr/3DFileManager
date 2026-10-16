@@ -43,8 +43,8 @@ export function AboutDialog({ app }: { app: LibraryModel }) {
       {aboutOpen ? (
         <Modal>
           <div className="card">
-            <h2>3D File Library</h2>
-            <p>{aboutVersionFailed ? "Version unavailable" : aboutVersion ?? "…"}</p>
+            <h2 style={{ fontSize: 32 }}>3D File Library</h2>
+            <p style={{ fontSize: 18 }}>Version: {aboutVersionFailed ? "Version unavailable" : aboutVersion ?? "…"}</p>
             <p>Files: {stats ? stats.fileCount : "…"}</p>
             <p>Folders: {stats ? stats.folderCount : "…"}</p>
             <p>Size on disk: {stats ? formatAboutSize(stats.sizeBytes) : "…"}</p>
