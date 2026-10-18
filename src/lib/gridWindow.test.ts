@@ -123,6 +123,27 @@ describe("visibleRowWindow", () => {
     expect(window.end).toBeGreaterThan(2);
     expect(window.totalHeight).toBe(100 * ROW_PX);
   });
+
+  it("subtracts rowOffset from scrollTop when computing the start row", () => {
+    const without = visibleRowWindow({
+      count: 100,
+      height: 96,
+      scrollTop: ROW_PX * 3,
+      overscanRows: 0,
+    });
+    expect(without.start).toBe(3);
+    expect(without.padTop).toBe(3 * ROW_PX);
+
+    const withOffset = visibleRowWindow({
+      count: 100,
+      height: 96,
+      scrollTop: ROW_PX * 3,
+      overscanRows: 0,
+      rowOffset: ROW_PX,
+    });
+    expect(withOffset.start).toBe(2);
+    expect(withOffset.padTop).toBe(2 * ROW_PX);
+  });
 });
 
 describe("rowHitIndices", () => {

@@ -22,7 +22,7 @@ import {
   DetailsFolderRow,
   DetailsHeader,
   DetailsRow,
-  FolderBadge,
+  FolderIcon,
   ListRow,
   fileDisplayName,
 } from "./FileGridRows";
@@ -418,7 +418,7 @@ export function FileGrid({
   }
 
   if (view === "details") {
-    const page = visibleRowWindow({ count: items.length, ...frame });
+    const page = visibleRowWindow({ count: items.length, ...frame, rowOffset: DETAILS_HEADER_PX });
     const visible = items.slice(page.start, page.end);
     const bodyTop = page.padTop + DETAILS_HEADER_PX;
     return (
@@ -478,7 +478,7 @@ export function FileGrid({
                   onDoubleClick={folderDoubleClick(folder.id)}
                 >
                   <div className="thumb">
-                    <FolderBadge name={folder.name} />
+                    <FolderIcon />
                   </div>
                   <div className="tile-name">{folder.name}</div>
                   <div className="tile-meta">Folder</div>

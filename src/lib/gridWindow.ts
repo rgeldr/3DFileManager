@@ -109,8 +109,10 @@ export function visibleRowWindow(input: {
   height: number;
   scrollTop: number;
   overscanRows?: number;
+  rowOffset?: number;
 }): { start: number; end: number; padTop: number; totalHeight: number } {
   const overscan = input.overscanRows ?? 8;
+  const offset = input.rowOffset ?? 0;
   const stride = ROW_PX;
   const totalHeight = input.count * stride;
   if (input.count === 0) {
@@ -120,7 +122,10 @@ export function visibleRowWindow(input: {
     const end = Math.min(input.count, 24);
     return { start: 0, end, padTop: 0, totalHeight };
   }
-  const startRow = Math.max(0, Math.floor(Math.max(0, input.scrollTop) / stride) - overscan);
+  const startRow = Math.max(
+    0,
+    Math.floor(Math.max(0, input.scrollTop - offset) / stride) - overscan,
+  );
   const visibleRows = Math.ceil(input.height / stride) + overscan * 2;
   const endRow = Math.min(input.count, startRow + visibleRows);
   return {

@@ -46,11 +46,21 @@ export function DetailsHeader({
   );
 }
 
-export function FolderBadge({ name }: { name: string }) {
+export function FolderIcon({ size, className }: { size?: number; className?: string }) {
+  const classes = ["folder-icon", className].filter(Boolean).join(" ");
   return (
-    <span className="type-icon type-icon-txt folder-badge" title={name}>
-      {name}
-    </span>
+    <svg
+      className={classes}
+      width={size ?? undefined}
+      height={size ?? undefined}
+      viewBox="0 0 24 24"
+      aria-hidden
+    >
+      <path
+        fill="currentColor"
+        d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"
+      />
+    </svg>
   );
 }
 
@@ -86,7 +96,7 @@ export function ListRow({
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
     >
-      {isFolder ? <FolderBadge name={label} /> : null}
+      {isFolder ? <FolderIcon size={16} /> : null}
       <span className="file-row-label">{label}</span>
     </button>
   );
@@ -144,7 +154,8 @@ export function DetailsFolderRow({
       onDoubleClick={onDoubleClick}
     >
       <span className="details-col-name">
-        <FolderBadge name={folder.name} />
+        <FolderIcon size={16} />
+        <span className="file-row-label">{folder.name}</span>
       </span>
       <span className="details-col-size" />
       <span className="details-col-date" />
