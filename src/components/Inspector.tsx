@@ -5,6 +5,34 @@ import { usePreviewSplitter } from "../hooks/usePreviewSplitter";
 import type { FileRow, FolderRow } from "../types";
 import { Viewer } from "./Viewer";
 
+function PinIcon({ pinned }: { pinned: boolean }) {
+  return (
+    <svg
+      className="inspector-pin-icon"
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        fill={pinned ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinejoin="round"
+        d="M8 1.5 10.2 5.2h2.3l-1.7 1.7 1.5 4.1L8 9.3l-4.3 1.7 1.5-4.1L3.5 5.2h2.3L8 1.5z"
+      />
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinecap="round"
+        d="M8 9.5v5"
+      />
+    </svg>
+  );
+}
+
 export function Inspector({
   file,
   folders,
@@ -14,6 +42,8 @@ export function Inspector({
   onDelete,
   previewHeight,
   onPreviewHeight,
+  pinned,
+  onPinnedChange,
 }: {
   file: FileRow | null;
   folders: FolderRow[];
@@ -23,6 +53,8 @@ export function Inspector({
   onDelete: (id: number) => void;
   previewHeight: number;
   onPreviewHeight: (height: number) => void;
+  pinned: boolean;
+  onPinnedChange: (pinned: boolean) => void;
 }) {
   const [sortName, setSortName] = useState("");
   const [creator, setCreator] = useState("");
@@ -51,16 +83,39 @@ export function Inspector({
     return [...current, next];
   };
 
+  const pinButton = (
+    <button
+      type="button"
+      className="inspector-pin"
+      aria-pressed={pinned}
+      aria-label={pinned ? "Unpin details" : "Pin details open"}
+      title={pinned ? "Unpin details" : "Pin details open"}
+      onClick={() => onPinnedChange(!pinned)}
+    >
+      <PinIcon pinned={pinned} />
+    </button>
+  );
+
+  if (!pinned) {
+    return (
+      <aside className="inspector collapsed" data-pinned="false">
+        <div className="inspector-head">{pinButton}</div>
+      </aside>
+    );
+  }
+
   if (!file) {
     return (
-      <aside ref={split.paneRef} className="inspector">
+      <aside ref={split.paneRef} className="inspector" data-pinned="true">
+        <div className="inspector-head">{pinButton}</div>
         <div className="empty inspector-body">Select a file to edit its details and preview.</div>
       </aside>
     );
   }
 
   return (
-    <aside ref={split.paneRef} className="inspector" style={previewStyle}>
+    <aside ref={split.paneRef} className="inspector" style={previewStyle} data-pinned="true">
+      <div className="inspector-head">{pinButton}</div>
       <Viewer file={file} />
       <div
         className="preview-splitter"

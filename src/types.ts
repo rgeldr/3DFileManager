@@ -8,6 +8,7 @@ export interface Settings {
   inspectorWidth: number;
   previewHeight: number;
   thumbRetry: number;
+  inspectorPinned: boolean;
 }
 
 export interface DragReport {

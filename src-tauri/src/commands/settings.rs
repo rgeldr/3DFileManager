@@ -49,6 +49,16 @@ async fn set_preview_height(app: AppHandle, preview_height: u32) -> Result<(), S
 }
 
 #[tauri::command]
+async fn set_inspector_pinned(app: AppHandle, inspector_pinned: bool) -> Result<(), String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("set_inspector_pinned", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.set_inspector_pinned(inspector_pinned)
+    })
+    .await
+}
+
+#[tauri::command]
 async fn get_settings(app: AppHandle) -> Result<Settings, String> {
     let db = app.state::<AppState>().db.clone();
     off_ui("get_settings", move || {

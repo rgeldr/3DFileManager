@@ -19,6 +19,10 @@ fn default_thumb_retry() -> u32 {
     0
 }
 
+fn default_inspector_pinned() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -33,6 +37,8 @@ pub struct Settings {
     pub preview_height: u32,
     #[serde(default = "default_thumb_retry")]
     pub thumb_retry: u32,
+    #[serde(default = "default_inspector_pinned")]
+    pub inspector_pinned: bool,
 }
 
 impl Default for Settings {
@@ -45,6 +51,7 @@ impl Default for Settings {
             inspector_width: default_inspector_width(),
             preview_height: default_preview_height(),
             thumb_retry: default_thumb_retry(),
+            inspector_pinned: default_inspector_pinned(),
         }
     }
 }
@@ -103,17 +110,20 @@ mod tests {
         assert_eq!(loaded.inspector_width, 320);
         assert_eq!(loaded.preview_height, 240);
         assert_eq!(loaded.thumb_retry, 0);
+        assert!(loaded.inspector_pinned);
         let mut next = loaded;
         next.sidebar_width = 360;
         next.inspector_width = 400;
         next.preview_height = 480;
         next.thumb_retry = 1;
+        next.inspector_pinned = false;
         save(&dir, &next).unwrap();
         let again = load(&dir);
         assert_eq!(again.sidebar_width, 360);
         assert_eq!(again.inspector_width, 400);
         assert_eq!(again.preview_height, 480);
         assert_eq!(again.thumb_retry, 1);
+        assert!(!again.inspector_pinned);
         let _ = fs::remove_dir_all(&dir);
     }
 

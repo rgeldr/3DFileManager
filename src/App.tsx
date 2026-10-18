@@ -25,7 +25,7 @@ import {
 } from "./components/dialogs";
 import { useLibrary, type LibraryModel } from "./hooks/useLibrary";
 import { useThumbQueueCount } from "./hooks/useThumbQueueCount";
-import { clampInspector, clampSidebar } from "./lib/paneWidths";
+import { clampInspector, clampSidebar, INSPECTOR_RAIL_WIDTH } from "./lib/paneWidths";
 import { gridEmptyMessage } from "./lib/tagFilter";
 import type { GridSize } from "./types";
 
@@ -77,6 +77,8 @@ function AppShell({ app }: { app: LibraryModel }) {
     setSidebarWidth,
     inspectorWidth,
     setInspectorWidth,
+    inspectorPinned,
+    setInspectorPinned,
     previewHeight,
     setPreviewHeight,
     setFolderTagInput,
@@ -136,7 +138,7 @@ function AppShell({ app }: { app: LibraryModel }) {
 
   const paneStyle = {
     "--sidebar-width": `${sidebarWidth}px`,
-    "--inspector-width": `${inspectorWidth}px`,
+    "--inspector-width": `${inspectorPinned ? inspectorWidth : INSPECTOR_RAIL_WIDTH}px`,
   } as CSSProperties;
   if (!ready || !settings) {
     return <div className="setup"><p>Loading…</p></div>;
@@ -347,7 +349,7 @@ function AppShell({ app }: { app: LibraryModel }) {
             </button>
           </div>
         ) : null}
-        <div className="workspace">
+        <div className={`workspace${inspectorPinned ? "" : " inspector-collapsed"}`}>
           <div className="grid-wrap" ref={gridScrollRef} tabIndex={-1}>
             <FileGrid
               files={files}
@@ -372,19 +374,27 @@ function AppShell({ app }: { app: LibraryModel }) {
               }}
             />
           </div>
-          <div
-            className="pane-splitter"
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Resize details"
-            tabIndex={0}
-            onPointerDown={onPanePointerDown("inspector")}
-          />
+          {inspectorPinned ? (
+            <div
+              className="pane-splitter"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize details"
+              tabIndex={0}
+              onPointerDown={onPanePointerDown("inspector")}
+            />
+          ) : null}
           <Inspector
             file={selectedFile}
             folders={folders}
             creators={creators}
             knownTags={tags}
+            pinned={inspectorPinned}
+            onPinnedChange={(next) => {
+              setInspectorPinned(next);
+              setSettings((current) => (current ? { ...current, inspectorPinned: next } : current));
+              void api.setInspectorPinned(next).catch((err) => setError(String(err)));
+            }}
             onSave={(file, nextTags) => {
               const moving = file.folderId !== selectedFile?.folderId;
               void runDiskOp({

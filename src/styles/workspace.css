@@ -78,6 +78,10 @@
   overflow: hidden;
 }
 
+.workspace.inspector-collapsed {
+  grid-template-columns: minmax(0, 1fr) var(--inspector-width, 40px);
+}
+
 .grid-wrap {
   min-height: 0;
   min-width: 0;

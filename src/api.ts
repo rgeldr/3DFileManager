@@ -26,6 +26,8 @@ export const api = {
     invoke<void>("set_pane_widths", { sidebarWidth, inspectorWidth }),
   setPreviewHeight: (previewHeight: number) =>
     invoke<void>("set_preview_height", { previewHeight }),
+  setInspectorPinned: (inspectorPinned: boolean) =>
+    invoke<void>("set_inspector_pinned", { inspectorPinned }),
   createFolder: (parentId: number | null, name: string) =>
     invoke<FolderRow>("create_folder", { parentId, name }),
   renameFolder: (id: number, name: string) => invoke<DiskOutcome>("rename_folder", { id, name }),

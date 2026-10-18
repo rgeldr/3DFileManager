@@ -56,6 +56,31 @@
   background: var(--color-bg-sidebar);
 }
 
+.inspector-head {
+  justify-content: flex-end;
+  border-bottom: 1px solid var(--color-divider);
+  min-height: calc(var(--space-2) * 2 + 1.5rem);
+}
+
+.inspector-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  flex: 0 0 auto;
+}
+
+.inspector-pin[aria-pressed="true"] {
+  color: var(--color-accent);
+}
+
+.inspector-pin-icon {
+  display: block;
+}
+
 .sidebar-scroll {
   flex: 1 1 auto;
   min-height: 0;
