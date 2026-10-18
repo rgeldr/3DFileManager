@@ -1,8 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { debugLog } from "../debugLog";
 import {
+  DETAILS_HEADER_PX,
+  ROW_PX,
   TILE_CHROME,
   TILE_PX,
   clientToContent,
@@ -11,13 +13,27 @@ import {
   marqueeHitIndices,
   mergeSelection,
   normalizeRect,
+  rowHitIndices,
   visibleGridWindow,
+  visibleRowWindow,
 } from "../lib/gridWindow";
-import type { FileRow, GridSize } from "../types";
+import type { FileRow, FolderRow, GridSize, LibrarySort, SortField, ViewMode } from "../types";
+import {
+  DetailsFolderRow,
+  DetailsHeader,
+  DetailsRow,
+  FolderBadge,
+  ListRow,
+  fileDisplayName,
+} from "./FileGridRows";
 
 const MARQUEE_SLOP = 4;
 const SCROLL_EDGE = 28;
 const SCROLL_MAX = 18;
+
+type GridItem =
+  | { kind: "folder"; folder: FolderRow }
+  | { kind: "file"; file: FileRow };
 
 type MarqueeDrag = {
   pointerId: number;
@@ -35,12 +51,21 @@ type MarqueeDrag = {
 
 type MarqueeBand = { left: number; top: number; width: number; height: number };
 
+function isGridSize(view: ViewMode): view is GridSize {
+  return view !== "list" && view !== "details";
+}
+
 function paddingOf(node: HTMLElement) {
   const style = getComputedStyle(node);
   return {
     left: parseFloat(style.paddingLeft) || 0,
     top: parseFloat(style.paddingTop) || 0,
   };
+}
+
+function fileIdAt(items: GridItem[], index: number): number | null {
+  const item = items[index];
+  return item?.kind === "file" ? item.file.id : null;
 }
 
 export function LazyThumb({
@@ -113,44 +138,68 @@ export function LazyThumb({
 
 export function FileGrid({
   files,
+  folders,
   emptyMessage = "This folder is empty. Drop files here to import them.",
-  gridSize,
+  view,
+  sort,
   selected,
   previewIconsEnabled,
   scrollRootRef,
   onSelect,
   onSelectionChange,
   onOpen,
+  onOpenFolder,
+  onSort,
   onContextMenu,
 }: {
   files: FileRow[];
+  folders: FolderRow[];
   emptyMessage?: string;
-  gridSize: GridSize;
+  view: ViewMode;
+  sort: LibrarySort;
   selected: number[];
   previewIconsEnabled: boolean;
   scrollRootRef: React.RefObject<HTMLElement | null>;
   onSelect: (id: number, mode: "replace" | "toggle" | "range") => void;
   onSelectionChange: (ids: number[]) => void;
   onOpen?: (file: FileRow) => void;
+  onOpenFolder?: (id: number) => void;
+  onSort?: (field: SortField) => void;
   onContextMenu?: (event: React.MouseEvent, file: FileRow) => void;
 }) {
   const [scrollRoot, setScrollRoot] = useState<HTMLElement | null>(null);
   const [frame, setFrame] = useState({ width: 0, height: 0, scrollTop: 0 });
   const [band, setBand] = useState<MarqueeBand | null>(null);
-  const filesRef = useRef(files);
+  const items = useMemo<GridItem[]>(
+    () => [...folders.map((folder) => ({ kind: "folder" as const, folder })), ...files.map((file) => ({ kind: "file" as const, file }))],
+    [folders, files],
+  );
+  const itemsRef = useRef(items);
   const selectedRef = useRef(selected);
   const widthRef = useRef(frame.width);
-  const tileRef = useRef(TILE_PX[gridSize]);
+  const viewRef = useRef(view);
+  const tileRef = useRef(isGridSize(view) ? TILE_PX[view] : ROW_PX);
   const onSelectionChangeRef = useRef(onSelectionChange);
-  filesRef.current = files;
+  itemsRef.current = items;
   selectedRef.current = selected;
   widthRef.current = frame.width;
-  tileRef.current = TILE_PX[gridSize];
+  viewRef.current = view;
+  tileRef.current = isGridSize(view) ? TILE_PX[view] : ROW_PX;
   onSelectionChangeRef.current = onSelectionChange;
 
   useEffect(() => {
     setScrollRoot(scrollRootRef.current);
-  }, [scrollRootRef, files.length]);
+  }, [scrollRootRef, items.length]);
+
+  useEffect(() => {
+    const node = scrollRootRef.current;
+    if (!node) return;
+    try {
+      node.scrollTop = 0;
+    } catch {
+      // Some test doubles expose scrollTop as read-only.
+    }
+  }, [view, scrollRootRef]);
 
   useLayoutEffect(() => {
     const node = scrollRootRef.current;
@@ -172,7 +221,7 @@ export function FileGrid({
       node.removeEventListener("scroll", update);
       observer.disconnect();
     };
-  }, [scrollRootRef, files.length, gridSize]);
+  }, [scrollRootRef, items.length, view]);
 
   useEffect(() => {
     const root = scrollRootRef.current;
@@ -198,13 +247,22 @@ export function FileGrid({
         return;
       }
       const rect = normalizeRect(drag.startContentX, drag.startContentY, point.x, point.y);
-      const indices = marqueeHitIndices({
-        count: filesRef.current.length,
-        width: widthRef.current,
-        tile: tileRef.current,
-        rect,
-      });
-      const hits = indices.map((index) => filesRef.current[index]?.id).filter((id): id is number => id != null);
+      const currentView = viewRef.current;
+      const indices = isGridSize(currentView)
+        ? marqueeHitIndices({
+            count: itemsRef.current.length,
+            width: widthRef.current,
+            tile: tileRef.current,
+            rect,
+          })
+        : rowHitIndices({
+            count: itemsRef.current.length,
+            rect,
+            rowOffset: currentView === "details" ? DETAILS_HEADER_PX : 0,
+          });
+      const hits = indices
+        .map((index) => fileIdAt(itemsRef.current, index))
+        .filter((id): id is number => id != null);
       const next = mergeSelection(drag.base, hits, drag.additive);
       const same = drag.latest.length === next.length && drag.latest.every((id, index) => id === next[index]);
       if (!same) {
@@ -239,7 +297,7 @@ export function FileGrid({
       if (event.button !== 0) return;
       const target = event.target;
       if (!(target instanceof Element) || !root.contains(target)) return;
-      if (target.closest("[data-file-id]")) return;
+      if (target.closest("[data-file-id], [data-folder-id], [data-sort-header]")) return;
       const bounds = root.getBoundingClientRect();
       const clientRight = bounds.left + root.clientLeft + root.clientWidth;
       const clientBottom = bounds.top + root.clientTop + root.clientHeight;
@@ -294,58 +352,164 @@ export function FileGrid({
       window.removeEventListener("pointerup", finish);
       window.removeEventListener("pointercancel", finish);
     };
-  }, [scrollRootRef, files.length]);
+  }, [scrollRootRef, items.length, view]);
 
-  const tile = TILE_PX[gridSize];
-  const page = files.length === 0 ? null : visibleGridWindow({ count: files.length, tile, ...frame });
-  const visible = page ? files.slice(page.start, page.end) : [];
-  return (
-    <>
-      {files.length === 0 || !page ? (
-        <div className="empty">{emptyMessage}</div>
-      ) : (
-        <div className="grid-virtual" style={{ height: page.totalHeight }}>
-          <div
-            className={`grid ${gridSize}`}
-            style={{ top: page.padTop, ["--grid-row" as string]: `${tile + TILE_CHROME}px` }}
-          >
-            {visible.map((file) => {
-              const title = [file.sortName, file.creator, file.tags.join(", ")].filter(Boolean).join(" · ");
-              return (
-                <button
-                  key={file.id}
-                  type="button"
-                  className={`tile${selected.includes(file.id) ? " selected" : ""}`}
-                  data-file-id={file.id}
-                  title={title}
-                  draggable={false}
-                  onDragStart={(event) => event.preventDefault()}
-                  onClick={(event) => {
-                    const mode = event.shiftKey ? "range" : event.ctrlKey || event.metaKey ? "toggle" : "replace";
-                    onSelect(file.id, mode);
-                  }}
-                  onDoubleClick={(event) => {
-                    event.preventDefault();
-                    onOpen?.(file);
-                  }}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    onContextMenu?.(event, file);
-                  }}
-                >
-                  <LazyThumb
-                    file={file}
-                    previewIconsEnabled={previewIconsEnabled}
-                    scrollRoot={scrollRoot}
+  const fileHandlers = (file: FileRow) => ({
+    onClick: (event: React.MouseEvent) => {
+      const mode = event.shiftKey ? "range" : event.ctrlKey || event.metaKey ? "toggle" : "replace";
+      onSelect(file.id, mode);
+    },
+    onDoubleClick: (event: React.MouseEvent) => {
+      event.preventDefault();
+      onOpen?.(file);
+    },
+    onContextMenu: (event: React.MouseEvent) => {
+      event.preventDefault();
+      onContextMenu?.(event, file);
+    },
+  });
+
+  const folderDoubleClick = (id: number) => (event: React.MouseEvent) => {
+    event.preventDefault();
+    onOpenFolder?.(id);
+  };
+
+  if (items.length === 0) {
+    return <div className="empty">{emptyMessage}</div>;
+  }
+
+  if (view === "list") {
+    const page = visibleRowWindow({ count: items.length, ...frame });
+    const visible = items.slice(page.start, page.end);
+    return (
+      <>
+        <div className="row-virtual" style={{ height: page.totalHeight }}>
+          <div className="file-rows list-rows" style={{ top: page.padTop }}>
+            {visible.map((item) => {
+              if (item.kind === "folder") {
+                return (
+                  <ListRow
+                    key={`folder-${item.folder.id}`}
+                    label={item.folder.name}
+                    selected={false}
+                    isFolder
+                    dataFolderId={item.folder.id}
+                    onDoubleClick={folderDoubleClick(item.folder.id)}
                   />
-                  <div className="tile-name">{file.sortName}</div>
-                  <div className="tile-meta">{file.creator || file.ext}</div>
-                </button>
+                );
+              }
+              const file = item.file;
+              return (
+                <ListRow
+                  key={file.id}
+                  label={fileDisplayName(file)}
+                  selected={selected.includes(file.id)}
+                  isFolder={false}
+                  dataFileId={file.id}
+                  {...fileHandlers(file)}
+                />
               );
             })}
           </div>
         </div>
-      )}
+        {band ? createPortal(<div className="selection-marquee" style={{ left: band.left, top: band.top, width: band.width, height: band.height }} />, document.body) : null}
+      </>
+    );
+  }
+
+  if (view === "details") {
+    const page = visibleRowWindow({ count: items.length, ...frame });
+    const visible = items.slice(page.start, page.end);
+    const bodyTop = page.padTop + DETAILS_HEADER_PX;
+    return (
+      <>
+        <div className="row-virtual details-virtual" style={{ height: page.totalHeight + DETAILS_HEADER_PX }}>
+          <DetailsHeader sort={sort} onSort={(field) => onSort?.(field)} />
+          <div className="file-rows details-rows" style={{ top: bodyTop }}>
+            {visible.map((item) => {
+              if (item.kind === "folder") {
+                return (
+                  <DetailsFolderRow
+                    key={`folder-${item.folder.id}`}
+                    folder={item.folder}
+                    onDoubleClick={folderDoubleClick(item.folder.id)}
+                  />
+                );
+              }
+              const file = item.file;
+              return (
+                <DetailsRow
+                  key={file.id}
+                  file={file}
+                  selected={selected.includes(file.id)}
+                  {...fileHandlers(file)}
+                />
+              );
+            })}
+          </div>
+        </div>
+        {band ? createPortal(<div className="selection-marquee" style={{ left: band.left, top: band.top, width: band.width, height: band.height }} />, document.body) : null}
+      </>
+    );
+  }
+
+  const tile = TILE_PX[view];
+  const page = visibleGridWindow({ count: items.length, tile, ...frame });
+  const visible = items.slice(page.start, page.end);
+  return (
+    <>
+      <div className="grid-virtual" style={{ height: page.totalHeight }}>
+        <div
+          className={`grid ${view}`}
+          style={{ top: page.padTop, ["--grid-row" as string]: `${tile + TILE_CHROME}px` }}
+        >
+          {visible.map((item) => {
+            if (item.kind === "folder") {
+              const folder = item.folder;
+              return (
+                <button
+                  key={`folder-${folder.id}`}
+                  type="button"
+                  className="tile folder-tile"
+                  data-folder-id={folder.id}
+                  title={folder.name}
+                  draggable={false}
+                  onDragStart={(event) => event.preventDefault()}
+                  onDoubleClick={folderDoubleClick(folder.id)}
+                >
+                  <div className="thumb">
+                    <FolderBadge name={folder.name} />
+                  </div>
+                  <div className="tile-name">{folder.name}</div>
+                  <div className="tile-meta">Folder</div>
+                </button>
+              );
+            }
+            const file = item.file;
+            const title = [file.sortName, file.creator, file.tags.join(", ")].filter(Boolean).join(" · ");
+            return (
+              <button
+                key={file.id}
+                type="button"
+                className={`tile${selected.includes(file.id) ? " selected" : ""}`}
+                data-file-id={file.id}
+                title={title}
+                draggable={false}
+                onDragStart={(event) => event.preventDefault()}
+                {...fileHandlers(file)}
+              >
+                <LazyThumb
+                  file={file}
+                  previewIconsEnabled={previewIconsEnabled}
+                  scrollRoot={scrollRoot}
+                />
+                <div className="tile-name">{file.sortName}</div>
+                <div className="tile-meta">{file.creator || file.ext}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
       {band
         ? createPortal(
             <div

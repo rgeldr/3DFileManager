@@ -26,8 +26,8 @@ import {
 import { useLibrary, type LibraryModel } from "./hooks/useLibrary";
 import { useThumbQueueCount } from "./hooks/useThumbQueueCount";
 import { clampInspector, clampSidebar, INSPECTOR_RAIL_WIDTH } from "./lib/paneWidths";
-import { gridEmptyMessage } from "./lib/tagFilter";
-import type { GridSize } from "./types";
+import { centerSubfolders, gridEmptyMessage, nextSort, sortFromDropdown } from "./lib/tagFilter";
+import type { SearchScope, SortField, ViewMode } from "./types";
 
 export function App() {
   const app = useLibrary();
@@ -59,6 +59,7 @@ function AppShell({ app }: { app: LibraryModel }) {
     sort,
     setSort,
     creators,
+    creatorOptions,
     tags,
     selected,
     setSelected,
@@ -104,6 +105,17 @@ function AppShell({ app }: { app: LibraryModel }) {
     onPointerDown
   } = app;
   const thumbQueue = useThumbQueueCount(ready && Boolean(settings?.libraryRoot));
+  const subfolders = centerSubfolders({
+    folders,
+    browse,
+    query,
+    creator,
+    selectedTagCount: selectedTagIds.length,
+    selectedTypeCount: selectedTypeIds.length,
+  });
+  const creatorSelectOptions = creatorOptions.includes(creator) || creator === ""
+    ? creatorOptions
+    : [...creatorOptions, creator];
   const onPanePointerDown = (which: "sidebar" | "inspector") => (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -295,6 +307,11 @@ function AppShell({ app }: { app: LibraryModel }) {
             selectedTypeIds={selectedTypeIds}
             tags={tagCounts}
             types={typeCounts}
+            scope={settings?.searchScope ?? "library"}
+            onScope={(scope: SearchScope) => {
+              setSettings((current) => (current ? { ...current, searchScope: scope } : current));
+              void api.setSearchScope(scope).catch((err) => setError(String(err)));
+            }}
             onQuery={setQuery}
             onClear={() => {
               setQuery("");
@@ -323,12 +340,18 @@ function AppShell({ app }: { app: LibraryModel }) {
             <div className="toolbar-row">
               <select aria-label="Creator" value={creator} onChange={(event) => setCreator(event.target.value)}>
                 <option value="">All creators</option>
-                {creators.map((item) => <option key={item} value={item}>{item}</option>)}
+                {creatorSelectOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
-              <select aria-label="Sort" value={sort} onChange={(event) => setSort(event.target.value)}>
+              <select
+                aria-label="Sort"
+                value={sort.field}
+                onChange={(event) => setSort(sortFromDropdown(event.target.value as SortField))}
+              >
                 <option value="name">Sort name</option>
-                <option value="creator">Creator</option>
+                <option value="size">Size</option>
+                <option value="modified">Date modified</option>
                 <option value="date">Date added</option>
+                <option value="creator">Creator</option>
               </select>
             </div>
           </div>
@@ -353,13 +376,15 @@ function AppShell({ app }: { app: LibraryModel }) {
           <div className="grid-wrap" ref={gridScrollRef} tabIndex={-1}>
             <FileGrid
               files={files}
+              folders={subfolders}
               emptyMessage={gridEmptyMessage({
                 selectedTagCount: selectedTagIds.length,
                 selectedTypeCount: selectedTypeIds.length,
                 creator,
                 query,
               })}
-              gridSize={settings.gridSize}
+              view={settings.gridSize}
+              sort={sort}
               selected={selected}
               previewIconsEnabled={previewIconsEnabled}
               scrollRootRef={gridScrollRef}
@@ -368,6 +393,11 @@ function AppShell({ app }: { app: LibraryModel }) {
               onOpen={(file) => {
                 void api.openInDefaultApp(file.id).catch((err) => setError(String(err)));
               }}
+              onOpenFolder={(id) => {
+                setBrowse({ type: "folder", id });
+                setSelected([]);
+              }}
+              onSort={(field) => setSort(nextSort(sort, field))}
               onContextMenu={(event, file) => {
                 if (!selected.includes(file.id)) onSelect(file.id, "replace");
                 setFileMenu({ x: event.clientX, y: event.clientY, fileId: file.id });
@@ -446,14 +476,22 @@ function AppShell({ app }: { app: LibraryModel }) {
               : ""}
           </span>
           <div className="view-toggle">
-            {(["medium", "large", "extraLarge"] as GridSize[]).map((size) => (
+            {(
+              [
+                ["medium", "Medium"],
+                ["large", "Large"],
+                ["extraLarge", "Extra large"],
+                ["list", "List"],
+                ["details", "Details"],
+              ] as [ViewMode, string][]
+            ).map(([mode, label]) => (
               <button
-                key={size}
+                key={mode}
                 type="button"
-                className={settings.gridSize === size ? "active" : ""}
-                onClick={() => actions.current.setGrid(size)}
+                className={settings.gridSize === mode ? "active" : ""}
+                onClick={() => actions.current.setGrid(mode)}
               >
-                {size === "extraLarge" ? "Extra large" : size[0].toUpperCase() + size.slice(1)}
+                {label}
               </button>
             ))}
           </div>

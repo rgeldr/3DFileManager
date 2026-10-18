@@ -1,4 +1,4 @@
-import type { Browse, TagCount } from "../types";
+import type { Browse, FolderRow, LibrarySort, SearchScope, SortDirection, SortField, TagCount } from "../types";
 
 export type TagFilterKeyAction = "close" | "up" | "down" | "toggle" | "type";
 
@@ -17,6 +17,31 @@ export function tagFilterBadge(count: number): string {
   return count > 0 ? `Tags (${count})` : "Tags";
 }
 
+export function browseIsFiltered(input: {
+  query: string;
+  creator: string;
+  selectedTagCount: number;
+  selectedTypeCount: number;
+}): boolean {
+  const queryActive = /[\p{L}\p{N}]/u.test(input.query);
+  return queryActive || input.creator !== "" || input.selectedTagCount > 0 || input.selectedTypeCount > 0;
+}
+
+export function defaultSortDirection(field: SortField): SortDirection {
+  return field === "name" || field === "creator" ? "asc" : "desc";
+}
+
+export function nextSort(current: LibrarySort, field: SortField): LibrarySort {
+  if (current.field !== field) {
+    return { field, direction: defaultSortDirection(field) };
+  }
+  return { field, direction: current.direction === "asc" ? "desc" : "asc" };
+}
+
+export function sortFromDropdown(field: SortField): LibrarySort {
+  return { field, direction: defaultSortDirection(field) };
+}
+
 export function libraryRefreshKey(input: {
   browse: Browse;
   query: string;
@@ -24,7 +49,8 @@ export function libraryRefreshKey(input: {
   selectedTagIds: number[];
   selectedTypeIds: string[];
   tagMatch: string;
-  sort: string;
+  sort: LibrarySort;
+  scope: SearchScope;
 }): string {
   return JSON.stringify({
     folder: input.browse.type === "folder" ? input.browse.id : input.browse.type,
@@ -34,6 +60,7 @@ export function libraryRefreshKey(input: {
     types: [...input.selectedTypeIds].sort(),
     tagMatch: input.tagMatch,
     sort: input.sort,
+    scope: input.scope,
   });
 }
 
@@ -43,12 +70,48 @@ export function libraryListScope(input: {
   creator: string;
   selectedTagCount: number;
   selectedTypeCount: number;
-}): { folder: "all" | "root" | "id"; folderId: number | null; creator: string } {
-  const queryActive = /[\p{L}\p{N}]/u.test(input.query);
-  const finding = queryActive || input.creator !== "" || input.selectedTagCount > 0 || input.selectedTypeCount > 0;
-  const folder = finding ? "all" : input.browse.type === "root" ? "root" : "id";
-  const folderId = !finding && input.browse.type === "folder" ? input.browse.id : null;
-  return { folder, folderId, creator: input.creator };
+  scope: SearchScope;
+}): { folder: "all" | "root" | "id" | "subtree"; folderId: number | null; creator: string } {
+  const filtering = browseIsFiltered({
+    query: input.query,
+    creator: input.creator,
+    selectedTagCount: input.selectedTagCount,
+    selectedTypeCount: input.selectedTypeCount,
+  });
+  if (!filtering) {
+    if (input.browse.type === "root") {
+      return { folder: "root", folderId: null, creator: input.creator };
+    }
+    return { folder: "id", folderId: input.browse.id, creator: input.creator };
+  }
+  if (input.scope === "folder" && input.browse.type === "folder") {
+    return { folder: "subtree", folderId: input.browse.id, creator: input.creator };
+  }
+  return { folder: "all", folderId: null, creator: input.creator };
+}
+
+export function centerSubfolders(input: {
+  folders: FolderRow[];
+  browse: Browse;
+  query: string;
+  creator: string;
+  selectedTagCount: number;
+  selectedTypeCount: number;
+}): FolderRow[] {
+  if (
+    browseIsFiltered({
+      query: input.query,
+      creator: input.creator,
+      selectedTagCount: input.selectedTagCount,
+      selectedTypeCount: input.selectedTypeCount,
+    })
+  ) {
+    return [];
+  }
+  const parentId = input.browse.type === "folder" ? input.browse.id : null;
+  return input.folders
+    .filter((folder) => folder.parentId === parentId)
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
 }
 
 export function gridEmptyMessage(input: {

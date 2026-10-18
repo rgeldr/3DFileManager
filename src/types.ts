@@ -1,14 +1,24 @@
 export type GridSize = "medium" | "large" | "extraLarge";
+export type ViewMode = GridSize | "list" | "details";
+export type SearchScope = "library" | "folder";
+export type SortField = "name" | "size" | "modified" | "date" | "creator";
+export type SortDirection = "asc" | "desc";
+
+export interface LibrarySort {
+  field: SortField;
+  direction: SortDirection;
+}
 
 export interface Settings {
   libraryRoot: string | null;
   theme: "dark" | "light";
-  gridSize: GridSize;
+  gridSize: ViewMode;
   sidebarWidth: number;
   inspectorWidth: number;
   previewHeight: number;
   thumbRetry: number;
   inspectorPinned: boolean;
+  searchScope: SearchScope;
 }
 
 export interface DragReport {
@@ -66,6 +76,7 @@ export interface FileRow {
   notes: string;
   sourceArchive: string | null;
   importedAt: number;
+  mtime: number;
   thumbStatus: "none" | "ok" | "unavailable" | "unhashed";
   missing: boolean;
   tags: string[];

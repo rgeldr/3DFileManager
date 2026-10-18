@@ -35,7 +35,7 @@
         assert_eq!(nested_row.relpath, "Dest/Source/Nested");
 
         let files = db
-            .list_files(FolderFilter::Id(nested.id), "", "", "", "name")
+            .list_files(FolderFilter::Id(nested.id), "", "", "", "name", "asc")
             .unwrap();
         assert_eq!(files[0].id, file_id);
         assert_eq!(files[0].stored_relpath, "Dest/Source/Nested/part.stl");
@@ -80,7 +80,7 @@
         assert!(root.join("Source/b.stl").is_file());
         assert!(!root.join("Dest/Source").exists());
         let files = db
-            .list_files(FolderFilter::Id(source.id), "", "", "", "name")
+            .list_files(FolderFilter::Id(source.id), "", "", "", "name", "asc")
             .unwrap();
         assert!(files.iter().any(|file| file.stored_relpath == "Source/a.stl"));
         assert!(files.iter().any(|file| file.stored_relpath == "Source/b.stl"));
@@ -92,7 +92,7 @@
         assert!(root.join("Dest/Source/b.stl").is_file());
         assert!(!root.join("Source").exists());
         let moved = db
-            .list_files(FolderFilter::Id(source.id), "", "", "", "name")
+            .list_files(FolderFilter::Id(source.id), "", "", "", "name", "asc")
             .unwrap();
         assert!(moved.iter().all(|file| file.stored_relpath.starts_with("Dest/Source/")));
 

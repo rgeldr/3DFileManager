@@ -7,7 +7,7 @@ import { api } from "../api";
 import { debugLog } from "../debugLog";
 import { clampInspector, clampSidebar } from "../lib/paneWidths";
 import { persistPreviewHeight } from "../lib/previewSplit";
-import type { Settings } from "../types";
+import type { LibrarySort, Settings } from "../types";
 import { fallbackDragIconPath, type Actions, type DiskProgress } from "./libraryTypes";
 
 export function useSessionEffects(s: {
@@ -33,7 +33,7 @@ export function useSessionEffects(s: {
     nextBrowse?: import("../types").Browse,
     nextQuery?: string,
     nextCreator?: string,
-    nextSort?: string,
+    nextSort?: LibrarySort,
     mode?: "passive",
   ) => Promise<void>;
   setReady: (ready: boolean) => void;
@@ -48,7 +48,7 @@ export function useSessionEffects(s: {
   selectedTagIds: number[];
   selectedTypeIds: string[];
   tagMatch: "any" | "all";
-  sort: string;
+  sort: LibrarySort;
   setPreviewIconsEnabled: (enabled: boolean) => void;
   aboutOpen: boolean;
   setAboutVersion: (version: string | null) => void;
@@ -281,7 +281,7 @@ export function useSessionEffects(s: {
       void refreshLists(browse, query, creator, sort, "passive").catch((err) => setError(String(err)));
     }, 200);
     return () => clearTimeout(timer);
-  }, [browse, query, creator, selectedTagIds, selectedTypeIds, tagMatch, sort, ready, refreshLists]);
+  }, [browse, query, creator, selectedTagIds, selectedTypeIds, tagMatch, sort, settings?.searchScope, ready, refreshLists]);
 
   useEffect(() => {
     if (!ready || !settings?.libraryRoot) return;

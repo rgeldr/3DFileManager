@@ -36,6 +36,8 @@ function Toolbar({ selected, selectedTypes = [] }: { selected: number[]; selecte
         onClear={() => undefined}
         onSelectedTagIds={() => undefined}
         onSelectedTypeIds={() => undefined}
+        scope="library"
+        onScope={() => undefined}
       />
       <div className="toolbar-controls">
         <div className="toolbar-row">

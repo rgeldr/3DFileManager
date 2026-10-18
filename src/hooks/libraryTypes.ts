@@ -1,5 +1,5 @@
 import { api } from "../api";
-import type { DragReport, GridSize } from "../types";
+import type { DragReport, ViewMode } from "../types";
 
 export type DiskProgress = {
   current: number;
@@ -82,6 +82,6 @@ export interface Actions {
   rescan: () => void;
   clearThumbs: () => void;
   setTheme: (theme: "dark" | "light") => void;
-  setGrid: (size: GridSize) => void;
+  setGrid: (size: ViewMode) => void;
   showAbout: () => void;
 }

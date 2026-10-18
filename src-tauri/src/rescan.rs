@@ -272,7 +272,7 @@ mod tests {
         assert!(!summary.cancelled);
         assert_eq!(summary.added_files, 1);
         assert_eq!(summary.missing, 1);
-        let rows = db.list_files(FolderFilter::All, "", "", "", "name").unwrap();
+        let rows = db.list_files(FolderFilter::All, "", "", "", "name", "asc").unwrap();
         assert!(rows.iter().any(|file| file.original_name == "new.stl"));
         let missing = db.missing_files().unwrap();
         assert_eq!(missing.len(), 1);

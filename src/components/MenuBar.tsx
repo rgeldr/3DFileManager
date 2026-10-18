@@ -1,7 +1,9 @@
 import { useEffect } from "react";
 import { CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/menu";
-import type { GridSize, Settings } from "../types";
+import type { Settings, ViewMode } from "../types";
 import type { Actions } from "../hooks/libraryTypes";
+
+const VIEW_MODES: ViewMode[] = ["medium", "large", "extraLarge", "list", "details"];
 
 export function MenuBar(s: {
   theme: "dark" | "light";
@@ -9,7 +11,7 @@ export function MenuBar(s: {
   ready: boolean;
   actions: { current: Actions };
   themeItems: { current: { dark?: CheckMenuItem; light?: CheckMenuItem } };
-  gridItems: { current: Partial<Record<GridSize, CheckMenuItem>> };
+  gridItems: { current: Partial<Record<ViewMode, CheckMenuItem>> };
 }) {
   const { theme, settings, ready, actions, themeItems, gridItems } = s;
   useEffect(() => {
@@ -27,26 +29,25 @@ export function MenuBar(s: {
         checked: theme === "light",
         action: () => actions.current.setTheme("light"),
       });
-      const medium = await CheckMenuItem.new({
-        id: "grid-medium",
-        text: "Medium",
-        checked: settings?.gridSize === "medium",
-        action: () => actions.current.setGrid("medium"),
-      });
-      const large = await CheckMenuItem.new({
-        id: "grid-large",
-        text: "Large",
-        checked: settings?.gridSize === "large",
-        action: () => actions.current.setGrid("large"),
-      });
-      const extra = await CheckMenuItem.new({
-        id: "grid-extra",
-        text: "Extra large",
-        checked: settings?.gridSize === "extraLarge",
-        action: () => actions.current.setGrid("extraLarge"),
-      });
+      const items: Partial<Record<ViewMode, CheckMenuItem>> = {};
+      const labels: Record<ViewMode, string> = {
+        medium: "Medium",
+        large: "Large",
+        extraLarge: "Extra large",
+        list: "List",
+        details: "Details",
+      };
+      for (const mode of VIEW_MODES) {
+        items[mode] = await CheckMenuItem.new({
+          id: `grid-${mode}`,
+          text: labels[mode],
+          checked: settings?.gridSize === mode,
+          action: () => actions.current.setGrid(mode),
+        });
+      }
       themeItems.current = { dark, light };
-      gridItems.current = { medium, large, extraLarge: extra };
+      gridItems.current = items;
+      const viewItems = await Promise.all(VIEW_MODES.map((mode) => items[mode]!));
       const menu = await Menu.new({
         items: [
           await Submenu.new({
@@ -67,9 +68,7 @@ export function MenuBar(s: {
           await Submenu.new({
             text: "View",
             items: [
-              medium,
-              large,
-              extra,
+              ...viewItems,
               await PredefinedMenuItem.new({ item: "Separator" }),
               await Submenu.new({ text: "Theme", items: [dark, light] }),
             ],
@@ -96,9 +95,9 @@ export function MenuBar(s: {
 
   useEffect(() => {
     const size = settings?.gridSize ?? "large";
-    void gridItems.current.medium?.setChecked(size === "medium");
-    void gridItems.current.large?.setChecked(size === "large");
-    void gridItems.current.extraLarge?.setChecked(size === "extraLarge");
+    for (const mode of VIEW_MODES) {
+      void gridItems.current[mode]?.setChecked(size === mode);
+    }
   }, [settings?.gridSize]);
   return null;
 }

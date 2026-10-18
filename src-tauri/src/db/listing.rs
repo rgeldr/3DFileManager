@@ -7,6 +7,7 @@ impl AppDb {
         creator: &str,
         tag: &str,
         sort: &str,
+        sort_direction: &str,
     ) -> Result<Vec<FileRow>, String> {
         self.query_files(FileQuery {
             folder,
@@ -17,6 +18,7 @@ impl AppDb {
             tag_match: TagMatch::Any,
             exts: &[],
             sort,
+            sort_direction,
             limit: None,
             offset: 0,
         })
@@ -26,7 +28,7 @@ impl AppDb {
         let root = self.library_root().unwrap_or_default();
         let fts = fts_match(list.query);
         let mut sql = String::from(
-            "SELECT f.id, f.original_name, f.sort_name, f.stored_relpath, f.ext, f.size_bytes, f.sha256, f.folder_id, f.creator, f.notes, f.source_archive, f.imported_at, f.thumb_status, f.missing
+            "SELECT f.id, f.original_name, f.sort_name, f.stored_relpath, f.ext, f.size_bytes, f.sha256, f.folder_id, f.creator, f.notes, f.source_archive, f.imported_at, f.mtime, f.thumb_status, f.missing
              FROM files f",
         );
         if fts.is_some() {
@@ -51,11 +53,7 @@ impl AppDb {
             sql.push_str(" AND files_fts MATCH ?");
             param_values.push(match_q.clone());
         }
-        sql.push_str(match list.sort {
-            "creator" => " ORDER BY f.creator COLLATE NOCASE, f.sort_name COLLATE NOCASE",
-            "date" => " ORDER BY f.imported_at DESC, f.sort_name COLLATE NOCASE",
-            _ => " ORDER BY f.sort_name COLLATE NOCASE",
-        });
+        push_sort_order(&mut sql, list.sort, list.sort_direction);
         if let Some(limit) = list.limit {
             sql.push_str(" LIMIT ? OFFSET ?");
             param_values.push(limit.to_string());
@@ -81,8 +79,9 @@ impl AppDb {
                     notes: r.get(9)?,
                     source_archive: r.get(10)?,
                     imported_at: r.get(11)?,
-                    thumb_status: r.get(12)?,
-                    missing: r.get::<_, i64>(13)? != 0,
+                    mtime: r.get(12)?,
+                    thumb_status: r.get(13)?,
+                    missing: r.get::<_, i64>(14)? != 0,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -103,7 +102,7 @@ impl AppDb {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, original_name, sort_name, stored_relpath, ext, size_bytes, sha256, folder_id, creator, notes, source_archive, imported_at, thumb_status, missing FROM files WHERE missing = 1 ORDER BY sort_name COLLATE NOCASE",
+                "SELECT id, original_name, sort_name, stored_relpath, ext, size_bytes, sha256, folder_id, creator, notes, source_archive, imported_at, mtime, thumb_status, missing FROM files WHERE missing = 1 ORDER BY sort_name COLLATE NOCASE",
             )
             .map_err(|e| e.to_string())?;
         let seeds = stmt
@@ -121,8 +120,9 @@ impl AppDb {
                     notes: r.get(9)?,
                     source_archive: r.get(10)?,
                     imported_at: r.get(11)?,
-                    thumb_status: r.get(12)?,
-                    missing: r.get::<_, i64>(13)? != 0,
+                    mtime: r.get(12)?,
+                    thumb_status: r.get(13)?,
+                    missing: r.get::<_, i64>(14)? != 0,
                 })
             })
             .map_err(|e| e.to_string())?
@@ -167,6 +167,7 @@ impl AppDb {
             notes: seed.notes,
             source_archive: seed.source_archive,
             imported_at: seed.imported_at,
+            mtime: seed.mtime,
             thumb_status: seed.thumb_status,
             missing: seed.missing,
             tags,
@@ -326,13 +327,54 @@ impl AppDb {
 
 }
 
-fn push_folder_scope(sql: &mut String, params: &mut Vec<String>, folder: FolderFilter) {
+pub(super) fn push_folder_scope(sql: &mut String, params: &mut Vec<String>, folder: FolderFilter) {
     match folder {
         FolderFilter::All => {}
         FolderFilter::Root => sql.push_str(" AND f.folder_id IS NULL"),
         FolderFilter::Id(id) => {
             sql.push_str(" AND f.folder_id = ?");
             params.push(id.to_string());
+        }
+        FolderFilter::Subtree(id) => {
+            sql.push_str(
+                " AND f.folder_id IN (WITH RECURSIVE sub(id) AS (SELECT ? UNION ALL SELECT fo.id FROM folders fo INNER JOIN sub ON fo.parent_id = sub.id) SELECT id FROM sub)",
+            );
+            params.push(id.to_string());
+        }
+    }
+}
+
+fn sort_is_ascending(sort: &str, direction: &str) -> bool {
+    match direction {
+        "asc" => true,
+        "desc" => false,
+        _ => matches!(sort, "name" | "creator"),
+    }
+}
+
+fn push_sort_order(sql: &mut String, sort: &str, direction: &str) {
+    let asc = sort_is_ascending(sort, direction);
+    let dir = if asc { "ASC" } else { "DESC" };
+    let tie = "f.sort_name COLLATE NOCASE ASC";
+    match sort {
+        "creator" => {
+            sql.push_str(&format!(" ORDER BY f.creator COLLATE NOCASE {dir}, {tie}"));
+        }
+        "date" => {
+            sql.push_str(&format!(" ORDER BY f.imported_at {dir}, {tie}"));
+        }
+        "size" => {
+            sql.push_str(&format!(" ORDER BY f.size_bytes {dir}, {tie}"));
+        }
+        "modified" => {
+            sql.push_str(&format!(" ORDER BY f.mtime {dir}, {tie}"));
+        }
+        _ => {
+            if asc {
+                sql.push_str(" ORDER BY f.sort_name COLLATE NOCASE");
+            } else {
+                sql.push_str(" ORDER BY f.sort_name COLLATE NOCASE DESC");
+            }
         }
     }
 }

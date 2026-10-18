@@ -32,6 +32,7 @@ function file(overrides: Partial<FileRow>): FileRow {
     notes: "",
     sourceArchive: null,
     importedAt: 1,
+    mtime: 1,
     thumbStatus: "ok",
     missing: false,
     tags: [],
@@ -94,20 +95,33 @@ describe("LazyThumb", () => {
   });
 });
 
+const defaultSort = { field: "name" as const, direction: "asc" as const };
+
+function gridBase(overrides: Record<string, unknown> = {}) {
+  return {
+    files: [] as FileRow[],
+    folders: [],
+    view: "large" as const,
+    sort: defaultSort,
+    selected: [] as number[],
+    previewIconsEnabled: false,
+    scrollRootRef: { current: null as HTMLDivElement | null },
+    onSelect: () => undefined,
+    onSelectionChange: () => undefined,
+    ...overrides,
+  };
+}
+
 describe("FileGrid", () => {
   it("shows a filter message when the tag filter matches nothing", () => {
     const scroller = document.createElement("div");
     document.body.appendChild(scroller);
     const view = render(
       <FileGrid
-        files={[]}
-        emptyMessage="No files match the selected tags"
-        gridSize="large"
-        selected={[]}
-        previewIconsEnabled={false}
-        scrollRootRef={{ current: scroller }}
-        onSelect={() => undefined}
-        onSelectionChange={() => undefined}
+        {...gridBase({
+          emptyMessage: "No files match the selected tags",
+          scrollRootRef: { current: scroller },
+        })}
       />,
       { container: scroller },
     );
@@ -131,15 +145,7 @@ describe("FileGrid", () => {
     document.body.appendChild(scroller);
     const ref = { current: scroller };
     const view = render(
-      <FileGrid
-        files={files}
-        gridSize="large"
-        selected={[]}
-        previewIconsEnabled={false}
-        scrollRootRef={ref}
-        onSelect={() => undefined}
-        onSelectionChange={() => undefined}
-      />,
+      <FileGrid {...gridBase({ files, scrollRootRef: ref })} />,
       { container: scroller },
     );
     const tiles = view.container.querySelectorAll("[data-file-id]");
@@ -171,15 +177,7 @@ describe("FileGrid", () => {
     document.body.appendChild(scroller);
     const ref = { current: scroller };
     const view = render(
-      <FileGrid
-        files={files}
-        gridSize="large"
-        selected={[]}
-        previewIconsEnabled={false}
-        scrollRootRef={ref}
-        onSelect={() => undefined}
-        onSelectionChange={() => undefined}
-      />,
+      <FileGrid {...gridBase({ files, scrollRootRef: ref })} />,
       { container: scroller },
     );
     expect(view.container.querySelector("[data-file-id]")?.getAttribute("data-file-id")).toBe("1");

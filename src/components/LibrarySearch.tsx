@@ -1,6 +1,6 @@
 import type { KeyboardEvent } from "react";
 import { filtersActive } from "../lib/clearFilters";
-import type { TagCount, TypeCount } from "../types";
+import type { SearchScope, TagCount, TypeCount } from "../types";
 import { FilterChips } from "./TypeFilter";
 
 const CLEAR_TITLE = "Clear search, file types, tags and creator";
@@ -12,6 +12,8 @@ export function LibrarySearch({
   selectedTypeIds,
   tags,
   types,
+  scope,
+  onScope,
   onQuery,
   onClear,
   onSelectedTagIds,
@@ -23,6 +25,8 @@ export function LibrarySearch({
   selectedTypeIds: string[];
   tags: TagCount[];
   types: TypeCount[];
+  scope: SearchScope;
+  onScope: (scope: SearchScope) => void;
   onQuery: (query: string) => void;
   onClear: () => void;
   onSelectedTagIds: (ids: number[]) => void;
@@ -57,6 +61,26 @@ export function LibrarySearch({
         >
           Clear
         </button>
+        <div className="search-scope" role="radiogroup" aria-label="Search scope">
+          <label>
+            <input
+              type="radio"
+              name="search-scope"
+              checked={scope === "folder"}
+              onChange={() => onScope("folder")}
+            />
+            Current folder
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="search-scope"
+              checked={scope === "library"}
+              onChange={() => onScope("library")}
+            />
+            Entire library
+          </label>
+        </div>
       </div>
       <FilterChips
         tags={tags}
