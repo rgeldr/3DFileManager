@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampInspector, clampSidebar } from "./paneWidths";
+import { clampInspector, clampSidebar, INSPECTOR_RAIL_WIDTH } from "./paneWidths";
 
 describe("paneWidths", () => {
   it("clamps the sidebar to 180 through half the window, capped at 640", () => {
@@ -14,5 +14,10 @@ describe("paneWidths", () => {
     expect(clampInspector(900, 1600)).toBe(560);
     expect(clampInspector(500, 800)).toBe(360);
     expect(clampInspector(100, 200)).toBe(240);
+  });
+
+  it("keeps the collapsed inspector rail narrower than the open minimum", () => {
+    expect(INSPECTOR_RAIL_WIDTH).toBe(40);
+    expect(INSPECTOR_RAIL_WIDTH).toBeLessThan(240);
   });
 });

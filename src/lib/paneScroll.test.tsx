@@ -25,6 +25,11 @@ function LibraryPanes() {
             <div className="grid-wrap">grid</div>
             <div className="pane-splitter" role="separator" aria-label="Resize details" />
             <aside className="inspector">
+              <div className="inspector-head">
+                <button type="button" className="inspector-pin" aria-pressed="true">
+                  pin
+                </button>
+              </div>
               <form className="inspector-body">details</form>
             </aside>
           </div>
@@ -63,8 +68,12 @@ describe("pane scroll containers", () => {
     expect(baseCss).toMatch(/height:\s*100vh/);
     expect(layoutCss).toMatch(/\.sidebar-scroll\s*\{[^}]*min-height:\s*0;[^}]*overflow:\s*auto/s);
     expect(workspaceCss).toMatch(/\.grid-wrap\s*\{[^}]*min-height:\s*0;[^}]*overflow:\s*auto/s);
+    expect(workspaceCss).toMatch(
+      /\.workspace\.inspector-collapsed\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+var\(--inspector-width,\s*40px\)/s,
+    );
     expect(inspectorCss).toMatch(/\.inspector-body\s*\{[^}]*min-height:\s*0;[^}]*overflow:\s*auto/s);
     expect(layoutCss).toMatch(/\.pane-splitter\s*\{[^}]*align-self:\s*stretch/s);
+    expect(layoutCss).toMatch(/\.inspector-pin\s*\{[^}]*margin-left:\s*auto/s);
     expect(layoutCss.match(/\.pane-splitter\s*\{[^}]*\}/s)?.[0]).not.toMatch(/overflow:\s*auto/);
   });
 });

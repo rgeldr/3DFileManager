@@ -8,6 +8,20 @@
   height: 100%;
 }
 
+.inspector.collapsed {
+  align-items: stretch;
+}
+
+.inspector.collapsed .inspector-head {
+  border-bottom: none;
+  justify-content: center;
+  padding: var(--space-2) var(--space-1);
+}
+
+.inspector.collapsed .inspector-pin {
+  margin-left: 0;
+}
+
 .inspector form,
 .inspector-body {
   display: flex;

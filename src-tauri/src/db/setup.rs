@@ -170,6 +170,12 @@ impl AppDb {
         self.save_settings(&settings)
     }
 
+    pub fn set_inspector_pinned(&self, inspector_pinned: bool) -> Result<(), String> {
+        let mut settings = self.settings();
+        settings.inspector_pinned = inspector_pinned;
+        self.save_settings(&settings)
+    }
+
 }
 
 fn dir_is_empty(path: &Path) -> Result<bool, String> {

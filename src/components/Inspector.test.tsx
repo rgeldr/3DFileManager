@@ -39,7 +39,12 @@ function file(): FileRow {
   };
 }
 
-function renderInspector(previewHeight: number, onPreviewHeight = vi.fn()) {
+function renderInspector(
+  previewHeight: number,
+  onPreviewHeight = vi.fn(),
+  pinned = true,
+  onPinnedChange = vi.fn(),
+) {
   const view = render(
     <ThemeProvider>
       <Inspector
@@ -49,16 +54,56 @@ function renderInspector(previewHeight: number, onPreviewHeight = vi.fn()) {
         knownTags={[]}
         previewHeight={previewHeight}
         onPreviewHeight={onPreviewHeight}
+        pinned={pinned}
+        onPinnedChange={onPinnedChange}
         onSave={() => undefined}
         onDelete={() => undefined}
       />
     </ThemeProvider>,
   );
-  const splitter = screen.getByRole("separator", { name: "Resize preview" });
-  return { ...view, splitter, onPreviewHeight };
+  const splitter = pinned ? screen.getByRole("separator", { name: "Resize preview" }) : null;
+  return { ...view, splitter, onPreviewHeight, onPinnedChange };
 }
 
 afterEach(() => cleanup());
+
+describe("inspector pin toggle", () => {
+  it("shows a pressed pin control that unpins the details pane", () => {
+    const onPinnedChange = vi.fn();
+    renderInspector(240, vi.fn(), true, onPinnedChange);
+    const pin = screen.getByRole("button", { name: "Unpin details" });
+    expect(pin.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(pin);
+    expect(onPinnedChange).toHaveBeenCalledWith(false);
+  });
+
+  it("collapses to a rail with only the pin when unpinned", () => {
+    const onPinnedChange = vi.fn();
+    render(
+      <ThemeProvider>
+        <Inspector
+          file={file()}
+          folders={[]}
+          creators={[]}
+          knownTags={[]}
+          previewHeight={240}
+          onPreviewHeight={() => undefined}
+          pinned={false}
+          onPinnedChange={onPinnedChange}
+          onSave={() => undefined}
+          onDelete={() => undefined}
+        />
+      </ThemeProvider>,
+    );
+    const pin = screen.getByRole("button", { name: "Pin details open" });
+    expect(pin.getAttribute("aria-pressed")).toBe("false");
+    expect(document.querySelector(".inspector.collapsed")).toBeTruthy();
+    expect(screen.queryByRole("separator", { name: "Resize preview" })).toBeNull();
+    expect(screen.queryByLabelText("Sort name")).toBeNull();
+    fireEvent.click(pin);
+    expect(onPinnedChange).toHaveBeenCalledWith(true);
+  });
+});
 
 describe("inspector tag save", () => {
   it("includes a typed tag when Save is clicked without pressing Enter", () => {
@@ -72,6 +117,8 @@ describe("inspector tag save", () => {
           knownTags={[]}
           previewHeight={240}
           onPreviewHeight={() => undefined}
+          pinned
+          onPinnedChange={() => undefined}
           onSave={onSave}
           onDelete={() => undefined}
         />
@@ -94,6 +141,8 @@ describe("inspector tag save", () => {
           knownTags={[]}
           previewHeight={240}
           onPreviewHeight={() => undefined}
+          pinned
+          onPinnedChange={() => undefined}
           onSave={onSave}
           onDelete={() => undefined}
         />
@@ -111,19 +160,20 @@ describe("inspector tag save", () => {
 describe("inspector preview splitter", () => {
   it("shows a focusable horizontal splitter above the scrolling details form", () => {
     const { splitter } = renderInspector(240);
-    expect(splitter.getAttribute("aria-orientation")).toBe("horizontal");
-    expect(splitter.tabIndex).toBe(0);
-    expect(splitter.parentElement?.style.getPropertyValue("--preview-height")).toBe("240px");
-    expect(splitter.className).toContain("preview-splitter");
+    expect(splitter).toBeTruthy();
+    expect(splitter!.getAttribute("aria-orientation")).toBe("horizontal");
+    expect(splitter!.tabIndex).toBe(0);
+    expect(splitter!.parentElement?.style.getPropertyValue("--preview-height")).toBe("240px");
+    expect(splitter!.className).toContain("preview-splitter");
     const form = document.querySelector("form.inspector-body");
-    expect(form?.contains(splitter)).toBe(false);
-    expect(splitter.compareDocumentPosition(form as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(form?.contains(splitter!)).toBe(false);
+    expect(splitter!.compareDocumentPosition(form as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByLabelText("Sort name")).toBeTruthy();
   });
 
   it("resizes from the keyboard and resets on double-click", () => {
     const { splitter, onPreviewHeight, rerender } = renderInspector(300);
-    fireEvent.keyDown(splitter, { key: "ArrowDown" });
+    fireEvent.keyDown(splitter!, { key: "ArrowDown" });
     expect(onPreviewHeight).toHaveBeenCalledWith(316);
     rerender(
       <ThemeProvider>
@@ -134,14 +184,16 @@ describe("inspector preview splitter", () => {
           knownTags={[]}
           previewHeight={316}
           onPreviewHeight={onPreviewHeight}
+          pinned
+          onPinnedChange={() => undefined}
           onSave={() => undefined}
           onDelete={() => undefined}
         />
       </ThemeProvider>,
     );
-    fireEvent.keyDown(splitter, { key: "ArrowUp" });
+    fireEvent.keyDown(splitter!, { key: "ArrowUp" });
     expect(onPreviewHeight).toHaveBeenCalledWith(300);
-    fireEvent.doubleClick(splitter);
+    fireEvent.doubleClick(splitter!);
     expect(onPreviewHeight).toHaveBeenCalledWith(240);
   });
 
@@ -159,12 +211,12 @@ describe("inspector preview splitter", () => {
     globalThis.ResizeObserver = FakeObserver as unknown as typeof ResizeObserver;
     try {
       const { splitter, onPreviewHeight } = renderInspector(240);
-      expect(splitter.getAttribute("aria-valuenow")).toBe("240");
-      expect(splitter.getAttribute("aria-valuemax")).toBe("646");
-      fireEvent.pointerDown(splitter, { clientY: 100, button: 0, pointerId: 1 });
-      fireEvent.pointerMove(splitter, { clientY: 180, pointerId: 1 });
-      expect(splitter.parentElement?.style.getPropertyValue("--preview-height")).toBe("320px");
-      fireEvent.pointerUp(splitter, { clientY: 180, pointerId: 1 });
+      expect(splitter!.getAttribute("aria-valuenow")).toBe("240");
+      expect(splitter!.getAttribute("aria-valuemax")).toBe("646");
+      fireEvent.pointerDown(splitter!, { clientY: 100, button: 0, pointerId: 1 });
+      fireEvent.pointerMove(splitter!, { clientY: 180, pointerId: 1 });
+      expect(splitter!.parentElement?.style.getPropertyValue("--preview-height")).toBe("320px");
+      fireEvent.pointerUp(splitter!, { clientY: 180, pointerId: 1 });
       expect(onPreviewHeight).toHaveBeenCalledWith(320);
     } finally {
       globalThis.ResizeObserver = original;
@@ -181,6 +233,8 @@ describe("inspector preview splitter", () => {
           knownTags={[]}
           previewHeight={240}
           onPreviewHeight={() => undefined}
+          pinned
+          onPinnedChange={() => undefined}
           onSave={() => undefined}
           onDelete={() => undefined}
         />

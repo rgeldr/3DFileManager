@@ -71,6 +71,7 @@ pub fn run() {
             set_grid_size,
             set_pane_widths,
             set_preview_height,
+            set_inspector_pinned,
             create_folder,
             rename_folder,
             delete_folder,
