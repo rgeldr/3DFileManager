@@ -75,6 +75,15 @@
   margin: 0;
 }
 
+a.about-version:link,
+a.about-version:visited,
+a.about-version:hover,
+a.about-version:active {
+  color: var(--color-text);
+  text-decoration-line: underline;
+  text-underline-offset: 2px;
+}
+
 .row {
   display: flex;
   gap: var(--space-2);
