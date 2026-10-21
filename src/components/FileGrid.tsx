@@ -299,7 +299,7 @@ export function FileGrid({
       if (event.button !== 0) return;
       const target = event.target;
       if (!(target instanceof Element) || !root.contains(target)) return;
-      if (target.closest("[data-file-id], [data-folder-id], [data-sort-header]")) return;
+      if (target.closest("button, [data-file-id], [data-folder-id], [data-sort-header]")) return;
       const bounds = root.getBoundingClientRect();
       const clientRight = bounds.left + root.clientLeft + root.clientWidth;
       const clientBottom = bounds.top + root.clientTop + root.clientHeight;

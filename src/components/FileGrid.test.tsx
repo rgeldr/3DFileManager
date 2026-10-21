@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { FileRow } from "../types";
 import { FileGrid, LazyThumb } from "./FileGrid";
@@ -167,6 +168,56 @@ describe("FileGrid", () => {
 
     view.rerender(<FileGrid {...props} files={[file({ id: 1 })]} />);
     expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
+    view.unmount();
+    scroller.remove();
+  });
+
+  it("clears type and tag state when the empty-grid button is pressed inside the marquee scroller", () => {
+    const scroller = document.createElement("div");
+    scroller.className = "grid-wrap";
+    sizeScroller(scroller, 0);
+    document.body.appendChild(scroller);
+    const scrollRootRef = { current: scroller };
+
+    function Host() {
+      const [typeIds, setTypeIds] = useState(["chitubox"]);
+      const [tagIds, setTagIds] = useState([7]);
+      const filtering = typeIds.length > 0 || tagIds.length > 0;
+      return (
+        <FileGrid
+          {...gridBase({
+            files: [] as FileRow[],
+            folders: [],
+            emptyMessage: filtering
+              ? "No files match the selected types"
+              : "This folder is empty. Drop files here to import them.",
+            scrollRootRef,
+            onClearFilters: filtering
+              ? () => {
+                  setTypeIds([]);
+                  setTagIds([]);
+                }
+              : undefined,
+          })}
+        />
+      );
+    }
+
+    const view = render(<Host />, { container: scroller });
+    const button = screen.getByRole("button", { name: "Clear filters" });
+    const down = new PointerEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      pointerId: 1,
+      clientX: 8,
+      clientY: 8,
+    });
+    button.dispatchEvent(down);
+    // A canceled pointerdown suppresses the click, which is what the Tauri webview does.
+    if (!down.defaultPrevented) fireEvent.click(button);
+    expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
+    expect(screen.getByText("This folder is empty. Drop files here to import them.")).toBeTruthy();
     view.unmount();
     scroller.remove();
   });
