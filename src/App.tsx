@@ -359,6 +359,14 @@ function AppShell({ app }: { app: LibraryModel }) {
                 creator,
                 query,
               })}
+              onClearFilters={
+                selectedTypeIds.length > 0 || selectedTagIds.length > 0
+                  ? () => {
+                      setSelectedTypeIds([]);
+                      setSelectedTagIds([]);
+                    }
+                  : undefined
+              }
               gridSize={settings.gridSize}
               selected={selected}
               previewIconsEnabled={previewIconsEnabled}

@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { FileRow } from "../types";
 import { FileGrid, LazyThumb } from "./FileGrid";
@@ -112,6 +112,35 @@ describe("FileGrid", () => {
       { container: scroller },
     );
     expect(view.container.textContent).toContain("No files match the selected tags");
+    expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
+    view.unmount();
+    scroller.remove();
+  });
+
+  it("offers to clear file type and tag filters only when that action is provided", () => {
+    const scroller = document.createElement("div");
+    document.body.appendChild(scroller);
+    const onClearFilters = vi.fn();
+    const props = {
+      files: [],
+      emptyMessage: "No files match the selected types",
+      gridSize: "large" as const,
+      selected: [],
+      previewIconsEnabled: false,
+      scrollRootRef: { current: scroller },
+      onSelect: () => undefined,
+      onSelectionChange: () => undefined,
+    };
+    const view = render(
+      <FileGrid {...props} onClearFilters={onClearFilters} />,
+      { container: scroller },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(onClearFilters).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("No files match the selected types")).toBeTruthy();
+
+    view.rerender(<FileGrid {...props} files={[file({ id: 1 })]} onClearFilters={onClearFilters} />);
+    expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
     view.unmount();
     scroller.remove();
   });

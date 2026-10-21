@@ -114,6 +114,7 @@ export function LazyThumb({
 export function FileGrid({
   files,
   emptyMessage = "This folder is empty. Drop files here to import them.",
+  onClearFilters,
   gridSize,
   selected,
   previewIconsEnabled,
@@ -125,6 +126,7 @@ export function FileGrid({
 }: {
   files: FileRow[];
   emptyMessage?: string;
+  onClearFilters?: () => void;
   gridSize: GridSize;
   selected: number[];
   previewIconsEnabled: boolean;
@@ -302,7 +304,12 @@ export function FileGrid({
   return (
     <>
       {files.length === 0 || !page ? (
-        <div className="empty">{emptyMessage}</div>
+        <div className="empty">
+          <span>{emptyMessage}</span>
+          {onClearFilters ? (
+            <button type="button" onClick={onClearFilters}>Clear filters</button>
+          ) : null}
+        </div>
       ) : (
         <div className="grid-virtual" style={{ height: page.totalHeight }}>
           <div
