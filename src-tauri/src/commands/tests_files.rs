@@ -27,3 +27,34 @@
         assert!(!db.lock().unwrap().file_row_exists(drop_id).unwrap());
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn trash_items_rejects_a_path_outside_the_library() {
+        let dir = std::env::temp_dir().join(format!("filelib-trash-escape-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        let secret = dir.join("secret.stl");
+        fs::write(&secret, b"secret").unwrap();
+        fs::write(root.join("keep.stl"), b"keep").unwrap();
+        let keep = db
+            .insert_file("keep.stl", "keep.stl", "stl", 4, "sha-keep", 1, None, None)
+            .unwrap();
+        let outside = db
+            .insert_file("secret.stl", "../secret.stl", "stl", 6, "sha-secret", 1, None, None)
+            .unwrap();
+        let err = match db.trash_items(&[keep, outside]) {
+            Err(err) => err,
+            Ok(_) => panic!("an outside path was accepted"),
+        };
+        assert!(err.contains("outside"), "{err}");
+        assert!(secret.is_file());
+        let items = db.trash_items(&[keep]).unwrap();
+        assert_eq!(items.len(), 1);
+        assert!(items[0].path.ends_with("keep.stl"));
+        let _ = fs::remove_dir_all(&dir);
+    }

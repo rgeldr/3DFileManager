@@ -52,17 +52,56 @@ fn catalog_file_path(db: &AppDb, file_id: i64) -> Result<PathBuf, String> {
     contained_library_file(&root, &loc.stored_relpath)
 }
 
+fn drag_source_for_id(db: &AppDb, id: i64) -> Result<drag_out::DragSource, String> {
+    let loc = db.file_location(id)?;
+    let root = db.library_root()?;
+    let path = contained_library_file(&root, &loc.stored_relpath)?;
+    Ok(drag_out::DragSource {
+        path: path.to_string_lossy().to_string(),
+        file_name: loc.original_name,
+        ext: names::extension_of(&loc.stored_relpath),
+    })
+}
+
+/// Catalog ids only. A path the page invented never becomes a drag source.
+fn drag_sources_for_ids(db: &AppDb, ids: &[i64]) -> (Vec<drag_out::DragSource>, Vec<String>) {
+    let mut sources = Vec::new();
+    let mut skipped = Vec::new();
+    for id in ids {
+        match drag_source_for_id(db, *id) {
+            Ok(source) => sources.push(source),
+            Err(err) => skipped.push(err),
+        }
+    }
+    (sources, skipped)
+}
+
 #[tauri::command]
-async fn prepare_drag_paths(files: Vec<drag_out::DragSource>, icon_path: String) -> drag_out::PreparedDrag {
+async fn prepare_drag_paths(app: AppHandle, ids: Vec<i64>, icon_path: String) -> drag_out::PreparedDrag {
     let _timer = CommandTimer::start("prepare_drag_paths");
-    let prepared = tauri::async_runtime::spawn_blocking(move || drag_out::prepare_drag_paths(&files, &icon_path))
-        .await
-        .unwrap_or_else(|err| drag_out::PreparedDrag {
-            paths: Vec::new(),
-            skipped: vec![err.to_string()],
-            reports: Vec::new(),
-            icon_bytes: 0,
-        });
+    let db = app.state::<AppState>().db.clone();
+    let prepared = tauri::async_runtime::spawn_blocking(move || {
+        let Ok(db) = db.lock() else {
+            return drag_out::PreparedDrag {
+                paths: Vec::new(),
+                skipped: vec!["The library is busy.".into()],
+                reports: Vec::new(),
+                icon_bytes: 0,
+            };
+        };
+        let (sources, mut skipped) = drag_sources_for_ids(&db, &ids);
+        let mut prepared = drag_out::prepare_drag_paths(&sources, &icon_path);
+        skipped.append(&mut prepared.skipped);
+        prepared.skipped = skipped;
+        prepared
+    })
+    .await
+    .unwrap_or_else(|err| drag_out::PreparedDrag {
+        paths: Vec::new(),
+        skipped: vec![err.to_string()],
+        reports: Vec::new(),
+        icon_bytes: 0,
+    });
     let _ = write_debug_log(drag_out::drag_log_line(&prepared.paths));
     prepared
 }
@@ -77,7 +116,26 @@ struct DragOutcome {
 /// Synchronous on purpose: Tauri runs a sync command on the UI thread, and
 /// Windows `DoDragDrop` has to run on that STA while the button is still down.
 #[tauri::command]
-fn start_file_drag(app: AppHandle, paths: Vec<String>, icon_path: String) -> Result<DragOutcome, String> {
+fn start_file_drag(app: AppHandle, ids: Vec<i64>, icon_path: String) -> Result<DragOutcome, String> {
+    let db = app.state::<AppState>().db.clone();
+    let paths = {
+        let db = db.lock().map_err(|err| err.to_string())?;
+        let (sources, skipped) = drag_sources_for_ids(&db, &ids);
+        let prepared = drag_out::prepare_drag_paths(&sources, &icon_path);
+        if prepared.paths.is_empty() {
+            let message = if skipped.is_empty() {
+                prepared.skipped.join(", ")
+            } else {
+                skipped.join(", ")
+            };
+            return Err(if message.is_empty() {
+                "Could not drag these files.".into()
+            } else {
+                message
+            });
+        }
+        prepared.paths
+    };
     let _ = write_debug_log(drag_out::drag_start_line(&paths, &icon_path));
     let window = app
         .get_webview_window("main")

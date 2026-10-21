@@ -1,5 +1,3 @@
-import type { FileRow } from "../types";
-
 /** Movement required before a press becomes a drag. */
 export const DRAG_OUT_SLOP_PX = 8;
 
@@ -79,17 +77,12 @@ export function fileDragOptions(paths: string[], iconPath: string): { item: stri
   return { item, icon: iconPath };
 }
 
-export function dragSources(files: Pick<FileRow, "id" | "absolutePath" | "originalName" | "ext">[], ids: number[]) {
-  const byId = new Map(files.map((file) => [file.id, file]));
-  const sources = [];
-  for (const id of ids) {
-    const file = byId.get(id);
-    if (!file) continue;
-    sources.push({ path: file.absolutePath, fileName: file.originalName, ext: file.ext });
-  }
-  return sources;
+/** Catalog ids the page is allowed to drag. The path is resolved in the app. */
+export function dragSources(files: { id: number }[], ids: number[]): number[] {
+  const known = new Set(files.map((file) => file.id));
+  return ids.filter((id) => known.has(id));
 }
 
-export function dragSourceKey(sources: { path: string; fileName: string; ext: string }[]): string {
-  return sources.map((source) => `${source.path}\n${source.fileName}\n${source.ext}`).join("\n");
+export function dragSourceKey(ids: number[]): string {
+  return ids.join("\n");
 }
