@@ -23,7 +23,9 @@ import {
   NamePromptDialog,
   Toast,
 } from "./components/dialogs";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { useLibrary, type LibraryModel } from "./hooks/useLibrary";
+import { useAppUpdate } from "./hooks/useAppUpdate";
 import { useThumbQueueCount } from "./hooks/useThumbQueueCount";
 import { clampInspector, clampSidebar, INSPECTOR_RAIL_WIDTH } from "./lib/paneWidths";
 import { centerSubfolders, gridEmptyMessage, nextSort, sortFromDropdown } from "./lib/tagFilter";
@@ -35,6 +37,7 @@ export function App() {
 }
 
 function AppShell({ app }: { app: LibraryModel }) {
+  const updateCheck = useAppUpdate();
   const {
     ready,
     settings,
@@ -372,6 +375,7 @@ function AppShell({ app }: { app: LibraryModel }) {
             </button>
           </div>
         ) : null}
+        {updateCheck.banner ? <UpdateBanner {...updateCheck.banner} /> : null}
         <div className={`workspace${inspectorPinned ? "" : " inspector-collapsed"}`}>
           <div className="grid-wrap" ref={gridScrollRef} tabIndex={-1}>
             <FileGrid
@@ -510,7 +514,7 @@ function AppShell({ app }: { app: LibraryModel }) {
       <ImportSummaryDialog app={app} />
       <FolderTagDialog app={app} />
       <CreatorDialog app={app} />
-      <AboutDialog app={app} />
+      <AboutDialog app={app} updates={updateCheck.about} />
       <DragFailureDialog app={app} />
       <NamePromptDialog app={app} />
       <DeleteFolderDialog app={app} />

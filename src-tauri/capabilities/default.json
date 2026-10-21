@@ -18,6 +18,8 @@
         { "url": "https://github.com/rgeldr/3DFileManager/releases" }
       ]
     },
-    "drag:default"
+    "drag:default",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

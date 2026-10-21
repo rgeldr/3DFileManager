@@ -196,6 +196,18 @@ const EXPORTS = [
     file: "node_modules/@crabnebula/tauri-plugin-drag/dist-js/index.js",
   },
   {
+    from: "@tauri-apps/plugin-updater",
+    name: "check",
+    commands: ["plugin:updater|check"],
+    file: "node_modules/@tauri-apps/plugin-updater/dist-js/index.js",
+  },
+  {
+    from: "@tauri-apps/plugin-process",
+    name: "relaunch",
+    commands: ["plugin:process|restart"],
+    file: "node_modules/@tauri-apps/plugin-process/dist-js/index.js",
+  },
+  {
     from: "@tauri-apps/api/app",
     name: "getVersion",
     commands: ["plugin:app|version"],

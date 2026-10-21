@@ -49,6 +49,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "createUpdaterArtifacts": true,
     "resources": [
       "icons/drag.png"
     ],
@@ -57,6 +58,14 @@
         "installMode": "currentUser",
         "template": "./windows/installer.nsi"
       }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "REPLACE_WITH_TAURI_SIGNER_PUBKEY",
+      "endpoints": [
+        "https://github.com/rgeldr/3DFileManager/releases/latest/download/latest.json"
+      ]
     }
   }
 }
