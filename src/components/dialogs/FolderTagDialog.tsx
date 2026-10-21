@@ -1,6 +1,7 @@
 import { Modal } from "./Modal";
 import type { LibraryModel } from "../../hooks/useLibrary";
 import { api } from "../../api";
+import { commaTagOptions } from "../../lib/commaTags";
 
 export function FolderTagDialog({ app }: { app: LibraryModel }) {
   const { tags, folderTagTarget, setFolderTagTarget, folderTagInput, setFolderTagInput, folderTagFileCount, setError, refreshLists } = app;
@@ -32,7 +33,7 @@ export function FolderTagDialog({ app }: { app: LibraryModel }) {
               onChange={(event) => setFolderTagInput(event.target.value)}
             />
             <datalist id="folder-tag-suggestions">
-              {tags.map((item) => (
+              {commaTagOptions(folderTagInput, tags).map((item) => (
                 <option key={item} value={item} />
               ))}
             </datalist>
