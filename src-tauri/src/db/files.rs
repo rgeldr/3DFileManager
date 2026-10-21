@@ -393,7 +393,9 @@ impl AppDb {
     pub fn all_file_index(&self) -> Result<Vec<IndexRow>, String> {
         let mut stmt = self
             .conn
-            .prepare("SELECT id, stored_relpath, sha256 FROM files")
+            .prepare(
+                "SELECT id, stored_relpath, sha256, size_bytes, mtime, folder_id, missing FROM files",
+            )
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |r| {
@@ -401,6 +403,10 @@ impl AppDb {
                     id: r.get(0)?,
                     stored_relpath: r.get(1)?,
                     sha256: r.get(2)?,
+                    size_bytes: r.get(3)?,
+                    mtime: r.get(4)?,
+                    folder_id: r.get(5)?,
+                    missing: r.get::<_, i64>(6)? != 0,
                 })
             })
             .map_err(|e| e.to_string())?

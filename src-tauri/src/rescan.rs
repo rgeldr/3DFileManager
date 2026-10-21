@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use walkdir::WalkDir;
 
-use crate::db::AppDb;
+use crate::db::{AppDb, IndexRow};
 use crate::import::hash_file;
 use crate::names::{extension_of, is_supported_file, sanitize_component};
 use crate::relocate::DiskProgress;
@@ -106,9 +106,11 @@ pub fn rescan_with<F: FnMut(DiskProgress)>(
     let indexed = db.all_file_index()?;
     let mut by_path: HashMap<String, i64> = HashMap::new();
     let mut by_sha: HashMap<String, Vec<i64>> = HashMap::new();
+    let mut details: HashMap<i64, &IndexRow> = HashMap::new();
     for row in &indexed {
         by_path.insert(row.stored_relpath.clone(), row.id);
         by_sha.entry(row.sha256.clone()).or_default().push(row.id);
+        details.insert(row.id, row);
     }
     let mut seen_ids: HashSet<i64> = HashSet::new();
     let mut added_files = 0u32;
@@ -147,7 +149,16 @@ pub fn rescan_with<F: FnMut(DiskProgress)>(
                 .map(|d| d.as_secs() as i64)
                 .unwrap_or(0);
             let folder_id = folder_id_for_file(db, &rel)?;
-            db.update_path(id, &rel, folder_id, meta.len() as i64, mtime)?;
+            let size = meta.len() as i64;
+            let row = details[&id];
+            let unchanged = row.stored_relpath == rel
+                && row.folder_id == folder_id
+                && row.size_bytes == size
+                && row.mtime == mtime
+                && !row.missing;
+            if !unchanged {
+                db.update_path(id, &rel, folder_id, size, mtime)?;
+            }
             bytes_done += len;
             continue;
         }
@@ -199,7 +210,7 @@ pub fn rescan_with<F: FnMut(DiskProgress)>(
         bytes_done += len;
     }
     let mut missing = 0u32;
-    for row in indexed {
+    for row in &indexed {
         if cancel.load(Ordering::SeqCst) {
             return Ok(RescanSummary {
                 added_folders,
@@ -210,10 +221,10 @@ pub fn rescan_with<F: FnMut(DiskProgress)>(
             });
         }
         if !seen_ids.contains(&row.id) {
-            db.mark_missing(row.id, true)?;
+            if !row.missing {
+                db.mark_missing(row.id, true)?;
+            }
             missing += 1;
-        } else {
-            db.mark_missing(row.id, false)?;
         }
     }
     progress(DiskProgress {
@@ -277,6 +288,35 @@ mod tests {
         let missing = db.missing_files().unwrap();
         assert_eq!(missing.len(), 1);
         assert_eq!(missing[0].original_name, "gone.stl");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rescan_skips_rows_whose_path_size_mtime_and_missing_flag_are_unchanged() {
+        let dir = std::env::temp_dir().join(format!("filelib-rescan-skip-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        std::fs::write(root.join("kept.stl"), b"solid kept").unwrap();
+        db.insert_file("gone.stl", "gone.stl", "stl", 1, "sha-gone", 1, None, None)
+            .unwrap();
+        let first = rescan_with(&db, &AtomicBool::new(false), |_| {}).unwrap();
+        assert_eq!(first.added_files, 1);
+        assert_eq!(first.missing, 1);
+        let changes = db.conn.total_changes();
+        let again = rescan_with(&db, &AtomicBool::new(false), |_| {}).unwrap();
+        assert_eq!(again.added_files, 0);
+        assert_eq!(again.relocated, 0);
+        assert_eq!(again.missing, 1);
+        assert_eq!(db.conn.total_changes(), changes);
+        std::fs::write(root.join("gone.stl"), b"x").unwrap();
+        let restored = rescan_with(&db, &AtomicBool::new(false), |_| {}).unwrap();
+        assert_eq!(restored.missing, 0);
+        assert!(db.missing_files().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
