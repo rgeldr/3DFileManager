@@ -62,6 +62,7 @@ export function AboutDialog({
                   "Version unavailable"
                 ) : aboutVersion ? (
                   <a
+                    className="about-version"
                     href="https://github.com/rgeldr/3DFileManager/releases"
                     onClick={(e) => {
                       e.preventDefault();

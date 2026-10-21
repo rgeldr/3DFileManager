@@ -1,7 +1,14 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { LibraryModel } from "../../hooks/useLibrary";
 import { AboutDialog } from "./AboutDialog";
+
+const stylesDir = join(dirname(fileURLToPath(import.meta.url)), "../../styles");
 
 const libraryStats = vi.fn();
 
@@ -14,6 +21,12 @@ vi.mock("../../api", () => ({
     libraryStats: (...args: unknown[]) => libraryStats(...args),
   },
 }));
+
+beforeAll(() => {
+  const style = document.createElement("style");
+  style.textContent = `${readFileSync(join(stylesDir, "tokens.css"), "utf8")}\n${readFileSync(join(stylesDir, "dialogs.css"), "utf8")}`;
+  document.head.appendChild(style);
+});
 
 afterEach(() => {
   cleanup();
@@ -61,6 +74,20 @@ describe("About dialog", () => {
     expect(libraryStats).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "Check for updates" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
+
+    const link = screen.getByRole("link", { name: "26.10.21" });
+    expect(link.className).toBe("about-version");
+    const rule = [...document.styleSheets]
+      .flatMap((sheet) => [...sheet.cssRules])
+      .find((entry): entry is CSSStyleRule => entry instanceof CSSStyleRule && entry.selectorText.includes("a.about-version:visited"));
+    expect(rule?.selectorText).toContain(":link");
+    expect(rule?.selectorText).toContain(":hover");
+    expect(rule?.selectorText).toContain(":active");
+    expect(rule?.style.color).toBe("var(--color-text)");
+    expect(rule?.style.textDecorationLine).toBe("underline");
+    expect(getComputedStyle(link).color).toBe("var(--color-text)");
+    expect(getComputedStyle(link).textDecorationLine).toBe("underline");
+    expect(readFileSync(join(stylesDir, "tokens.css"), "utf8")).toContain("--color-text: #dddee0");
   });
 
   it("offers install when a newer version is available and shows check results", () => {
