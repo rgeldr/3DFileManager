@@ -46,6 +46,8 @@ export const api = {
     exts: string[];
     sort: string;
     sortDirection: string;
+    limit?: number;
+    offset?: number;
   }) => invoke<FileRow[]>("list_files", { args }),
   missingFiles: () => invoke<FileRow[]>("missing_files"),
   removeMissing: () => invoke<void>("remove_missing"),
