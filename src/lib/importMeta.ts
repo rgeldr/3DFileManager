@@ -4,6 +4,12 @@ export interface ImportMetaPayload {
   tags: string[] | null;
 }
 
+export function tagsWithPending(tags: string[], pending: string): string[] {
+  const next = pending.trim();
+  if (!next || tags.some((tag) => tag.toLowerCase() === next.toLowerCase())) return tags;
+  return [...tags, next];
+}
+
 export function importMetaPayload(importedIds: number[], creator: string, tags: string[]): ImportMetaPayload | null {
   const trimmed = creator.trim();
   const nextTags = tags.map((tag) => tag.trim()).filter(Boolean);

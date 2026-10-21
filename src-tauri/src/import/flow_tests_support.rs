@@ -1,9 +1,8 @@
     fn scratch() -> (PathBuf, PathBuf, PathBuf) {
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
-        let base = std::env::temp_dir().join(format!("3dfl-test-{}-{stamp}", std::process::id()));
+        use std::sync::atomic::AtomicU64;
+        static SCRATCH_SEQ: AtomicU64 = AtomicU64::new(0);
+        let n = SCRATCH_SEQ.fetch_add(1, Ordering::Relaxed);
+        let base = std::env::temp_dir().join(format!("3dfl-test-{}-{n}", std::process::id()));
         let data = base.join("data");
         let library = base.join("library");
         let incoming = base.join("incoming");
