@@ -163,6 +163,9 @@ export function Inspector({
           Folder
           <select value={folderId} onChange={(event) => setFolderId(event.target.value)}>
             <option value="root">Library root</option>
+            {folderId !== "root" && !folders.some((folder) => String(folder.id) === folderId) ? (
+              <option value={folderId}>Folder not in the list</option>
+            ) : null}
             {folders.map((folder) => (
               <option key={folder.id} value={folder.id}>
                 {folder.relpath}

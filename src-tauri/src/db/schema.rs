@@ -1,4 +1,4 @@
-const SCHEMA: &str = r#"
+const SCHEMA_BODY: &str = r#"
 CREATE TABLE IF NOT EXISTS folders (
     id INTEGER PRIMARY KEY,
     parent_id INTEGER REFERENCES folders(id),
@@ -54,13 +54,19 @@ CREATE TRIGGER IF NOT EXISTS files_ad AFTER DELETE ON files BEGIN
     INSERT INTO files_fts(files_fts, rowid, sort_name, original_name, creator, notes, tags_text)
     VALUES ('delete', old.id, old.sort_name, old.original_name, old.creator, old.notes, old.tags_text);
 END;
-CREATE TRIGGER IF NOT EXISTS files_au AFTER UPDATE ON files BEGIN
+"#;
+
+/// Thumbnail, path, and hash updates must not rewrite the search index.
+/// Only the columns FTS actually stores rebuild a row.
+const FILES_AU_TRIGGER: &str = "\
+CREATE TRIGGER IF NOT EXISTS files_au
+AFTER UPDATE OF sort_name, original_name, creator, notes, tags_text ON files BEGIN
     INSERT INTO files_fts(files_fts, rowid, sort_name, original_name, creator, notes, tags_text)
     VALUES ('delete', old.id, old.sort_name, old.original_name, old.creator, old.notes, old.tags_text);
     INSERT INTO files_fts(rowid, sort_name, original_name, creator, notes, tags_text)
     VALUES (new.id, new.sort_name, new.original_name, new.creator, new.notes, new.tags_text);
 END;
-"#;
+";
 
 fn migrate(conn: &Connection) -> Result<(), String> {
     let version: i32 = conn
@@ -68,7 +74,8 @@ fn migrate(conn: &Connection) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let mut version = version;
     if version < 1 {
-        conn.execute_batch(SCHEMA).map_err(|e| e.to_string())?;
+        let schema = format!("{SCHEMA_BODY}{FILES_AU_TRIGGER}");
+        conn.execute_batch(&schema).map_err(|e| e.to_string())?;
         conn.pragma_update(None, "user_version", 1)
             .map_err(|e| e.to_string())?;
         version = 1;
@@ -80,6 +87,15 @@ fn migrate(conn: &Connection) -> Result<(), String> {
         )
         .map_err(|e| e.to_string())?;
         conn.pragma_update(None, "user_version", 2)
+            .map_err(|e| e.to_string())?;
+        version = 2;
+    }
+    if version < 3 {
+        conn.execute_batch(&format!(
+            "DROP TRIGGER IF EXISTS files_au;\n{FILES_AU_TRIGGER}"
+        ))
+        .map_err(|e| e.to_string())?;
+        conn.pragma_update(None, "user_version", 3)
             .map_err(|e| e.to_string())?;
     }
     conn.execute(

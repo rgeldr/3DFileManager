@@ -48,6 +48,10 @@ pub struct IndexRow {
     pub id: i64,
     pub stored_relpath: String,
     pub sha256: String,
+    pub size_bytes: i64,
+    pub mtime: i64,
+    pub folder_id: Option<i64>,
+    pub missing: bool,
 }
 
 pub enum FolderFilter {

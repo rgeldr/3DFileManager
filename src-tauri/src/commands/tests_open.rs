@@ -27,6 +27,35 @@
     }
 
     #[test]
+    fn drag_sources_come_from_catalog_ids() {
+        let dir = std::env::temp_dir().join(format!("filelib-drag-id-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        fs::write(root.join("Hero.stl"), b"solid").unwrap();
+        fs::write(dir.join("secret.stl"), b"secret").unwrap();
+        let id = db
+            .insert_file("Hero.STL", "Hero.stl", "stl", 5, "sha-hero", 1, None, None)
+            .unwrap();
+        let outside = db
+            .insert_file("secret.stl", "../secret.stl", "stl", 6, "sha-secret", 1, None, None)
+            .unwrap();
+        let (sources, skipped) = drag_sources_for_ids(&db, &[id, outside]);
+        assert_eq!(sources.len(), 1);
+        assert!(sources[0].path.ends_with("Hero.stl"));
+        assert_eq!(sources[0].file_name, "Hero.STL");
+        assert_eq!(sources[0].ext, "stl");
+        assert!(!sources[0].path.contains("secret"));
+        assert_eq!(skipped.len(), 1);
+        assert!(dir.join("secret.stl").is_file());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn text_preview_keeps_printable_text_and_stops_at_four_kilobytes() {
         let cleaned = clean_text_preview(b"Hello\tthere\n\0\x01caf\xff\xfe\n\xEF\xBB\xBFHi");
         assert_eq!(cleaned, "Hello\tthere\ncaf\nHi");

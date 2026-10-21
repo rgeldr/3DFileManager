@@ -5,6 +5,10 @@ import {
   gridEmptyMessage,
   libraryListScope,
   libraryRefreshKey,
+  librarySearchLimit,
+  LIBRARY_SEARCH_LIMIT,
+  truncateLibraryList,
+  truncatedSearchMessage,
   moveTagHighlight,
   nextSort,
   tagFilterBadge,
@@ -127,6 +131,22 @@ describe("libraryRefreshKey", () => {
     expect(libraryRefreshKey(base)).not.toBe(libraryRefreshKey({ ...base, browse: { type: "folder", id: 5 } }));
     expect(libraryRefreshKey(base)).not.toBe(libraryRefreshKey({ ...base, query: "lion" }));
     expect(libraryRefreshKey(base)).not.toBe(libraryRefreshKey({ ...base, scope: "folder" }));
+  });
+});
+
+describe("entire library search limit", () => {
+  it("caps only an entire-library search and says when the page is cut off", () => {
+    expect(librarySearchLimit("all")).toBe(LIBRARY_SEARCH_LIMIT);
+    expect(librarySearchLimit("root")).toBeUndefined();
+    expect(librarySearchLimit("id")).toBeUndefined();
+    expect(librarySearchLimit("subtree")).toBeUndefined();
+    const rows = [1, 2, 3];
+    expect(truncateLibraryList(rows, undefined)).toEqual({ rows, truncated: false });
+    expect(truncateLibraryList(rows, 3)).toEqual({ rows, truncated: false });
+    expect(truncateLibraryList(rows, 2)).toEqual({ rows: [1, 2], truncated: true });
+    expect(truncatedSearchMessage(LIBRARY_SEARCH_LIMIT)).toBe(
+      "Showing the first 5000 matches. Narrow the search to see the rest.",
+    );
   });
 });
 

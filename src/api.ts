@@ -46,6 +46,8 @@ export const api = {
     exts: string[];
     sort: string;
     sortDirection: string;
+    limit?: number;
+    offset?: number;
   }) => invoke<FileRow[]>("list_files", { args }),
   missingFiles: () => invoke<FileRow[]>("missing_files"),
   removeMissing: () => invoke<void>("remove_missing"),
@@ -117,8 +119,8 @@ export const api = {
   clearThumbnailCache: () => invoke<void>("clear_thumbnail_cache"),
   debugLog: (line: string) => invoke<string>("debug_log", { line }),
   dragIconPath: () => invoke<string>("drag_icon_path"),
-  prepareDragPaths: (files: { path: string; fileName: string; ext: string }[], iconPath: string) =>
-    invoke<PreparedDrag>("prepare_drag_paths", { files, iconPath }),
+  prepareDragPaths: (ids: number[], iconPath: string) =>
+    invoke<PreparedDrag>("prepare_drag_paths", { ids, iconPath }),
   openInDefaultApp: (fileId: number) => invoke<void>("open_in_default_app", { fileId }),
   revealFile: (fileId: number) => invoke<void>("reveal_file", { fileId }),
   textPreview: (fileId: number) => invoke<string>("text_preview", { fileId }),
