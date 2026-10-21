@@ -3,7 +3,7 @@ import type { CheckMenuItem } from "@tauri-apps/api/menu";
 import { api } from "../api";
 import { useTheme } from "../theme/ThemeProvider";
 import type { Browse, DragReport, FileRow, FolderRow, ImportSummary, LibrarySort, Settings, TagCount, TagMatchMode, TypeCount, ViewMode } from "../types";
-import { libraryListScope, libraryRefreshKey } from "../lib/tagFilter";
+import { libraryListScope, libraryRefreshKey, librarySearchLimit, truncateLibraryList } from "../lib/tagFilter";
 import { extsForSelectedTypes, mergeTypeCounts } from "../lib/typeFilter";
 import { useLibraryEffects } from "./useLibraryEffects";
 import { useSelection } from "./useSelection";
@@ -21,6 +21,7 @@ export function useLibrary() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [folders, setFolders] = useState<FolderRow[]>([]);
   const [files, setFiles] = useState<FileRow[]>([]);
+  const [listTruncated, setListTruncated] = useState(false);
   const [browse, setBrowse] = useState<Browse>({ type: "root" });
   const [query, setQuery] = useState("");
   const [creator, setCreator] = useState("");
@@ -143,6 +144,7 @@ export function useLibrary() {
       scope: searchScope,
     });
     const scope = { folder: listed.folder, folderId: listed.folderId, query: nextQuery, creator: listed.creator };
+    const searchLimit = librarySearchLimit(listed.folder);
     const exts = extsForSelectedTypes(selectedTypeIds);
     const scopedCreators =
       searchScope === "folder" && nextBrowse.type === "folder"
@@ -158,6 +160,7 @@ export function useLibrary() {
           exts,
           sort: nextSort.field,
           sortDirection: nextSort.direction,
+          limit: searchLimit == null ? undefined : searchLimit + 1,
         }),
         api.listCreators(),
         api.listTagCounts({ ...scope, exts }),
@@ -165,7 +168,9 @@ export function useLibrary() {
         scopedCreators ?? Promise.resolve(null),
       ]);
       if (gen !== refreshGen.current) return;
-      setFiles(rows);
+      const page = truncateLibraryList(rows, searchLimit);
+      setFiles(page.rows);
+      setListTruncated(page.truncated);
       setCreators(creatorRows);
       setCreatorOptions(subtreeCreators ?? creatorRows);
       setTagCounts(tagRows);
@@ -333,7 +338,7 @@ export function useLibrary() {
 
   const browseKey = browse.type === "folder" ? `folder:${browse.id}` : browse.type;
   const model = {
-    theme, setTheme, ready, setReady, settings, setSettings, folders, setFolders, files, setFiles,
+    theme, setTheme, ready, setReady, settings, setSettings, folders, setFolders, files, setFiles, listTruncated,
     browse, setBrowse, query, setQuery, creator, setCreator, selectedTagIds, setSelectedTagIds,
     selectedTypeIds, setSelectedTypeIds, typeCounts, setTypeCounts,
     tagMatch, setTagMatch, sort, setSort, creators, setCreators, creatorOptions, setCreatorOptions, tags, setTags, tagCounts,

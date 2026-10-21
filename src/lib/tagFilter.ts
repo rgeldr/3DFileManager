@@ -64,6 +64,22 @@ export function libraryRefreshKey(input: {
   });
 }
 
+/** Entire-library searches stop here so a 100,000-file catalog does not all land in the grid. */
+export const LIBRARY_SEARCH_LIMIT = 5000;
+
+export function librarySearchLimit(folder: "all" | "root" | "id" | "subtree"): number | undefined {
+  return folder === "all" ? LIBRARY_SEARCH_LIMIT : undefined;
+}
+
+export function truncateLibraryList<T>(rows: T[], limit: number | undefined): { rows: T[]; truncated: boolean } {
+  if (limit == null || rows.length <= limit) return { rows, truncated: false };
+  return { rows: rows.slice(0, limit), truncated: true };
+}
+
+export function truncatedSearchMessage(limit: number): string {
+  return `Showing the first ${limit} matches. Narrow the search to see the rest.`;
+}
+
 export function libraryListScope(input: {
   browse: Browse;
   query: string;

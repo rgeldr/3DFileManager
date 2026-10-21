@@ -28,7 +28,7 @@ import { useLibrary, type LibraryModel } from "./hooks/useLibrary";
 import { useAppUpdate } from "./hooks/useAppUpdate";
 import { useThumbQueueCount } from "./hooks/useThumbQueueCount";
 import { clampInspector, clampSidebar, INSPECTOR_RAIL_WIDTH } from "./lib/paneWidths";
-import { centerSubfolders, gridEmptyMessage, nextSort, sortFromDropdown } from "./lib/tagFilter";
+import { centerSubfolders, gridEmptyMessage, LIBRARY_SEARCH_LIMIT, nextSort, sortFromDropdown, truncatedSearchMessage } from "./lib/tagFilter";
 import type { SearchScope, SortField, ViewMode } from "./types";
 
 export function App() {
@@ -67,6 +67,7 @@ function AppShell({ app }: { app: LibraryModel }) {
     selected,
     setSelected,
     missingCount,
+    listTruncated,
     setMissingCount,
     setMissingOpen,
     setMissingFiles,
@@ -359,6 +360,11 @@ function AppShell({ app }: { app: LibraryModel }) {
             </div>
           </div>
         </div>
+        {listTruncated ? (
+          <div className="banner">
+            <span>{truncatedSearchMessage(LIBRARY_SEARCH_LIMIT)}</span>
+          </div>
+        ) : null}
         {missingCount > 0 ? (
           <div className="banner">
             <span>{missingCount} catalog entries are missing from disk.</span>
