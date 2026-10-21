@@ -393,7 +393,6 @@ function AppShell({ app }: { app: LibraryModel }) {
                     }
                   : undefined
               }
-              gridSize={settings.gridSize}
               selected={selected}
               previewIconsEnabled={previewIconsEnabled}
               scrollRootRef={gridScrollRef}

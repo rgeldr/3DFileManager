@@ -132,28 +132,40 @@ describe("FileGrid", () => {
   });
 
   it("offers to clear file type and tag filters only when that action is provided", () => {
+    const onClearFilters = vi.fn();
+    for (const mode of ["medium", "list", "details"] as const) {
+      const scroller = document.createElement("div");
+      document.body.appendChild(scroller);
+      const emptyView = render(
+        <FileGrid
+          {...gridBase({
+            files: [],
+            emptyMessage: "No files match the selected types",
+            scrollRootRef: { current: scroller },
+            view: mode,
+            onClearFilters,
+          })}
+        />,
+        { container: scroller },
+      );
+      expect(screen.getByRole("button", { name: "Clear filters" })).toBeTruthy();
+      expect(screen.getByText("No files match the selected types")).toBeTruthy();
+      emptyView.unmount();
+      scroller.remove();
+    }
     const scroller = document.createElement("div");
     document.body.appendChild(scroller);
-    const onClearFilters = vi.fn();
-    const props = {
+    const props = gridBase({
       files: [],
       emptyMessage: "No files match the selected types",
-      gridSize: "large" as const,
-      selected: [],
-      previewIconsEnabled: false,
       scrollRootRef: { current: scroller },
-      onSelect: () => undefined,
-      onSelectionChange: () => undefined,
-    };
-    const view = render(
-      <FileGrid {...props} onClearFilters={onClearFilters} />,
-      { container: scroller },
-    );
+      onClearFilters,
+    });
+    const view = render(<FileGrid {...props} />, { container: scroller });
     fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(onClearFilters).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("No files match the selected types")).toBeTruthy();
 
-    view.rerender(<FileGrid {...props} files={[file({ id: 1 })]} onClearFilters={onClearFilters} />);
+    view.rerender(<FileGrid {...props} files={[file({ id: 1 })]} />);
     expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
     view.unmount();
     scroller.remove();

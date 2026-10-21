@@ -143,7 +143,6 @@ export function FileGrid({
   view,
   sort,
   onClearFilters,
-  gridSize,
   selected,
   previewIconsEnabled,
   scrollRootRef,
@@ -160,7 +159,6 @@ export function FileGrid({
   view: ViewMode;
   sort: LibrarySort;
   onClearFilters?: () => void;
-  gridSize: GridSize;
   selected: number[];
   previewIconsEnabled: boolean;
   scrollRootRef: React.RefObject<HTMLElement | null>;
@@ -379,7 +377,14 @@ export function FileGrid({
   };
 
   if (items.length === 0) {
-    return <div className="empty">{emptyMessage}</div>;
+    return (
+      <div className="empty">
+        <span>{emptyMessage}</span>
+        {onClearFilters ? (
+          <button type="button" onClick={onClearFilters}>Clear filters</button>
+        ) : null}
+      </div>
+    );
   }
 
   if (view === "list") {
@@ -470,21 +475,6 @@ export function FileGrid({
           {visible.map((item) => {
             if (item.kind === "folder") {
               const folder = item.folder;
-      {files.length === 0 || !page ? (
-        <div className="empty">
-          <span>{emptyMessage}</span>
-          {onClearFilters ? (
-            <button type="button" onClick={onClearFilters}>Clear filters</button>
-          ) : null}
-        </div>
-      ) : (
-        <div className="grid-virtual" style={{ height: page.totalHeight }}>
-          <div
-            className={`grid ${gridSize}`}
-            style={{ top: page.padTop, ["--grid-row" as string]: `${tile + TILE_CHROME}px` }}
-          >
-            {visible.map((file) => {
-              const title = [file.sortName, file.creator, file.tags.join(", ")].filter(Boolean).join(" · ");
               return (
                 <button
                   key={`folder-${folder.id}`}
