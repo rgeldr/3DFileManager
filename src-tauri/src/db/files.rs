@@ -333,7 +333,14 @@ impl AppDb {
         let mut items = Vec::with_capacity(ids.len());
         for id in ids {
             let loc = self.file_location(*id)?;
-            let path = root.join(&loc.stored_relpath);
+            let joined = root.join(&loc.stored_relpath);
+            let path = if joined.exists() {
+                crate::contained_library_file(&root, &loc.stored_relpath)?
+            } else if joined.starts_with(&root) {
+                joined
+            } else {
+                return Err("That file is outside the library.".into());
+            };
             let name = Path::new(&loc.stored_relpath)
                 .file_name()
                 .map(|name| name.to_string_lossy().to_string())

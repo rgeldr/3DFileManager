@@ -89,12 +89,12 @@ describe("native drag gesture", () => {
     expect(() => fileDragOptions(["C:\\Library\\Hero.stl"], "C:\\thumbs\\abc.png")).toThrow(/drag icon/);
     const sources = dragSources(
       [
-        { id: 2, absolutePath: "/lib/b.stl", originalName: "B.STL", ext: "stl" },
-        { id: 4, absolutePath: "/lib/a.stl", originalName: "A.stl", ext: "stl" },
+        { id: 2 },
+        { id: 4 },
       ],
-      [4, 2],
+      [4, 9, 2],
     );
-    expect(sources.map((source) => source.fileName)).toEqual(["A.stl", "B.STL"]);
-    expect(dragSourceKey(sources)).toContain("/lib/a.stl");
+    expect(sources).toEqual([4, 2]);
+    expect(dragSourceKey(sources)).toBe("4\n2");
   });
 });

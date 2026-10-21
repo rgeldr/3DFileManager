@@ -57,11 +57,16 @@ pub fn process_one_unhashed(db: &AppDb) -> Result<bool, String> {
         return Ok(false);
     };
     let root = db.library_root()?;
-    let path = root.join(&candidate.stored_relpath);
-    let hashed = hash_file(&path).map_err(|_| ());
+    let path = crate::contained_library_file(&root, &candidate.stored_relpath).ok();
+    let hashed = match &path {
+        Some(path) => hash_file(path).map_err(|_| ()),
+        None => Err(()),
+    };
     if let Some(sha) = commit_if_unmoved(db, candidate.id, &candidate.stored_relpath, hashed)? {
-        if path.exists() {
-            trash::delete(&path).map_err(|err| err.to_string())?;
+        if let Some(path) = path {
+            if path.exists() {
+                trash::delete(&path).map_err(|err| err.to_string())?;
+            }
         }
         drop_if_unmoved(db, candidate.id, &candidate.stored_relpath, &sha)?;
     }
@@ -78,18 +83,18 @@ fn hash_one_released_with(
             None => None,
             Some(candidate) => {
                 let root = guard.library_root()?;
-                Some((
-                    candidate.id,
-                    candidate.stored_relpath.clone(),
-                    root.join(&candidate.stored_relpath),
-                ))
+                let path = crate::contained_library_file(&root, &candidate.stored_relpath).ok();
+                Some((candidate.id, candidate.stored_relpath.clone(), path))
             }
         }
     };
     let Some((id, relpath, path)) = claimed else {
         return Ok(false);
     };
-    let hashed = hash_file(&path).map_err(|_| ());
+    let hashed = match &path {
+        Some(path) => hash_file(path).map_err(|_| ()),
+        None => Err(()),
+    };
     let duplicate = {
         let guard = db.lock().map_err(|err| err.to_string())?;
         commit_if_unmoved(&guard, id, &relpath, hashed)?
@@ -97,8 +102,10 @@ fn hash_one_released_with(
     let Some(sha) = duplicate else {
         return Ok(true);
     };
-    if path.exists() {
-        recycle(&path)?;
+    if let Some(path) = path {
+        if path.exists() {
+            recycle(&path)?;
+        }
     }
     let guard = db.lock().map_err(|err| err.to_string())?;
     drop_if_unmoved(&guard, id, &relpath, &sha)?;
@@ -178,6 +185,44 @@ mod tests {
         let status: String = db
             .conn
             .query_row("SELECT thumb_status FROM files WHERE id = ?1", [id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(status, "hash_error");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn duplicate_outside_the_library_is_not_recycled() {
+        let (dir, db) = scratch("hash-escape");
+        let root = db.library_root().unwrap();
+        std::fs::write(root.join("a.stl"), b"same-bytes").unwrap();
+        let secret = dir.join("secret.stl");
+        std::fs::write(&secret, b"same-bytes").unwrap();
+        db.insert_file_with_thumb_status("a.stl", "a.stl", "stl", 10, "", 1, None, None, "unhashed")
+            .unwrap();
+        let outside = db
+            .insert_file_with_thumb_status(
+                "secret.stl",
+                "../secret.stl",
+                "stl",
+                10,
+                "",
+                1,
+                None,
+                None,
+                "unhashed",
+            )
+            .unwrap();
+        assert!(process_one_unhashed(&db).unwrap());
+        assert!(process_one_unhashed(&db).unwrap());
+        assert!(secret.is_file());
+        assert!(db.file_row_exists(outside).unwrap());
+        let status: String = db
+            .conn
+            .query_row(
+                "SELECT thumb_status FROM files WHERE id = ?1",
+                [outside],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(status, "hash_error");
         let _ = std::fs::remove_dir_all(&dir);
