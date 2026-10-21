@@ -174,3 +174,97 @@
         assert!(!incoming.join("outside.stl").exists());
         let _ = fs::remove_dir_all(data.parent().unwrap());
     }
+
+    #[test]
+    fn archive_import_keeps_the_target_folder_and_tags() {
+        let (data, library, incoming) = scratch();
+        let mut db = open(&data).unwrap();
+        let boot = db.set_library_root(&library).unwrap();
+        let models = boot.folders.iter().find(|f| f.name == "Models").unwrap().id;
+
+        let zip_path = incoming.join("Dire Wolf.zip");
+        {
+            let file = File::create(&zip_path).unwrap();
+            let mut zip = ZipWriter::new(file);
+            zip.start_file("Body.stl", SimpleFileOptions::default()).unwrap();
+            zip.write_all(b"solid body\nendsolid body\n").unwrap();
+            zip.start_file("heads/Skull.stl", SimpleFileOptions::default()).unwrap();
+            zip.write_all(b"solid skull\nendsolid skull\n").unwrap();
+            zip.finish().unwrap();
+        }
+
+        let imported = import_paths(
+            &mut db,
+            &[zip_path.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        let summary = finish_import(&mut db, imported);
+        assert!(summary.failed.is_empty(), "{:?}", summary.failed);
+        assert_eq!(summary.imported_count, 2);
+        assert_eq!(summary.imported_ids.len(), 2);
+
+        let tags = vec!["skeleton".to_string()];
+        db.apply_import_meta(&summary.imported_ids, Some("Flexi Factory"), Some(&tags))
+            .unwrap();
+
+        let folders = db.list_folders().unwrap();
+        let wolf = folders.iter().find(|folder| folder.name == "Dire Wolf").unwrap();
+        assert_eq!(wolf.parent_id, Some(models));
+        let heads = folders.iter().find(|folder| folder.name == "heads").unwrap();
+        assert_eq!(heads.parent_id, Some(wolf.id));
+
+        let in_wolf = db
+            .list_files(FolderFilter::Id(wolf.id), "", "", "", "name", "asc")
+            .unwrap();
+        assert_eq!(in_wolf.len(), 1);
+        assert_eq!(in_wolf[0].original_name, "Body.stl");
+        assert_eq!(in_wolf[0].folder_id, Some(wolf.id));
+        assert_eq!(in_wolf[0].creator, "Flexi Factory");
+        assert_eq!(in_wolf[0].tags, vec!["skeleton".to_string()]);
+        assert_eq!(in_wolf[0].source_archive.as_deref(), Some("Dire Wolf.zip"));
+        assert!(library.join("Models").join("Dire Wolf").join("Body.stl").is_file());
+
+        let in_heads = db
+            .list_files(FolderFilter::Id(heads.id), "", "", "", "name", "asc")
+            .unwrap();
+        assert_eq!(in_heads.len(), 1);
+        assert_eq!(in_heads[0].original_name, "Skull.stl");
+        assert_eq!(in_heads[0].folder_id, Some(heads.id));
+        assert_eq!(in_heads[0].tags, vec!["skeleton".to_string()]);
+        assert_ne!(in_heads[0].folder_id, None);
+
+        let at_root = db
+            .list_files(FolderFilter::Root, "", "", "", "name", "asc")
+            .unwrap();
+        assert!(at_root.is_empty());
+        let loose_in_models = db
+            .list_files(FolderFilter::Id(models), "", "", "", "name", "asc")
+            .unwrap();
+        assert!(loose_in_models.is_empty());
+        let in_tree = db
+            .list_files(FolderFilter::Subtree(models), "", "", "skeleton", "name", "asc")
+            .unwrap();
+        assert_eq!(in_tree.len(), 2);
+
+        let loose = incoming.join("Loose.stl");
+        fs::write(&loose, b"solid loose\nendsolid loose\n").unwrap();
+        let plain = import_paths(
+            &mut db,
+            &[loose.to_string_lossy().to_string()],
+            Some(models),
+            &NO_CANCEL,
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(plain.imported_count, 1);
+        let in_models = db
+            .list_files(FolderFilter::Id(models), "", "", "", "name", "asc")
+            .unwrap();
+        assert_eq!(in_models.len(), 1);
+        assert_eq!(in_models[0].folder_id, Some(models));
+
+        let _ = fs::remove_dir_all(data.parent().unwrap());
+    }

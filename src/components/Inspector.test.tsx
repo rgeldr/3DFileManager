@@ -244,3 +244,56 @@ describe("inspector preview splitter", () => {
     expect(screen.queryByRole("separator", { name: "Resize preview" })).toBeNull();
   });
 });
+
+describe("inspector folder", () => {
+  it("does not label an unloaded folder as Library root", () => {
+    render(
+      <ThemeProvider>
+        <Inspector
+          file={{ ...file(), folderId: 42 }}
+          folders={[]}
+          creators={[]}
+          knownTags={[]}
+          previewHeight={240}
+          onPreviewHeight={() => undefined}
+          pinned
+          onPinnedChange={() => undefined}
+          onSave={() => undefined}
+          onDelete={() => undefined}
+        />
+      </ThemeProvider>,
+    );
+    const select = screen.getByLabelText("Folder") as HTMLSelectElement;
+    expect(select.value).toBe("42");
+    expect(select.selectedOptions[0]?.textContent).toBe("Folder not in the list");
+  });
+
+  it("shows the folder path once that folder is loaded", () => {
+    render(
+      <ThemeProvider>
+        <Inspector
+          file={{ ...file(), folderId: 42 }}
+          folders={[{
+            id: 42,
+            parentId: 7,
+            name: "Dire Wolf",
+            relpath: "Toys/Articulated Toys/Flexi Animals/Dire Wolf",
+            sortOrder: 0,
+          }]}
+          creators={[]}
+          knownTags={[]}
+          previewHeight={240}
+          onPreviewHeight={() => undefined}
+          pinned
+          onPinnedChange={() => undefined}
+          onSave={() => undefined}
+          onDelete={() => undefined}
+        />
+      </ThemeProvider>,
+    );
+    const select = screen.getByLabelText("Folder") as HTMLSelectElement;
+    expect(select.selectedOptions[0]?.textContent).toBe(
+      "Toys/Articulated Toys/Flexi Animals/Dire Wolf",
+    );
+  });
+});

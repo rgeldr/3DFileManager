@@ -315,6 +315,9 @@ export function useLibrary() {
       setImportTagText("");
       setSummary(result);
       if (result.importedIds.length === 1) setSelected(result.importedIds);
+      // An archive adds a folder named after the zip. The file list comes from
+      // the catalog, but the sidebar and grid folders come from this list.
+      await reloadTree();
       await refreshLists();
     } catch (err) {
       setError(String(err));
@@ -324,7 +327,7 @@ export function useLibrary() {
       setBusy(null);
       setProgress(null);
     }
-  }, [refreshLists, targetFolderId]);
+  }, [refreshLists, reloadTree, targetFolderId]);
   runImportRef.current = runImport;
 
   const dialogOpen = Boolean(

@@ -1,7 +1,7 @@
 import { Modal } from "./Modal";
 import type { LibraryModel } from "../../hooks/useLibrary";
 import { api } from "../../api";
-import { importMetaPayload } from "../../lib/importMeta";
+import { importMetaPayload, tagsWithPending } from "../../lib/importMeta";
 
 export function ImportSummaryDialog({ app }: { app: LibraryModel }) {
   const { creators, tags, summary, setSummary, importCreator, setImportCreator, importTags, setImportTags, importTagText, setImportTagText, setError, refreshLists, runDiskOp } = app;
@@ -76,7 +76,7 @@ export function ImportSummaryDialog({ app }: { app: LibraryModel }) {
                   const ids = summary.importedIds;
                   void (async () => {
                     try {
-                      const payload = importMetaPayload(ids, importCreator, importTags);
+                      const payload = importMetaPayload(ids, importCreator, tagsWithPending(importTags, importTagText));
                       if (payload) {
                         await api.applyBulkMeta(payload.ids, payload.creator, payload.tags);
                         await refreshLists();
@@ -97,7 +97,7 @@ export function ImportSummaryDialog({ app }: { app: LibraryModel }) {
                     const ids = summary.importedIds;
                     void (async () => {
                       try {
-                        const payload = importMetaPayload(ids, importCreator, importTags);
+                        const payload = importMetaPayload(ids, importCreator, tagsWithPending(importTags, importTagText));
                         if (payload) {
                           await api.applyBulkMeta(payload.ids, payload.creator, payload.tags);
                           await refreshLists();
