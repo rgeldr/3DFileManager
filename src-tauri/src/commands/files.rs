@@ -54,6 +54,8 @@ struct ListFilesArgs {
     #[serde(default)]
     exts: Vec<String>,
     sort: String,
+    #[serde(default = "default_sort_direction")]
+    sort_direction: String,
     #[serde(default)]
     limit: Option<u32>,
     #[serde(default)]
@@ -64,11 +66,16 @@ fn default_tag_match() -> String {
     "any".into()
 }
 
+fn default_sort_direction() -> String {
+    "asc".into()
+}
+
 fn folder_filter(folder: &str, folder_id: Option<i64>) -> Result<FolderFilter, String> {
     match folder {
         "all" => Ok(FolderFilter::All),
         "root" => Ok(FolderFilter::Root),
         "id" => Ok(FolderFilter::Id(folder_id.ok_or("Missing folder id")?)),
+        "subtree" => Ok(FolderFilter::Subtree(folder_id.ok_or("Missing folder id")?)),
         _ => Err("Unknown folder filter.".into()),
     }
 }
@@ -99,6 +106,7 @@ async fn list_files(app: AppHandle, args: ListFilesArgs) -> Result<Vec<db::FileR
             tag_match,
             exts: &ext_refs,
             sort: &args.sort,
+            sort_direction: &args.sort_direction,
             limit: args.limit,
             offset: args.offset,
         })
@@ -272,12 +280,25 @@ async fn set_creator_under_folder(
     .await
 }
 
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct ListCreatorsArgs {
+    #[serde(default)]
+    folder: String,
+    folder_id: Option<i64>,
+}
+
 #[tauri::command]
-async fn list_creators(app: AppHandle) -> Result<Vec<String>, String> {
+async fn list_creators(app: AppHandle, args: ListCreatorsArgs) -> Result<Vec<String>, String> {
     let db = app.state::<AppState>().db.clone();
     off_ui("list_creators", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.list_creators()
+        let filter = if args.folder.is_empty() {
+            FolderFilter::All
+        } else {
+            folder_filter(&args.folder, args.folder_id)?
+        };
+        db.list_creators(filter)
     })
     .await
 }

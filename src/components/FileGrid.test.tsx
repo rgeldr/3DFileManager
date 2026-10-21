@@ -1,4 +1,5 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { FileRow } from "../types";
 import { FileGrid, LazyThumb } from "./FileGrid";
@@ -32,6 +33,7 @@ function file(overrides: Partial<FileRow>): FileRow {
     notes: "",
     sourceArchive: null,
     importedAt: 1,
+    mtime: 1,
     thumbStatus: "ok",
     missing: false,
     tags: [],
@@ -94,24 +96,128 @@ describe("LazyThumb", () => {
   });
 });
 
+const defaultSort = { field: "name" as const, direction: "asc" as const };
+
+function gridBase(overrides: Record<string, unknown> = {}) {
+  return {
+    files: [] as FileRow[],
+    folders: [],
+    view: "large" as const,
+    sort: defaultSort,
+    selected: [] as number[],
+    previewIconsEnabled: false,
+    scrollRootRef: { current: null as HTMLDivElement | null },
+    onSelect: () => undefined,
+    onSelectionChange: () => undefined,
+    ...overrides,
+  };
+}
+
 describe("FileGrid", () => {
   it("shows a filter message when the tag filter matches nothing", () => {
     const scroller = document.createElement("div");
     document.body.appendChild(scroller);
     const view = render(
       <FileGrid
-        files={[]}
-        emptyMessage="No files match the selected tags"
-        gridSize="large"
-        selected={[]}
-        previewIconsEnabled={false}
-        scrollRootRef={{ current: scroller }}
-        onSelect={() => undefined}
-        onSelectionChange={() => undefined}
+        {...gridBase({
+          emptyMessage: "No files match the selected tags",
+          scrollRootRef: { current: scroller },
+        })}
       />,
       { container: scroller },
     );
     expect(view.container.textContent).toContain("No files match the selected tags");
+    expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
+    view.unmount();
+    scroller.remove();
+  });
+
+  it("offers to clear file type and tag filters only when that action is provided", () => {
+    const onClearFilters = vi.fn();
+    for (const mode of ["medium", "list", "details"] as const) {
+      const scroller = document.createElement("div");
+      document.body.appendChild(scroller);
+      const emptyView = render(
+        <FileGrid
+          {...gridBase({
+            files: [],
+            emptyMessage: "No files match the selected types",
+            scrollRootRef: { current: scroller },
+            view: mode,
+            onClearFilters,
+          })}
+        />,
+        { container: scroller },
+      );
+      expect(screen.getByRole("button", { name: "Clear filters" })).toBeTruthy();
+      expect(screen.getByText("No files match the selected types")).toBeTruthy();
+      emptyView.unmount();
+      scroller.remove();
+    }
+    const scroller = document.createElement("div");
+    document.body.appendChild(scroller);
+    const props = gridBase({
+      files: [],
+      emptyMessage: "No files match the selected types",
+      scrollRootRef: { current: scroller },
+      onClearFilters,
+    });
+    const view = render(<FileGrid {...props} />, { container: scroller });
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(onClearFilters).toHaveBeenCalledTimes(1);
+
+    view.rerender(<FileGrid {...props} files={[file({ id: 1 })]} />);
+    expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
+    view.unmount();
+    scroller.remove();
+  });
+
+  it("clears type and tag state when the empty-grid button is pressed inside the marquee scroller", () => {
+    const scroller = document.createElement("div");
+    scroller.className = "grid-wrap";
+    sizeScroller(scroller, 0);
+    document.body.appendChild(scroller);
+    const scrollRootRef = { current: scroller };
+
+    function Host() {
+      const [typeIds, setTypeIds] = useState(["chitubox"]);
+      const [tagIds, setTagIds] = useState([7]);
+      const filtering = typeIds.length > 0 || tagIds.length > 0;
+      return (
+        <FileGrid
+          {...gridBase({
+            files: [] as FileRow[],
+            folders: [],
+            emptyMessage: filtering
+              ? "No files match the selected types"
+              : "This folder is empty. Drop files here to import them.",
+            scrollRootRef,
+            onClearFilters: filtering
+              ? () => {
+                  setTypeIds([]);
+                  setTagIds([]);
+                }
+              : undefined,
+          })}
+        />
+      );
+    }
+
+    const view = render(<Host />, { container: scroller });
+    const button = screen.getByRole("button", { name: "Clear filters" });
+    const down = new PointerEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      pointerId: 1,
+      clientX: 8,
+      clientY: 8,
+    });
+    button.dispatchEvent(down);
+    // A canceled pointerdown suppresses the click, which is what the Tauri webview does.
+    if (!down.defaultPrevented) fireEvent.click(button);
+    expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
+    expect(screen.getByText("This folder is empty. Drop files here to import them.")).toBeTruthy();
     view.unmount();
     scroller.remove();
   });
@@ -131,15 +237,7 @@ describe("FileGrid", () => {
     document.body.appendChild(scroller);
     const ref = { current: scroller };
     const view = render(
-      <FileGrid
-        files={files}
-        gridSize="large"
-        selected={[]}
-        previewIconsEnabled={false}
-        scrollRootRef={ref}
-        onSelect={() => undefined}
-        onSelectionChange={() => undefined}
-      />,
+      <FileGrid {...gridBase({ files, scrollRootRef: ref })} />,
       { container: scroller },
     );
     const tiles = view.container.querySelectorAll("[data-file-id]");
@@ -171,15 +269,7 @@ describe("FileGrid", () => {
     document.body.appendChild(scroller);
     const ref = { current: scroller };
     const view = render(
-      <FileGrid
-        files={files}
-        gridSize="large"
-        selected={[]}
-        previewIconsEnabled={false}
-        scrollRootRef={ref}
-        onSelect={() => undefined}
-        onSelectionChange={() => undefined}
-      />,
+      <FileGrid {...gridBase({ files, scrollRootRef: ref })} />,
       { container: scroller },
     );
     expect(view.container.querySelector("[data-file-id]")?.getAttribute("data-file-id")).toBe("1");
@@ -193,6 +283,91 @@ describe("FileGrid", () => {
     });
     expect(view.container.querySelector("[data-file-id]")?.getAttribute("data-file-id")).toBe("8");
     expect(scroller.classList.contains("grid-wrap")).toBe(true);
+    view.unmount();
+    scroller.remove();
+  });
+
+  it("shows a folder icon in grid tiles with the name only below the thumb", () => {
+    const scroller = document.createElement("div");
+    sizeScroller(scroller, 0);
+    document.body.appendChild(scroller);
+    const view = render(
+      <FileGrid
+        {...gridBase({
+          folders: [{ id: 1, name: "Bases and Toppers", parentId: null }],
+          scrollRootRef: { current: scroller },
+        })}
+      />,
+      { container: scroller },
+    );
+    const tile = view.container.querySelector(".folder-tile");
+    expect(tile?.querySelector("svg.folder-icon")).toBeTruthy();
+    expect(tile?.querySelector(".thumb")?.textContent).toBe("");
+    expect(tile?.querySelector(".tile-name")?.textContent).toBe("Bases and Toppers");
+    view.unmount();
+    scroller.remove();
+  });
+
+  it("shows folder icon and name once in list view", () => {
+    const scroller = document.createElement("div");
+    sizeScroller(scroller, 0);
+    document.body.appendChild(scroller);
+    const view = render(
+      <FileGrid
+        {...gridBase({
+          view: "list",
+          folders: [{ id: 1, name: "Terrain", parentId: null }],
+          scrollRootRef: { current: scroller },
+        })}
+      />,
+      { container: scroller },
+    );
+    const row = view.container.querySelector("[data-folder-id='1']");
+    expect(row?.querySelector("svg.folder-icon")).toBeTruthy();
+    expect(row?.textContent).toBe("Terrain");
+    view.unmount();
+    scroller.remove();
+  });
+
+  it("renders five aligned columns in details header and rows", () => {
+    const files = [
+      file({
+        id: 1,
+        sortName: "Agave",
+        ext: "stl",
+        sizeBytes: 55_000_000,
+        mtime: 1_632_153_600,
+        importedAt: 1_760_000_000,
+        creator: "Epic Basing",
+      }),
+    ];
+    const scroller = document.createElement("div");
+    sizeScroller(scroller, 0);
+    document.body.appendChild(scroller);
+    const view = render(
+      <FileGrid
+        {...gridBase({
+          view: "details",
+          files,
+          scrollRootRef: { current: scroller },
+        })}
+      />,
+      { container: scroller },
+    );
+    const headers = view.container.querySelectorAll(".details-header-cell");
+    expect(headers).toHaveLength(5);
+    expect(headers[0]?.textContent).toContain("Name");
+    expect(headers[1]?.textContent).toContain("Size");
+    expect(headers[2]?.textContent).toContain("Date modified");
+    expect(headers[3]?.textContent).toContain("Date added");
+    expect(headers[4]?.textContent).toContain("Creator");
+
+    const row = view.container.querySelector(".details-row");
+    const cells = row?.querySelectorAll(":scope > *");
+    expect(cells).toHaveLength(5);
+    expect(cells?.[0]?.textContent).toContain("Agave.stl");
+    expect(cells?.[1]?.textContent).toMatch(/MB|KB/);
+    expect(cells?.[4]?.textContent).toBe("Epic Basing");
     view.unmount();
     scroller.remove();
   });

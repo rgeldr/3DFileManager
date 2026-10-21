@@ -31,18 +31,18 @@
         assert_eq!(count, 2);
 
         let parent_row = db
-            .list_files(FolderFilter::Id(parent.id), "", "", "", "name")
+            .list_files(FolderFilter::Id(parent.id), "", "", "", "name", "asc")
             .unwrap();
         assert_eq!(parent_row[0].tags, vec!["existing", "newtag"]);
 
         let child_row = db
-            .list_files(FolderFilter::Id(child.id), "", "", "", "name")
+            .list_files(FolderFilter::Id(child.id), "", "", "", "name", "asc")
             .unwrap();
         assert_eq!(child_row[0].id, in_child);
         assert_eq!(child_row[0].tags, vec!["newtag"]);
 
         let sibling_row = db
-            .list_files(FolderFilter::Id(sibling.id), "", "", "", "name")
+            .list_files(FolderFilter::Id(sibling.id), "", "", "", "name", "asc")
             .unwrap();
         assert_eq!(sibling_row[0].tags, Vec::<String>::new());
         assert_eq!(in_sibling, sibling_row[0].id);
@@ -70,7 +70,7 @@
             .unwrap();
         assert_eq!(direct, 1);
         let creator = |id| {
-            db.list_files(FolderFilter::All, "", "", "", "name")
+            db.list_files(FolderFilter::All, "", "", "", "name", "asc")
                 .unwrap()
                 .into_iter()
                 .find(|file| file.id == id)
@@ -107,7 +107,7 @@
             Some(&["Terrain".into(), "FDM".into()]),
         )
         .unwrap();
-        let rows = db.list_files(FolderFilter::All, "", "", "", "name").unwrap();
+        let rows = db.list_files(FolderFilter::All, "", "", "", "name", "asc").unwrap();
         let imported_row = rows.iter().find(|file| file.id == imported).unwrap();
         let other_row = rows.iter().find(|file| file.id == other).unwrap();
         assert_eq!(imported_row.creator, "Ada");
@@ -115,7 +115,7 @@
         assert_eq!(other_row.creator, "");
         assert_eq!(other_row.tags, vec!["keep"]);
         db.apply_import_meta(&[imported], Some("  "), Some(&[])).unwrap();
-        let again = db.list_files(FolderFilter::All, "", "", "", "name").unwrap();
+        let again = db.list_files(FolderFilter::All, "", "", "", "name", "asc").unwrap();
         assert_eq!(again.iter().find(|file| file.id == imported).unwrap().creator, "Ada");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -148,10 +148,41 @@
             .unwrap();
         assert_eq!(gone_tags, 0);
 
-        let rows = db.list_files(FolderFilter::All, "", "", "", "name").unwrap();
+        let rows = db.list_files(FolderFilter::All, "", "", "", "name", "asc").unwrap();
         let tags_of = |id: i64| rows.iter().find(|file| file.id == id).unwrap().tags.clone();
         assert_eq!(tags_of(first), vec!["existing", "newtag"]);
         assert_eq!(tags_of(second), vec!["newtag"]);
         assert_eq!(tags_of(unlisted), Vec::<String>::new());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn subtree_filter_includes_nested_files_and_scoped_creators() {
+        let (dir, db) = scratch_db("subtree");
+        let parent = db.create_folder(None, "Parent", 0).unwrap();
+        let child = db.create_folder(Some(parent.id), "Child", 0).unwrap();
+        let sibling = db.create_folder(None, "Sibling", 0).unwrap();
+        db.insert_file("a.stl", "Parent/a.stl", "stl", 1, "sha1", 1, Some(parent.id), None)
+            .unwrap();
+        db.insert_file("b.stl", "Parent/Child/b.stl", "stl", 1, "sha2", 1, Some(child.id), None)
+            .unwrap();
+        db.insert_file("c.stl", "Sibling/c.stl", "stl", 1, "sha3", 1, Some(sibling.id), None)
+            .unwrap();
+        db.conn
+            .execute("UPDATE files SET creator = 'Alpha' WHERE stored_relpath = 'Parent/a.stl'", [])
+            .unwrap();
+        db.conn
+            .execute("UPDATE files SET creator = 'Beta' WHERE stored_relpath = 'Parent/Child/b.stl'", [])
+            .unwrap();
+        db.conn
+            .execute("UPDATE files SET creator = 'Gamma' WHERE stored_relpath = 'Sibling/c.stl'", [])
+            .unwrap();
+
+        let subtree = db
+            .list_files(FolderFilter::Subtree(parent.id), "", "", "", "name", "asc")
+            .unwrap();
+        assert_eq!(subtree.len(), 2);
+        let scoped = db.list_creators(FolderFilter::Subtree(parent.id)).unwrap();
+        assert_eq!(scoped, vec!["Alpha", "Beta"]);
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -39,6 +39,7 @@ pub struct FileRow {
     pub notes: String,
     pub source_archive: Option<String>,
     pub imported_at: i64,
+    pub mtime: i64,
     pub thumb_status: String,
     pub missing: bool,
     pub tags: Vec<String>,

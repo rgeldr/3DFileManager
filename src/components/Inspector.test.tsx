@@ -31,6 +31,7 @@ function file(): FileRow {
     notes: "",
     sourceArchive: null,
     importedAt: 1,
+    mtime: 1,
     thumbStatus: "ok",
     missing: false,
     tags: [],

@@ -149,15 +149,20 @@ impl AppDb {
         Ok(names.join(" "))
     }
 
-    pub fn list_creators(&self) -> Result<Vec<String>, String> {
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT DISTINCT creator FROM files WHERE creator <> '' AND missing = 0 ORDER BY creator COLLATE NOCASE",
-            )
-            .map_err(|e| e.to_string())?;
+    pub fn list_creators(&self, folder: FolderFilter) -> Result<Vec<String>, String> {
+        let mut sql = String::from(
+            "SELECT DISTINCT f.creator FROM files f WHERE f.creator <> '' AND f.missing = 0",
+        );
+        let mut param_values: Vec<String> = Vec::new();
+        push_folder_scope(&mut sql, &mut param_values, folder);
+        sql.push_str(" ORDER BY f.creator COLLATE NOCASE");
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let params_ref: Vec<&dyn rusqlite::ToSql> = param_values
+            .iter()
+            .map(|s| s as &dyn rusqlite::ToSql)
+            .collect();
         let rows = stmt
-            .query_map([], |r| r.get(0))
+            .query_map(params_ref.as_slice(), |r| r.get(0))
             .map_err(|e| e.to_string())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
@@ -181,14 +186,7 @@ impl AppDb {
             sql.push_str(" AND f.id IN (SELECT rowid FROM files_fts WHERE files_fts MATCH ?)");
             param_values.push(match_q.clone());
         }
-        match folder {
-            FolderFilter::All => {}
-            FolderFilter::Root => sql.push_str(" AND f.folder_id IS NULL"),
-            FolderFilter::Id(id) => {
-                sql.push_str(" AND f.folder_id = ?");
-                param_values.push(id.to_string());
-            }
-        }
+        push_folder_scope(&mut sql, &mut param_values, folder);
         if !creator.is_empty() {
             sql.push_str(" AND f.creator = ? COLLATE NOCASE");
             param_values.push(creator.to_string());

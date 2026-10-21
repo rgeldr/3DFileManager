@@ -17,7 +17,10 @@ async fn set_theme(app: AppHandle, theme: String) -> Result<(), String> {
 async fn set_grid_size(app: AppHandle, grid_size: String) -> Result<(), String> {
     let db = app.state::<AppState>().db.clone();
     off_ui("set_grid_size", move || {
-        if !matches!(grid_size.as_str(), "medium" | "large" | "extraLarge") {
+        if !matches!(
+            grid_size.as_str(),
+            "medium" | "large" | "extraLarge" | "list" | "details"
+        ) {
             return Err("Unknown grid size.".into());
         }
         let db = db.lock().map_err(|e| e.to_string())?;
@@ -54,6 +57,21 @@ async fn set_inspector_pinned(app: AppHandle, inspector_pinned: bool) -> Result<
     off_ui("set_inspector_pinned", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         db.set_inspector_pinned(inspector_pinned)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn set_search_scope(app: AppHandle, search_scope: String) -> Result<(), String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("set_search_scope", move || {
+        if !matches!(search_scope.as_str(), "library" | "folder") {
+            return Err("Unknown search scope.".into());
+        }
+        let db = db.lock().map_err(|e| e.to_string())?;
+        let mut settings = db.settings();
+        settings.search_scope = search_scope;
+        db.save_settings(&settings)
     })
     .await
 }

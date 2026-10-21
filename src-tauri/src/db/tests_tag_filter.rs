@@ -46,6 +46,7 @@
                 tag_match: TagMatch::Any,
                 exts: &[],
                 sort: "name",
+                sort_direction: "asc",
                 limit: None,
                 offset: 0,
             })
@@ -62,6 +63,7 @@
                 tag_match: TagMatch::All,
                 exts: &[],
                 sort: "name",
+                sort_direction: "asc",
                 limit: None,
                 offset: 0,
             })
@@ -78,6 +80,7 @@
                 tag_match: TagMatch::Any,
                 exts: &[],
                 sort: "name",
+                sort_direction: "asc",
                 limit: Some(1),
                 offset: 1,
             })
@@ -94,6 +97,7 @@
                 tag_match: TagMatch::Any,
                 exts: &[],
                 sort: "name",
+                sort_direction: "asc",
                 limit: None,
                 offset: 0,
             })
@@ -110,6 +114,7 @@
                 tag_match: TagMatch::Any,
                 exts: &[],
                 sort: "name",
+                sort_direction: "asc",
                 limit: None,
                 offset: 0,
             })
@@ -129,13 +134,14 @@
                 tag_match: TagMatch::All,
                 exts: &[],
                 sort: "name",
+                sort_direction: "asc",
                 limit: None,
                 offset: 0,
             })
             .unwrap();
         assert_eq!(ids(deduped), vec![both]);
 
-        let in_folder = db.list_files(FolderFilter::Id(models.id), "", "", "", "name").unwrap();
+        let in_folder = db.list_files(FolderFilter::Id(models.id), "", "", "", "name", "asc").unwrap();
         assert!(in_folder.iter().any(|row| row.id == plain));
         assert!(!in_folder.iter().any(|row| row.id == sibling));
         let _ = std::fs::remove_dir_all(&dir);
@@ -177,6 +183,7 @@
                 tag_match: mode,
                 exts: &[],
                 sort: "name",
+                sort_direction: "asc",
                 limit: None,
                 offset: 0,
             })

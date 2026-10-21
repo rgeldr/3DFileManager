@@ -69,6 +69,7 @@ pub fn run() {
             move_library_root,
             set_theme,
             set_grid_size,
+            set_search_scope,
             set_pane_widths,
             set_preview_height,
             set_inspector_pinned,

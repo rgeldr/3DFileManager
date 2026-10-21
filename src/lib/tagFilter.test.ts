@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  centerSubfolders,
   filterTagOptions,
   gridEmptyMessage,
   libraryListScope,
   libraryRefreshKey,
   moveTagHighlight,
+  nextSort,
   tagFilterBadge,
   tagFilterKeyAction,
   toggleTagId,
 } from "./tagFilter";
+import type { FolderRow } from "../types";
 import type { TagCount } from "../types";
 
 const tags: TagCount[] = [
@@ -46,17 +49,17 @@ describe("libraryListScope", () => {
   const folder = { type: "folder" as const, id: 9 };
 
   it("searches the whole library for a tag filter and leaves a blank creator blank", () => {
-    expect(libraryListScope({ browse: folder, query: "", creator: "", selectedTagCount: 1, selectedTypeCount: 0 })).toEqual({
+    expect(libraryListScope({ browse: folder, query: "", creator: "", selectedTagCount: 1, selectedTypeCount: 0, scope: "library" })).toEqual({
       folder: "all",
       folderId: null,
       creator: "",
     });
-    expect(libraryListScope({ browse: folder, query: "orc", creator: "Artisan Guild", selectedTagCount: 2, selectedTypeCount: 1 })).toEqual({
+    expect(libraryListScope({ browse: folder, query: "orc", creator: "Artisan Guild", selectedTagCount: 2, selectedTypeCount: 1, scope: "library" })).toEqual({
       folder: "all",
       folderId: null,
       creator: "Artisan Guild",
     });
-    expect(libraryListScope({ browse: folder, query: "", creator: "", selectedTagCount: 0, selectedTypeCount: 1 })).toEqual({
+    expect(libraryListScope({ browse: folder, query: "", creator: "", selectedTagCount: 0, selectedTypeCount: 1, scope: "library" })).toEqual({
       folder: "all",
       folderId: null,
       creator: "",
@@ -64,12 +67,46 @@ describe("libraryListScope", () => {
   });
 
   it("keeps an unfiltered browse inside the current folder", () => {
-    expect(libraryListScope({ browse: folder, query: "", creator: "", selectedTagCount: 0, selectedTypeCount: 0 })).toEqual({
+    expect(libraryListScope({ browse: folder, query: "", creator: "", selectedTagCount: 0, selectedTypeCount: 0, scope: "library" })).toEqual({
       folder: "id",
       folderId: 9,
       creator: "",
     });
-    expect(libraryListScope({ browse: { type: "root" }, query: "   ", creator: "", selectedTagCount: 0, selectedTypeCount: 0 }).folder).toBe("root");
+    expect(libraryListScope({ browse: { type: "root" }, query: "   ", creator: "", selectedTagCount: 0, selectedTypeCount: 0, scope: "library" }).folder).toBe("root");
+  });
+
+  it("limits filtered search to the folder subtree when scope is folder", () => {
+    const folder = { type: "folder" as const, id: 9 };
+    expect(libraryListScope({ browse: folder, query: "orc", creator: "", selectedTagCount: 0, selectedTypeCount: 0, scope: "folder" })).toEqual({
+      folder: "subtree",
+      folderId: 9,
+      creator: "",
+    });
+    expect(libraryListScope({ browse: { type: "root" }, query: "orc", creator: "", selectedTagCount: 0, selectedTypeCount: 0, scope: "folder" }).folder).toBe("all");
+  });
+});
+
+describe("centerSubfolders", () => {
+  const folders: FolderRow[] = [
+    { id: 1, parentId: null, name: "Beta", relpath: "Beta", sortOrder: 0 },
+    { id: 2, parentId: null, name: "alpha", relpath: "alpha", sortOrder: 1 },
+    { id: 3, parentId: 1, name: "Nested", relpath: "Beta/Nested", sortOrder: 0 },
+  ];
+
+  it("lists direct children at the library root in name order", () => {
+    expect(centerSubfolders({ folders, browse: { type: "root" }, query: "", creator: "", selectedTagCount: 0, selectedTypeCount: 0 }).map((f) => f.name)).toEqual(["alpha", "Beta"]);
+  });
+
+  it("hides subfolders while any filter is active", () => {
+    expect(centerSubfolders({ folders, browse: { type: "root" }, query: "x", creator: "", selectedTagCount: 0, selectedTypeCount: 0 })).toEqual([]);
+    expect(centerSubfolders({ folders, browse: { type: "folder", id: 1 }, query: "x", creator: "", selectedTagCount: 0, selectedTypeCount: 0 })).toEqual([]);
+  });
+});
+
+describe("nextSort", () => {
+  it("flips direction on the active field and resets on a new field", () => {
+    expect(nextSort({ field: "name", direction: "asc" }, "name")).toEqual({ field: "name", direction: "desc" });
+    expect(nextSort({ field: "name", direction: "asc" }, "size")).toEqual({ field: "size", direction: "desc" });
   });
 });
 
@@ -81,13 +118,15 @@ describe("libraryRefreshKey", () => {
     selectedTagIds: [2, 1],
     selectedTypeIds: ["jpg", "stl"],
     tagMatch: "any",
-    sort: "name",
+    sort: { field: "name" as const, direction: "asc" as const },
+    scope: "library" as const,
   };
 
   it("stays the same until a list input changes", () => {
     expect(libraryRefreshKey(base)).toBe(libraryRefreshKey({ ...base, selectedTagIds: [1, 2], selectedTypeIds: ["stl", "jpg"] }));
     expect(libraryRefreshKey(base)).not.toBe(libraryRefreshKey({ ...base, browse: { type: "folder", id: 5 } }));
     expect(libraryRefreshKey(base)).not.toBe(libraryRefreshKey({ ...base, query: "lion" }));
+    expect(libraryRefreshKey(base)).not.toBe(libraryRefreshKey({ ...base, scope: "folder" }));
   });
 });
 

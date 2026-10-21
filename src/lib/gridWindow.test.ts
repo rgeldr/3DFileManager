@@ -11,6 +11,9 @@ import {
   normalizeRect,
   rowStride,
   visibleGridWindow,
+  visibleRowWindow,
+  rowHitIndices,
+  ROW_PX,
 } from "./gridWindow";
 
 describe("visibleGridWindow", () => {
@@ -110,5 +113,41 @@ describe("marqueeHitIndices", () => {
   it("unions hits when the drag adds to the current selection", () => {
     expect(mergeSelection([1, 2], [2, 3], true)).toEqual([1, 2, 3]);
     expect(mergeSelection([1, 2], [3], false)).toEqual([3]);
+  });
+});
+
+describe("visibleRowWindow", () => {
+  it("windows row lists with a fixed stride", () => {
+    const window = visibleRowWindow({ count: 100, height: 96, scrollTop: ROW_PX * 2 });
+    expect(window.start).toBe(0);
+    expect(window.end).toBeGreaterThan(2);
+    expect(window.totalHeight).toBe(100 * ROW_PX);
+  });
+
+  it("subtracts rowOffset from scrollTop when computing the start row", () => {
+    const without = visibleRowWindow({
+      count: 100,
+      height: 96,
+      scrollTop: ROW_PX * 3,
+      overscanRows: 0,
+    });
+    expect(without.start).toBe(3);
+    expect(without.padTop).toBe(3 * ROW_PX);
+
+    const withOffset = visibleRowWindow({
+      count: 100,
+      height: 96,
+      scrollTop: ROW_PX * 3,
+      overscanRows: 0,
+      rowOffset: ROW_PX,
+    });
+    expect(withOffset.start).toBe(2);
+    expect(withOffset.padTop).toBe(2 * ROW_PX);
+  });
+});
+
+describe("rowHitIndices", () => {
+  it("returns row indexes touched by a marquee rect", () => {
+    expect(rowHitIndices({ count: 10, rect: normalizeRect(0, ROW_PX * 2, 100, ROW_PX * 4) })).toEqual([2, 3, 4]);
   });
 });

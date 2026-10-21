@@ -26,6 +26,7 @@ struct FileSeed {
     notes: String,
     source_archive: Option<String>,
     imported_at: i64,
+    mtime: i64,
     thumb_status: String,
     missing: bool,
 }
@@ -53,6 +54,7 @@ pub enum FolderFilter {
     All,
     Root,
     Id(i64),
+    Subtree(i64),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +89,7 @@ pub struct FileQuery<'a> {
     pub tag_match: TagMatch,
     pub exts: &'a [&'a str],
     pub sort: &'a str,
+    pub sort_direction: &'a str,
     pub limit: Option<u32>,
     pub offset: u32,
 }
