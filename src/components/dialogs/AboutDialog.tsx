@@ -17,7 +17,19 @@ function formatAboutSize(bytes: number): string {
   return `${value.toFixed(1)} ${units[unit]}`;
 }
 
-export function AboutDialog({ app }: { app: LibraryModel }) {
+export function AboutDialog({
+  app,
+  updates,
+}: {
+  app: LibraryModel;
+  updates: {
+    busy: boolean;
+    message: string | null;
+    canInstall: boolean;
+    onCheck: () => void;
+    onInstall: () => void;
+  };
+}) {
   const { aboutOpen, setAboutOpen, aboutVersion, aboutVersionFailed, setError } = app;
   const [stats, setStats] = useState<LibraryStats | null>(null);
 
@@ -66,7 +78,16 @@ export function AboutDialog({ app }: { app: LibraryModel }) {
             <p>Files: {stats ? stats.fileCount : "…"}</p>
             <p>Folders: {stats ? stats.folderCount : "…"}</p>
             <p>Size on disk: {stats ? formatAboutSize(stats.sizeBytes) : "…"}</p>
+            {updates.message ? <p role="status">{updates.message}</p> : null}
             <div className="row">
+              <button type="button" onClick={updates.onCheck} disabled={updates.busy}>
+                Check for updates
+              </button>
+              {updates.canInstall ? (
+                <button type="button" onClick={updates.onInstall} disabled={updates.busy}>
+                  Install
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {

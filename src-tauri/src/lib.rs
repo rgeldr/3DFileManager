@@ -12,6 +12,7 @@ mod preview;
 mod relocate;
 mod rescan;
 mod settings;
+mod updater_version;
 
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
@@ -39,6 +40,14 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_drag::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(
+            tauri_plugin_updater::Builder::new()
+                .default_version_comparator(|current, release| {
+                    updater_version::release_is_newer(&current, &release.version)
+                })
+                .build(),
+        )
         .setup(|app| {
             let dir = data_dir();
             let db = db::open(&dir).expect("open database");
