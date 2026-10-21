@@ -33,6 +33,65 @@
     }
 
     #[test]
+    fn fts_trigger_tracks_search_columns_only() {
+        let dir = std::env::temp_dir().join(format!(
+            "filelib-fts-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        {
+            let db = open(&dir).unwrap();
+            db.conn
+                .execute_batch(
+                    "DROP TRIGGER IF EXISTS files_au;
+                     CREATE TRIGGER files_au AFTER UPDATE ON files BEGIN
+                         INSERT INTO files_fts(files_fts, rowid, sort_name, original_name, creator, notes, tags_text)
+                         VALUES ('delete', old.id, old.sort_name, old.original_name, old.creator, old.notes, old.tags_text);
+                         INSERT INTO files_fts(rowid, sort_name, original_name, creator, notes, tags_text)
+                         VALUES (new.id, new.sort_name, new.original_name, new.creator, new.notes, new.tags_text);
+                     END;",
+                )
+                .unwrap();
+            db.conn.pragma_update(None, "user_version", 2).unwrap();
+        }
+        let db = open(&dir).unwrap();
+        let sql: String = db
+            .conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'files_au'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            sql.contains("UPDATE OF sort_name, original_name, creator, notes, tags_text"),
+            "{sql}"
+        );
+        let id = db
+            .insert_file("Gate.stl", "Gate.stl", "stl", 10, "abc", 1, None, None)
+            .unwrap();
+        db.conn
+            .execute("UPDATE files SET notes = 'beacon' WHERE id = ?1", [id])
+            .unwrap();
+        let found = db
+            .list_files(FolderFilter::All, "beacon", "", "", "name", "asc")
+            .unwrap();
+        assert_eq!(found.len(), 1);
+        db.conn
+            .execute(
+                "UPDATE files SET thumb_status = 'ok', size_bytes = 99, mtime = 5 WHERE id = ?1",
+                [id],
+            )
+            .unwrap();
+        let still = db
+            .list_files(FolderFilter::All, "beacon", "", "", "name", "asc")
+            .unwrap();
+        assert_eq!(still.len(), 1);
+        assert_eq!(still[0].notes, "beacon");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn sort_by_size_mtime_and_date_added() {
         let dir = std::env::temp_dir().join(format!("filelib-sort-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
