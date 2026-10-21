@@ -19,7 +19,7 @@
         assert_eq!(summary.imported_count, 1);
         assert_eq!(summary.recycle_paths.len(), 1);
         let rows = db
-            .list_files(FolderFilter::Id(models), "", "", "", "name")
+            .list_files(FolderFilter::Id(models), "", "", "", "name", "asc")
             .unwrap();
         assert_eq!(rows.len(), 1);
         assert!(!rows[0].sha256.is_empty());
@@ -49,7 +49,7 @@
         assert_eq!(summary.imported_count, 251);
         assert!(db.conn.is_autocommit());
         let rows = db
-            .list_files(FolderFilter::Id(models), "", "", "", "name")
+            .list_files(FolderFilter::Id(models), "", "", "", "name", "asc")
             .unwrap();
         assert_eq!(rows.len(), 251);
         let _ = fs::remove_dir_all(data.parent().unwrap());
@@ -81,7 +81,7 @@
         .unwrap();
         drain_unhashed(&db).unwrap();
         let rows = db
-            .list_files(FolderFilter::Id(models), "", "", "", "name")
+            .list_files(FolderFilter::Id(models), "", "", "", "name", "asc")
             .unwrap();
         assert_eq!(rows.len(), 1);
         let _ = fs::remove_dir_all(data.parent().unwrap());
@@ -124,7 +124,7 @@
             .any(|path| path == &guide.to_string_lossy().to_string()));
         assert!(library.join("Models/Assembly Guide.PDF").is_file());
         let rows = db
-            .list_files(FolderFilter::Id(models), "", "", "", "name")
+            .list_files(FolderFilter::Id(models), "", "", "", "name", "asc")
             .unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].ext, "pdf");
@@ -141,7 +141,7 @@
         assert_eq!(again.duplicate_count, 1);
         assert_eq!(again.unsupported_count, 0);
         assert_eq!(
-            db.list_files(FolderFilter::Id(models), "", "", "", "name")
+            db.list_files(FolderFilter::Id(models), "", "", "", "name", "asc")
                 .unwrap()
                 .len(),
             1
@@ -243,7 +243,7 @@
             .any(|path| path == &note.to_string_lossy().to_string()));
         assert!(library.join("Models/Read Me.TXT").is_file());
         let rows = db
-            .list_files(FolderFilter::Id(models), "", "", "", "name")
+            .list_files(FolderFilter::Id(models), "", "", "", "name", "asc")
             .unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].ext, "txt");
@@ -259,7 +259,7 @@
         assert_eq!(again.imported_count, 0);
         assert_eq!(again.duplicate_count, 1);
         assert_eq!(
-            db.list_files(FolderFilter::Id(models), "", "", "", "name")
+            db.list_files(FolderFilter::Id(models), "", "", "", "name", "asc")
                 .unwrap()
                 .len(),
             1
@@ -364,7 +364,7 @@
         assert_eq!(ghost, "hash_error");
         assert!(!library.join("ghost.stl").exists());
         let rows = db
-            .list_files(FolderFilter::Id(models), "", "", "", "name")
+            .list_files(FolderFilter::Id(models), "", "", "", "name", "asc")
             .unwrap();
         assert!(rows.iter().any(|r| r.original_name == "good.stl"));
         let _ = fs::remove_dir_all(data.parent().unwrap());

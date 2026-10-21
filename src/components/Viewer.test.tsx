@@ -29,6 +29,7 @@ function file(overrides: Partial<FileRow>): FileRow {
     notes: "",
     sourceArchive: null,
     importedAt: 1,
+    mtime: 1,
     thumbStatus: "unavailable",
     missing: false,
     tags: [],

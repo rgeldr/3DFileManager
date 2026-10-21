@@ -23,6 +23,10 @@ fn default_inspector_pinned() -> bool {
     true
 }
 
+fn default_search_scope() -> String {
+    "library".into()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -39,6 +43,8 @@ pub struct Settings {
     pub thumb_retry: u32,
     #[serde(default = "default_inspector_pinned")]
     pub inspector_pinned: bool,
+    #[serde(default = "default_search_scope")]
+    pub search_scope: String,
 }
 
 impl Default for Settings {
@@ -52,6 +58,7 @@ impl Default for Settings {
             preview_height: default_preview_height(),
             thumb_retry: default_thumb_retry(),
             inspector_pinned: default_inspector_pinned(),
+            search_scope: default_search_scope(),
         }
     }
 }
@@ -111,6 +118,7 @@ mod tests {
         assert_eq!(loaded.preview_height, 240);
         assert_eq!(loaded.thumb_retry, 0);
         assert!(loaded.inspector_pinned);
+        assert_eq!(loaded.search_scope, "library");
         let mut next = loaded;
         next.sidebar_width = 360;
         next.inspector_width = 400;

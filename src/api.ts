@@ -22,6 +22,7 @@ export const api = {
   moveLibraryRoot: (path: string) => invoke<DiskOutcome>("move_library_root", { path }),
   setTheme: (theme: string) => invoke<void>("set_theme", { theme }),
   setGridSize: (gridSize: string) => invoke<void>("set_grid_size", { gridSize }),
+  setSearchScope: (searchScope: string) => invoke<void>("set_search_scope", { searchScope }),
   setPaneWidths: (sidebarWidth: number, inspectorWidth: number) =>
     invoke<void>("set_pane_widths", { sidebarWidth, inspectorWidth }),
   setPreviewHeight: (previewHeight: number) =>
@@ -44,6 +45,7 @@ export const api = {
     tagMatch: "any" | "all";
     exts: string[];
     sort: string;
+    sortDirection: string;
   }) => invoke<FileRow[]>("list_files", { args }),
   missingFiles: () => invoke<FileRow[]>("missing_files"),
   removeMissing: () => invoke<void>("remove_missing"),
@@ -65,7 +67,8 @@ export const api = {
     invoke<number>("count_files_for_scope", { folderId, includeSubfolders }),
   setCreatorUnderFolder: (folderId: number | null, creator: string, includeSubfolders: boolean) =>
     invoke<number>("set_creator_under_folder", { folderId, creator, includeSubfolders }),
-  listCreators: () => invoke<string[]>("list_creators"),
+  listCreators: (args?: { folder: string; folderId: number | null }) =>
+    invoke<string[]>("list_creators", { args: args ?? { folder: "", folderId: null } }),
   listTags: () => invoke<string[]>("list_tags"),
   listTagCounts: (args: {
     folder: string;

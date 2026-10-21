@@ -55,6 +55,7 @@
                 tag_match: TagMatch::Any,
                 exts: &["jpg", "jpeg"],
                 sort: "name",
+                sort_direction: "asc",
                 limit: None,
                 offset: 0,
             })
@@ -71,6 +72,7 @@
                 tag_match: TagMatch::Any,
                 exts: &["STL"],
                 sort: "name",
+                sort_direction: "asc",
                 limit: None,
                 offset: 0,
             })
@@ -87,6 +89,7 @@
                 tag_match: TagMatch::Any,
                 exts: &["stl"],
                 sort: "name",
+                sort_direction: "asc",
                 limit: None,
                 offset: 0,
             })
@@ -103,6 +106,7 @@
                 tag_match: TagMatch::Any,
                 exts: &["jpg", "JPEG"],
                 sort: "name",
+                sort_direction: "asc",
                 limit: Some(1),
                 offset: 1,
             })
@@ -119,6 +123,7 @@
                 tag_match: TagMatch::Any,
                 exts: &["exe"],
                 sort: "name",
+                sort_direction: "asc",
                 limit: None,
                 offset: 0,
             })

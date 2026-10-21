@@ -12,6 +12,7 @@ const types: TypeCount[] = [{ id: "stl", label: "stl", exts: ["stl"], fileCount:
 function renderSearch(overrides: Partial<Parameters<typeof LibrarySearch>[0]> = {}) {
   const onQuery = vi.fn();
   const onClear = vi.fn();
+  const onScope = vi.fn();
   const view = render(
     <LibrarySearch
       query=""
@@ -20,6 +21,8 @@ function renderSearch(overrides: Partial<Parameters<typeof LibrarySearch>[0]> = 
       selectedTypeIds={[]}
       tags={tags}
       types={types}
+      scope="library"
+      onScope={onScope}
       onQuery={onQuery}
       onClear={onClear}
       onSelectedTagIds={() => undefined}
@@ -27,7 +30,7 @@ function renderSearch(overrides: Partial<Parameters<typeof LibrarySearch>[0]> = 
       {...overrides}
     />,
   );
-  return { ...view, onQuery, onClear };
+  return { ...view, onQuery, onClear, onScope };
 }
 
 describe("Clear filters", () => {
@@ -48,6 +51,8 @@ describe("Clear filters", () => {
         selectedTypeIds={[]}
         tags={tags}
         types={types}
+        scope="library"
+        onScope={view.onScope}
         onQuery={view.onQuery}
         onClear={view.onClear}
         onSelectedTagIds={() => undefined}
@@ -89,6 +94,8 @@ describe("Clear filters", () => {
           }}
           onSelectedTagIds={setSelectedTagIds}
           onSelectedTypeIds={setSelectedTypeIds}
+          scope="library"
+          onScope={() => undefined}
         />
       );
     }
@@ -111,5 +118,13 @@ describe("Clear filters", () => {
     fireEvent.keyDown(screen.getByLabelText("Search"), { key: "Escape" });
     expect(empty.onQuery).not.toHaveBeenCalled();
     expect(empty.onClear).not.toHaveBeenCalled();
+  });
+});
+
+describe("Search scope", () => {
+  it("calls onScope when the folder radio is selected", () => {
+    const { onScope } = renderSearch({ scope: "library" });
+    fireEvent.click(screen.getByLabelText("Current folder"));
+    expect(onScope).toHaveBeenCalledWith("folder");
   });
 });

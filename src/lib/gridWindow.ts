@@ -101,6 +101,53 @@ export function mergeSelection(base: number[], hits: number[], additive: boolean
   return next;
 }
 
+export const ROW_PX = 32;
+export const DETAILS_HEADER_PX = ROW_PX;
+
+export function visibleRowWindow(input: {
+  count: number;
+  height: number;
+  scrollTop: number;
+  overscanRows?: number;
+  rowOffset?: number;
+}): { start: number; end: number; padTop: number; totalHeight: number } {
+  const overscan = input.overscanRows ?? 8;
+  const offset = input.rowOffset ?? 0;
+  const stride = ROW_PX;
+  const totalHeight = input.count * stride;
+  if (input.count === 0) {
+    return { start: 0, end: 0, padTop: 0, totalHeight: 0 };
+  }
+  if (input.height <= 0) {
+    const end = Math.min(input.count, 24);
+    return { start: 0, end, padTop: 0, totalHeight };
+  }
+  const startRow = Math.max(
+    0,
+    Math.floor(Math.max(0, input.scrollTop - offset) / stride) - overscan,
+  );
+  const visibleRows = Math.ceil(input.height / stride) + overscan * 2;
+  const endRow = Math.min(input.count, startRow + visibleRows);
+  return {
+    start: startRow,
+    end: endRow,
+    padTop: startRow * stride,
+    totalHeight,
+  };
+}
+
+export function rowHitIndices(input: { count: number; rect: GridRect; rowOffset?: number }): number[] {
+  const offset = input.rowOffset ?? 0;
+  if (input.count <= 0 || input.rect.width <= 0 || input.rect.height <= 0) return [];
+  const firstRow = Math.max(0, Math.floor((input.rect.y - offset) / ROW_PX));
+  const lastRow = Math.min(input.count - 1, Math.floor((input.rect.y + input.rect.height - offset) / ROW_PX));
+  const hits: number[] = [];
+  for (let row = firstRow; row <= lastRow; row += 1) {
+    hits.push(row);
+  }
+  return hits;
+}
+
 export function visibleGridWindow(input: {
   count: number;
   width: number;

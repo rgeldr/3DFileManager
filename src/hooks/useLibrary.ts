@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { CheckMenuItem } from "@tauri-apps/api/menu";
 import { api } from "../api";
 import { useTheme } from "../theme/ThemeProvider";
-import type { Browse, DragReport, FileRow, FolderRow, GridSize, ImportSummary, Settings, TagCount, TagMatchMode, TypeCount } from "../types";
+import type { Browse, DragReport, FileRow, FolderRow, ImportSummary, LibrarySort, Settings, TagCount, TagMatchMode, TypeCount, ViewMode } from "../types";
 import { libraryListScope, libraryRefreshKey } from "../lib/tagFilter";
 import { extsForSelectedTypes, mergeTypeCounts } from "../lib/typeFilter";
 import { useLibraryEffects } from "./useLibraryEffects";
@@ -28,8 +28,9 @@ export function useLibrary() {
   const [selectedTypeIds, setSelectedTypeIds] = useState<string[]>([]);
   const [typeCounts, setTypeCounts] = useState<TypeCount[]>(() => mergeTypeCounts([]));
   const [tagMatch, setTagMatch] = useState<TagMatchMode>("any");
-  const [sort, setSort] = useState("name");
+  const [sort, setSort] = useState<LibrarySort>({ field: "name", direction: "asc" });
   const [creators, setCreators] = useState<string[]>([]);
+  const [creatorOptions, setCreatorOptions] = useState<string[]>([]);
   const [tags, setTags] = useState<string[]>([]);
   const [tagCounts, setTagCounts] = useState<TagCount[]>([]);
   const [missingCount, setMissingCount] = useState(0);
@@ -84,7 +85,7 @@ export function useLibrary() {
     showAbout: () => undefined,
   });
   const themeItems = useRef<{ dark?: CheckMenuItem; light?: CheckMenuItem }>({});
-  const gridItems = useRef<Partial<Record<GridSize, CheckMenuItem>>>({});
+  const gridItems = useRef<Partial<Record<ViewMode, CheckMenuItem>>>({});
   const [thumbNonce, setThumbNonce] = useState(0);
   const thumbGeneration = useRef(0);
   const gridScrollRef = useRef<HTMLDivElement>(null);
@@ -118,6 +119,7 @@ export function useLibrary() {
     nextSort = sort,
     mode?: "passive",
   ) => {
+    const searchScope = settings?.searchScope ?? "library";
     const key = libraryRefreshKey({
       browse: nextBrowse,
       query: nextQuery,
@@ -126,6 +128,7 @@ export function useLibrary() {
       selectedTypeIds,
       tagMatch,
       sort: nextSort,
+      scope: searchScope,
     });
     if (mode === "passive" && (listKeyRef.current === key || inflightRef.current?.key === key)) return;
     const pending = inflightRef.current;
@@ -137,19 +140,34 @@ export function useLibrary() {
       creator: nextCreator,
       selectedTagCount: selectedTagIds.length,
       selectedTypeCount: selectedTypeIds.length,
+      scope: searchScope,
     });
     const scope = { folder: listed.folder, folderId: listed.folderId, query: nextQuery, creator: listed.creator };
     const exts = extsForSelectedTypes(selectedTypeIds);
+    const scopedCreators =
+      searchScope === "folder" && nextBrowse.type === "folder"
+        ? api.listCreators({ folder: "subtree", folderId: nextBrowse.id })
+        : null;
     const promise = (async () => {
-      const [rows, creatorRows, tagRows, typeRows] = await Promise.all([
-        api.listFiles({ ...scope, tag: "", tagIds: selectedTagIds, tagMatch, exts, sort: nextSort }),
+      const [rows, creatorRows, tagRows, typeRows, subtreeCreators] = await Promise.all([
+        api.listFiles({
+          ...scope,
+          tag: "",
+          tagIds: selectedTagIds,
+          tagMatch,
+          exts,
+          sort: nextSort.field,
+          sortDirection: nextSort.direction,
+        }),
         api.listCreators(),
         api.listTagCounts({ ...scope, exts }),
         api.listTypeCounts({ ...scope, tagIds: selectedTagIds, tagMatch }),
+        scopedCreators ?? Promise.resolve(null),
       ]);
       if (gen !== refreshGen.current) return;
       setFiles(rows);
       setCreators(creatorRows);
+      setCreatorOptions(subtreeCreators ?? creatorRows);
       setTagCounts(tagRows);
       setTypeCounts(mergeTypeCounts(typeRows));
       setTags(tagRows.map((tag) => tag.name));
@@ -161,7 +179,7 @@ export function useLibrary() {
     } finally {
       if (inflightRef.current?.promise === promise) inflightRef.current = null;
     }
-  }, [browse, creator, query, selectedTagIds, selectedTypeIds, sort, tagMatch]);
+  }, [browse, creator, query, selectedTagIds, selectedTypeIds, sort, tagMatch, settings?.searchScope]);
 
   const reloadTree = useCallback(async () => {
     const boot = await api.bootstrap();
@@ -318,7 +336,7 @@ export function useLibrary() {
     theme, setTheme, ready, setReady, settings, setSettings, folders, setFolders, files, setFiles,
     browse, setBrowse, query, setQuery, creator, setCreator, selectedTagIds, setSelectedTagIds,
     selectedTypeIds, setSelectedTypeIds, typeCounts, setTypeCounts,
-    tagMatch, setTagMatch, sort, setSort, creators, setCreators, tags, setTags, tagCounts,
+    tagMatch, setTagMatch, sort, setSort, creators, setCreators, creatorOptions, setCreatorOptions, tags, setTags, tagCounts,
     selected, setSelected, missingCount, setMissingCount,
     missingOpen, setMissingOpen, missingFiles, setMissingFiles, chosenRoot, setChosenRoot,
     busy, setBusy, importing, setImporting, progress, setProgress, summary, setSummary,

@@ -34,7 +34,7 @@
         let new_root = db.library_root().unwrap();
         assert_eq!(new_root, dest.canonicalize().unwrap());
         let files = db
-            .list_files(FolderFilter::Id(folder.id), "", "", "", "name")
+            .list_files(FolderFilter::Id(folder.id), "", "", "", "name", "asc")
             .unwrap();
         assert_eq!(files[0].stored_relpath, "Models/part.stl");
         assert!(files[0].absolute_path.contains("moved-library"));

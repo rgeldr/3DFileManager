@@ -39,7 +39,7 @@
         assert!(summary.failed.is_empty(), "{:?}", summary.failed);
         assert_eq!(summary.recycle_paths.len(), 2);
         let rows = db
-            .list_files(FolderFilter::Id(models), "", "", "", "name")
+            .list_files(FolderFilter::Id(models), "", "", "", "name", "asc")
             .unwrap();
         let stored: Vec<_> = rows.iter().map(|r| r.stored_relpath.clone()).collect();
         assert!(stored.iter().any(|p| p.ends_with("Throne_of_Baal.stl")));
@@ -57,7 +57,7 @@
         assert_eq!(again.imported_count, 1);
         drain_unhashed(&mut db).unwrap();
         let after_dup = db
-            .list_files(FolderFilter::Id(models), "", "", "", "name")
+            .list_files(FolderFilter::Id(models), "", "", "", "name", "asc")
             .unwrap();
         assert_eq!(after_dup.len(), 2);
         assert_eq!(
@@ -71,11 +71,11 @@
             .unwrap();
         db.set_tags(id, &["terrain".into(), "baal".into()]).unwrap();
         let found = db
-            .list_files(FolderFilter::All, "thro", "", "", "name")
+            .list_files(FolderFilter::All, "thro", "", "", "name", "asc")
             .unwrap();
         assert!(found.iter().any(|r| r.id == id));
         let tagged = db
-            .list_files(FolderFilter::All, "", "", "baal", "name")
+            .list_files(FolderFilter::All, "", "", "baal", "name", "asc")
             .unwrap();
         assert_eq!(tagged.len(), 1);
 
@@ -129,7 +129,7 @@
             .replace('\\', "/")
             .ends_with("FoundOnDisk/Throne_of_Baal.stl"));
         let notes = db
-            .list_files(FolderFilter::All, "thro", "Jason", "", "name")
+            .list_files(FolderFilter::All, "thro", "Jason", "", "name", "asc")
             .unwrap();
         assert!(notes.iter().any(|r| r.id == id && r.notes == "keep these notes"));
 
@@ -216,7 +216,7 @@
         assert!(summary.cancelled);
         assert_eq!(summary.imported_count, 1);
         let rows = db
-            .list_files(FolderFilter::Id(models), "", "", "", "name")
+            .list_files(FolderFilter::Id(models), "", "", "", "name", "asc")
             .unwrap();
         assert_eq!(rows.len(), 1);
         let _ = fs::remove_dir_all(data.parent().unwrap());
