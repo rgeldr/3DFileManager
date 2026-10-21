@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::io::{Read, Write};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use rusqlite::OptionalExtension;
@@ -82,6 +82,7 @@ mod flow_tests {
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
     include!("flow_tests_support.rs");
+    include!("flow_tests_archive.rs");
     include!("flow_tests_plan.rs");
     include!("flow_tests_cleanup.rs");
     include!("flow_tests_store.rs");
