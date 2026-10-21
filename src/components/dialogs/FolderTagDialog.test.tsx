@@ -48,6 +48,16 @@ describe("Tag dialog", () => {
     expect(model.refreshLists).toHaveBeenCalled();
   });
 
+  it("suggests the tag after the last comma and keeps the earlier tags", () => {
+    render(<FolderTagDialog app={app({
+      tags: ["FDM", "skeleton", "resin"],
+      folderTagInput: "FDM, ske",
+      folderTagTarget: { folderId: 5, name: "Flexi Animals" },
+    })} />);
+    const options = document.querySelectorAll("#folder-tag-suggestions option");
+    expect([...options].map((option) => option.getAttribute("value"))).toEqual(["FDM, skeleton"]);
+  });
+
   it("still tags a whole folder for folder targets", () => {
     addTagsUnderFolder.mockResolvedValue(3);
     render(<FolderTagDialog app={app({ folderTagTarget: { folderId: 5, name: "Minis" } })} />);

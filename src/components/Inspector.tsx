@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { usePreviewSplitter } from "../hooks/usePreviewSplitter";
 import type { FileRow, FolderRow } from "../types";
+import { appendCommaTags, commaTagOptions, tagFieldKey } from "../lib/commaTags";
 import { Viewer } from "./Viewer";
 
 function PinIcon({ pinned }: { pinned: boolean }) {
@@ -75,14 +76,6 @@ export function Inspector({
     setTagText("");
   }, [file]);
 
-  const commitPendingTag = (current: string[], pending: string) => {
-    const next = pending.trim();
-    if (!next || current.some((tag) => tag.toLowerCase() === next.toLowerCase())) {
-      return current;
-    }
-    return [...current, next];
-  };
-
   const pinButton = (
     <button
       type="button"
@@ -134,7 +127,7 @@ export function Inspector({
         className="inspector-body"
         onSubmit={(event) => {
           event.preventDefault();
-          const nextTags = commitPendingTag(tags, tagText);
+          const nextTags = appendCommaTags(tags, tagText);
           setTags(nextTags);
           setTagText("");
           onSave(
@@ -200,15 +193,15 @@ export function Inspector({
             placeholder="Add a tag"
             onChange={(event) => setTagText(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                setTags(commitPendingTag(tags, tagText));
-                setTagText("");
-              }
+              const next = tagFieldKey(tags, tagText, event.key);
+              if (!next) return;
+              event.preventDefault();
+              setTags(next.tags);
+              setTagText(next.text);
             }}
           />
           <datalist id="tags">
-            {knownTags.map((tag) => (
+            {commaTagOptions(tagText, knownTags).map((tag) => (
               <option key={tag} value={tag} />
             ))}
           </datalist>

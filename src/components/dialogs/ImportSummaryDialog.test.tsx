@@ -35,14 +35,14 @@ function summary(): ImportSummary {
 function app(overrides: Record<string, unknown> = {}): LibraryModel {
   return {
     creators: [],
-    tags: [],
+    tags: ["FDM", "skeleton", "resin"],
     summary: summary(),
     setSummary: vi.fn(),
     importCreator: "Flexi Factory",
     setImportCreator: vi.fn(),
-    importTags: [],
+    importTags: ["FDM"],
     setImportTags: vi.fn(),
-    importTagText: "skeleton",
+    importTagText: "fdm, skeleton",
     setImportTagText: vi.fn(),
     setError: vi.fn(),
     refreshLists: vi.fn().mockResolvedValue(undefined),
@@ -51,13 +51,37 @@ function app(overrides: Record<string, unknown> = {}): LibraryModel {
   } as unknown as LibraryModel;
 }
 
-describe("Import summary", () => {
+describe("Import summary tags", () => {
+  it("suggests the tag after the last comma", () => {
+    render(<ImportSummaryDialog app={app({ importTagText: "FDM, ske", importTags: [] })} />);
+    const options = document.querySelectorAll("#import-tags option");
+    expect([...options].map((option) => option.getAttribute("value"))).toEqual(["FDM, skeleton"]);
+  });
+
+  it("adds each comma-separated tag on Enter and skips duplicates", () => {
+    const model = app();
+    render(<ImportSummaryDialog app={model} />);
+    fireEvent.keyDown(screen.getByPlaceholderText("Tags for all imported files"), { key: "Enter" });
+    expect(model.setImportTags).toHaveBeenCalledWith(["FDM", "skeleton"]);
+    expect(model.setImportTagText).toHaveBeenCalledWith("");
+  });
+
   it("applies a typed tag that was not confirmed with Enter", async () => {
     applyBulkMeta.mockResolvedValue(undefined);
-    const model = app();
+    const model = app({ importTags: [], importTagText: "skeleton" });
     render(<ImportSummaryDialog app={model} />);
     fireEvent.click(screen.getByRole("button", { name: "Keep originals" }));
     expect(applyBulkMeta).toHaveBeenCalledWith([8, 9], "Flexi Factory", ["skeleton"]);
+    await waitFor(() => expect(model.setSummary).toHaveBeenCalledWith(null));
+    expect(model.refreshLists).toHaveBeenCalled();
+  });
+
+  it("applies a comma-separated tag still in the field", async () => {
+    applyBulkMeta.mockResolvedValue(undefined);
+    const model = app({ importTags: [], importTagText: "skeleton, resin" });
+    render(<ImportSummaryDialog app={model} />);
+    fireEvent.click(screen.getByRole("button", { name: "Keep originals" }));
+    expect(applyBulkMeta).toHaveBeenCalledWith([8, 9], "Flexi Factory", ["skeleton", "resin"]);
     await waitFor(() => expect(model.setSummary).toHaveBeenCalledWith(null));
     expect(model.refreshLists).toHaveBeenCalled();
   });

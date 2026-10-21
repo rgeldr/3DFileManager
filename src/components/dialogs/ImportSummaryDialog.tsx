@@ -1,7 +1,8 @@
 import { Modal } from "./Modal";
 import type { LibraryModel } from "../../hooks/useLibrary";
 import { api } from "../../api";
-import { importMetaPayload, tagsWithPending } from "../../lib/importMeta";
+import { appendCommaTags, commaTagOptions, tagFieldKey } from "../../lib/commaTags";
+import { importMetaPayload } from "../../lib/importMeta";
 
 export function ImportSummaryDialog({ app }: { app: LibraryModel }) {
   const { creators, tags, summary, setSummary, importCreator, setImportCreator, importTags, setImportTags, importTagText, setImportTagText, setError, refreshLists, runDiskOp } = app;
@@ -51,17 +52,17 @@ export function ImportSummaryDialog({ app }: { app: LibraryModel }) {
                   value={importTagText}
                   onChange={(event) => setImportTagText(event.target.value)}
                   onKeyDown={(event) => {
-                    if (event.key !== "Enter") return;
+                    const next = tagFieldKey(importTags, importTagText, event.key);
+                    if (!next) return;
                     event.preventDefault();
-                    const next = importTagText.trim();
-                    if (next && !importTags.some((tag) => tag.toLowerCase() === next.toLowerCase())) {
-                      setImportTags([...importTags, next]);
-                    }
-                    setImportTagText("");
+                    setImportTags(next.tags);
+                    setImportTagText(next.text);
                   }}
                 />
                 <datalist id="import-tags">
-                  {tags.map((item) => <option key={item} value={item} />)}
+                  {commaTagOptions(importTagText, tags).map((item) => (
+                    <option key={item} value={item} />
+                  ))}
                 </datalist>
               </>
             ) : null}
@@ -76,7 +77,7 @@ export function ImportSummaryDialog({ app }: { app: LibraryModel }) {
                   const ids = summary.importedIds;
                   void (async () => {
                     try {
-                      const payload = importMetaPayload(ids, importCreator, tagsWithPending(importTags, importTagText));
+                      const payload = importMetaPayload(ids, importCreator, appendCommaTags(importTags, importTagText));
                       if (payload) {
                         await api.applyBulkMeta(payload.ids, payload.creator, payload.tags);
                         await refreshLists();
@@ -97,7 +98,7 @@ export function ImportSummaryDialog({ app }: { app: LibraryModel }) {
                     const ids = summary.importedIds;
                     void (async () => {
                       try {
-                        const payload = importMetaPayload(ids, importCreator, tagsWithPending(importTags, importTagText));
+                        const payload = importMetaPayload(ids, importCreator, appendCommaTags(importTags, importTagText));
                         if (payload) {
                           await api.applyBulkMeta(payload.ids, payload.creator, payload.tags);
                           await refreshLists();

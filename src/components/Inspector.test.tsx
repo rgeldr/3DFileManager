@@ -156,6 +156,76 @@ describe("inspector tag save", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(onSave.mock.calls[0][1]).toEqual(["alpha", "beta"]);
   });
+
+  it("adds each comma-separated tag and skips duplicates", () => {
+    render(
+      <ThemeProvider>
+        <Inspector
+          file={{ ...file(), tags: ["FDM"] }}
+          folders={[]}
+          creators={[]}
+          knownTags={["FDM", "skeleton", "resin"]}
+          previewHeight={240}
+          onPreviewHeight={() => undefined}
+          pinned
+          onPinnedChange={() => undefined}
+          onSave={() => undefined}
+          onDelete={() => undefined}
+        />
+      </ThemeProvider>,
+    );
+    const input = screen.getByPlaceholderText("Add a tag");
+    fireEvent.change(input, { target: { value: "fdm, skeleton, , resin" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    const chips = [...document.querySelectorAll(".tag")].map((chip) => chip.textContent?.replace(" ×", ""));
+    expect(chips).toEqual(["FDM", "skeleton", "resin"]);
+    expect(input).toHaveProperty("value", "");
+  });
+
+  it("suggests the tag after the last comma", () => {
+    render(
+      <ThemeProvider>
+        <Inspector
+          file={file()}
+          folders={[]}
+          creators={[]}
+          knownTags={["FDM", "skeleton", "resin"]}
+          previewHeight={240}
+          onPreviewHeight={() => undefined}
+          pinned
+          onPinnedChange={() => undefined}
+          onSave={() => undefined}
+          onDelete={() => undefined}
+        />
+      </ThemeProvider>,
+    );
+    fireEvent.change(screen.getByPlaceholderText("Add a tag"), { target: { value: "FDM, ske" } });
+    const options = document.querySelectorAll("#tags option");
+    expect([...options].map((option) => option.getAttribute("value"))).toEqual(["FDM, skeleton"]);
+  });
+
+  it("applies a comma-separated tag still in the field on Save", () => {
+    const onSave = vi.fn();
+    render(
+      <ThemeProvider>
+        <Inspector
+          file={file()}
+          folders={[]}
+          creators={[]}
+          knownTags={[]}
+          previewHeight={240}
+          onPreviewHeight={() => undefined}
+          pinned
+          onPinnedChange={() => undefined}
+          onSave={onSave}
+          onDelete={() => undefined}
+        />
+      </ThemeProvider>,
+    );
+    fireEvent.change(screen.getByPlaceholderText("Add a tag"), { target: { value: "alpha, beta" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSave.mock.calls[0][1]).toEqual(["alpha", "beta"]);
+  });
 });
 
 describe("inspector preview splitter", () => {
