@@ -1,8 +1,17 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CheckMenuItem } from "@tauri-apps/api/menu";
 import { api } from "../api";
 import { useTheme } from "../theme/ThemeProvider";
 import type { Browse, DragReport, FileRow, FolderRow, ImportSummary, LibrarySort, Settings, TagCount, TagMatchMode, TypeCount, ViewMode } from "../types";
+import {
+  acceptHistoryClick,
+  emptyHistory,
+  historyButton,
+  historyKey,
+  moveHistory,
+  pushFolder,
+  samePlace,
+} from "../lib/folderHistory";
 import { libraryListScope, libraryRefreshKey, librarySearchLimit, truncateLibraryList } from "../lib/tagFilter";
 import { extsForSelectedTypes, mergeTypeCounts } from "../lib/typeFilter";
 import { useLibraryEffects } from "./useLibraryEffects";
@@ -22,7 +31,11 @@ export function useLibrary() {
   const [folders, setFolders] = useState<FolderRow[]>([]);
   const [files, setFiles] = useState<FileRow[]>([]);
   const [listTruncated, setListTruncated] = useState(false);
-  const [browse, setBrowse] = useState<Browse>({ type: "root" });
+  const [history, setHistory] = useState(emptyHistory);
+  const browse = history.current;
+  const setBrowse = useCallback((next: Browse) => {
+    setHistory((current) => pushFolder(current, next));
+  }, []);
   const [query, setQuery] = useState("");
   const [creator, setCreator] = useState("");
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
@@ -69,6 +82,10 @@ export function useLibrary() {
   const dragRef = useRef<FileDrag | null>(null);
   const filesRef = useRef(files);
   filesRef.current = files;
+  const foldersRef = useRef(folders);
+  foldersRef.current = folders;
+  const historyRef = useRef(history);
+  historyRef.current = history;
   const tryStartRef = useRef<() => void>(() => undefined);
   const prefetchRef = useRef<(ids: number[]) => void>(() => undefined);
   const { selected, setSelected, onSelect, selectedFile } = useSelection(files, prefetchRef);
@@ -338,6 +355,45 @@ export function useLibrary() {
   const dialogOpen = Boolean(
     busy || progress || summary || namePrompt || deleteConfirm || missingOpen || error || diskDialog || aboutOpen || creatorTarget || dragFailure,
   );
+  const dialogBlockRef = useRef(false);
+  dialogBlockRef.current = Boolean(dialogOpen || folderTagTarget || fileMenu);
+  const goHistory = useCallback((direction: "back" | "forward") => {
+    const exists = (id: number) => foldersRef.current.some((folder) => folder.id === id);
+    const next = moveHistory(historyRef.current, direction, exists);
+    if (next === historyRef.current) return;
+    const moved = !samePlace(historyRef.current.current, next.current);
+    historyRef.current = next;
+    setHistory(next);
+    if (moved) setSelected([]);
+  }, [setSelected]);
+  useEffect(() => {
+    let lastClick = Number.NEGATIVE_INFINITY;
+    const onMouse = (event: MouseEvent) => {
+      const direction = historyButton(event.button);
+      if (!direction) return;
+      event.preventDefault();
+      if (dialogBlockRef.current) return;
+      const now = performance.now();
+      if (!acceptHistoryClick(now, lastClick)) return;
+      lastClick = now;
+      goHistory(direction);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      const direction = historyKey(event);
+      if (!direction) return;
+      event.preventDefault();
+      if (dialogBlockRef.current) return;
+      goHistory(direction);
+    };
+    window.addEventListener("pointerup", onMouse);
+    window.addEventListener("mouseup", onMouse);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerup", onMouse);
+      window.removeEventListener("mouseup", onMouse);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [goHistory]);
 
   const browseKey = browse.type === "folder" ? `folder:${browse.id}` : browse.type;
   const model = {

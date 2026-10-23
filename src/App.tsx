@@ -1,6 +1,7 @@
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "./api";
+import { Breadcrumb } from "./components/Breadcrumb";
 import { FileGrid } from "./components/FileGrid";
 import { LibrarySearch } from "./components/LibrarySearch";
 import { TagFilter } from "./components/TagFilter";
@@ -304,6 +305,19 @@ function AppShell({ app }: { app: LibraryModel }) {
       />
       <section className="main">
         <div className="toolbar">
+          <Breadcrumb
+            libraryName={libraryName}
+            folders={folders}
+            browse={browse}
+            onNavigate={(place) => {
+              const same = place.type === "root"
+                ? browse.type === "root"
+                : browse.type === "folder" && browse.id === place.id;
+              if (same) return;
+              setBrowse(place);
+              setSelected([]);
+            }}
+          />
           <LibrarySearch
             query={query}
             creator={creator}
