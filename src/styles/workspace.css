@@ -81,6 +81,46 @@
   gap: var(--space-1);
 }
 
+.breadcrumb {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.breadcrumb-part {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.breadcrumb-segment {
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0 2px;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
+}
+
+.breadcrumb-segment:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.breadcrumb-sep,
+.breadcrumb-ellipsis {
+  flex: 0 0 auto;
+  color: var(--color-text-subtle);
+}
+
 .main > .banner,
 .main > .status {
   flex: 0 0 auto;
