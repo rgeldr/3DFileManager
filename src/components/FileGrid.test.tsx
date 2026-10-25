@@ -369,7 +369,7 @@ describe("FileGrid", () => {
     expect(cells?.[1]?.textContent).toMatch(/MB|KB/);
     expect(cells?.[4]?.textContent).toBe("Epic Basing");
     const template = view.container.querySelector(".details-virtual")?.getAttribute("style") ?? "";
-    expect(template).toContain("minmax(240px, 1fr) 96px 176px 176px 128px");
+    expect(template).toContain("240px 96px 176px 176px 128px minmax(0px, 1fr)");
     view.unmount();
     scroller.remove();
   });
@@ -407,6 +407,61 @@ describe("FileGrid", () => {
     fireEvent.pointerDown(handle, { clientX: 100, button: 0, pointerId: 2, detail: 2 });
     expect(commits).toEqual([64, 96]);
     expect(handle.getAttribute("aria-valuenow")).toBe("96");
+    view.unmount();
+    scroller.remove();
+  });
+
+  it("puts each resize handle on the right edge of its own header and drags that column", () => {
+    const scroller = document.createElement("div");
+    sizeScroller(scroller, 0);
+    document.body.appendChild(scroller);
+    const resized: { id: string; width: number }[] = [];
+    function Host() {
+      const [name, setName] = useState(240);
+      return (
+        <FileGrid
+          {...gridBase({
+            view: "details",
+            files: [file({ id: 1, sortName: "Agave", ext: "stl" })],
+            scrollRootRef: { current: scroller },
+            detailsColumns: { name, size: 96, modified: 176, added: 176, creator: 128 },
+            onDetailsColumnResize: (id: string, width: number) => {
+              resized.push({ id, width });
+              if (id === "name") setName(width);
+            },
+          })}
+        />
+      );
+    }
+    const view = render(<Host />, { container: scroller });
+    const headers = view.container.querySelectorAll(".details-header-cell");
+    const handleFor = (label: string) => screen.getByRole("separator", { name: label });
+    expect(handleFor("Resize Name").parentElement).toBe(headers[0]);
+    expect(handleFor("Resize Size").parentElement).toBe(headers[1]);
+    expect(handleFor("Resize Date modified").parentElement).toBe(headers[2]);
+    expect(handleFor("Resize Date added").parentElement).toBe(headers[3]);
+    expect(handleFor("Resize Creator").parentElement).toBe(headers[4]);
+
+    const nameHandle = handleFor("Resize Name");
+    const nameCell = nameHandle.parentElement as HTMLElement;
+    nameCell.getBoundingClientRect = () =>
+      ({
+        width: 480,
+        height: 32,
+        top: 0,
+        left: 0,
+        bottom: 32,
+        right: 480,
+        x: 0,
+        y: 0,
+        toJSON() {
+          return {};
+        },
+      }) as DOMRect;
+    fireEvent.pointerDown(nameHandle, { clientX: 480, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(nameHandle, { clientX: 500, pointerId: 1 });
+    expect(resized).toEqual([{ id: "name", width: 500 }]);
+    expect(nameHandle.getAttribute("aria-valuenow")).toBe("500");
     view.unmount();
     scroller.remove();
   });

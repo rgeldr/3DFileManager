@@ -4,6 +4,8 @@ import {
   DETAILS_COLUMN_LIMITS,
   clampDetailsColumn,
   clampDetailsColumns,
+  columnResizeWidth,
+  detailsColumnRightEdge,
   detailsColumnTemplate,
   resetDetailsColumn,
   resizeDetailsColumn,
@@ -39,10 +41,33 @@ describe("details column widths", () => {
     expect(reset.name).toBe(DEFAULT_DETAILS_COLUMNS.name);
   });
 
-  it("builds a grid template that lets the name column grow", () => {
-    expect(detailsColumnTemplate(DEFAULT_DETAILS_COLUMNS)).toBe("minmax(240px, 1fr) 96px 176px 176px 128px");
+  it("builds fixed tracks and leaves leftover space after the last column", () => {
+    expect(detailsColumnTemplate(DEFAULT_DETAILS_COLUMNS)).toBe("240px 96px 176px 176px 128px minmax(0px, 1fr)");
     expect(detailsColumnTemplate({ ...DEFAULT_DETAILS_COLUMNS, name: 10, added: 9999 })).toBe(
-      `minmax(${DETAILS_COLUMN_LIMITS.name.min}px, 1fr) 96px 176px ${DETAILS_COLUMN_LIMITS.added.max}px 128px`,
+      `${DETAILS_COLUMN_LIMITS.name.min}px 96px 176px ${DETAILS_COLUMN_LIMITS.added.max}px 128px minmax(0px, 1fr)`,
     );
+  });
+
+  it("moves the dragged column's right edge in the same direction as the pointer", () => {
+    const start = DEFAULT_DETAILS_COLUMNS;
+    const widerSize = resizeDetailsColumn(start, "size", 40);
+    expect(detailsColumnRightEdge(widerSize, "size") - detailsColumnRightEdge(start, "size")).toBe(40);
+    expect(detailsColumnRightEdge(widerSize, "name")).toBe(detailsColumnRightEdge(start, "name"));
+
+    const narrowerCreator = resizeDetailsColumn(start, "creator", -20);
+    expect(detailsColumnRightEdge(narrowerCreator, "creator") - detailsColumnRightEdge(start, "creator")).toBe(-20);
+    expect(detailsColumnRightEdge(narrowerCreator, "added")).toBe(detailsColumnRightEdge(start, "added"));
+
+    const widerName = resizeDetailsColumn(start, "name", 30);
+    expect(detailsColumnRightEdge(widerName, "name") - detailsColumnRightEdge(start, "name")).toBe(30);
+    expect(detailsColumnRightEdge(widerName, "size") - detailsColumnRightEdge(start, "size")).toBe(30);
+  });
+
+  it("starts a border drag from the rendered width and still clamps", () => {
+    expect(columnResizeWidth("name", 480, 240, 20)).toBe(500);
+    expect(columnResizeWidth("name", 480, 240, -1000)).toBe(DETAILS_COLUMN_LIMITS.name.min);
+    expect(columnResizeWidth("size", 96, 96, -40)).toBe(DETAILS_COLUMN_LIMITS.size.min);
+    expect(columnResizeWidth("size", 0, 96, -40)).toBe(DETAILS_COLUMN_LIMITS.size.min);
+    expect(columnResizeWidth("modified", 176, 176, 500)).toBe(DETAILS_COLUMN_LIMITS.modified.max);
   });
 });
