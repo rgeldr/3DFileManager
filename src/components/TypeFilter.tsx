@@ -7,7 +7,9 @@ import {
   typeFilterBadge,
   typeFilterShowsSearch,
 } from "../lib/typeFilter";
+import { displayTagColor } from "../lib/tagColor";
 import type { TagCount, TypeCount } from "../types";
+import { TagChip } from "./TagChip";
 import { AppErrorBoundary } from "./AppErrorBoundary";
 import { FilterPopover } from "./FilterPopover";
 
@@ -185,15 +187,13 @@ export function FilterChips({
         </button>
       ))}
       {selectedTags.map((tag) => (
-        <button
+        <TagChip
           key={tag.id}
-          type="button"
-          className="tag"
-          aria-label={`Remove ${tag.name}`}
+          name={tag.name}
+          color={displayTagColor(tag.name, [tag])}
+          ariaLabel={`Remove ${tag.name}`}
           onClick={() => onSelectedTagIds(selectedTagIds.filter((id) => id !== tag.id))}
-        >
-          {tag.name} ×
-        </button>
+        />
       ))}
     </div>
   );

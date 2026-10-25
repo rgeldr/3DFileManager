@@ -100,15 +100,7 @@
 }
 
 .tag-filter-chips .tag {
-  background: var(--chip-tag-bg);
-  color: var(--chip-tag-fg);
-  border: 1px solid var(--chip-tag-border);
   cursor: pointer;
-}
-
-.tag-filter-chips .tag:hover {
-  background: var(--chip-tag-bg);
-  color: var(--chip-tag-fg);
 }
 
 .tag-filter-chips .type-chip,

@@ -53,6 +53,15 @@ export interface TagCount {
   id: number;
   name: string;
   fileCount: number;
+  color?: string;
+}
+
+export interface TagColorChoice {
+  id: number;
+  name: string;
+  color: string;
+  autoColor: string;
+  custom: boolean;
 }
 
 export interface TypeCount {

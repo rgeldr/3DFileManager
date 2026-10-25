@@ -11,6 +11,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Inspector } from "./components/Inspector";
 import {
   AboutDialog,
+  TagColorDialog,
   CreatorDialog,
   DeleteFolderDialog,
   DiskProgressDialog,
@@ -480,6 +481,7 @@ function AppShell({ app }: { app: LibraryModel }) {
             folders={folders}
             creators={creators}
             knownTags={tags}
+            tagCounts={tagCounts}
             pinned={inspectorPinned}
             onPinnedChange={(next) => {
               setInspectorPinned(next);
@@ -564,6 +566,7 @@ function AppShell({ app }: { app: LibraryModel }) {
       <FolderTagDialog app={app} />
       <CreatorDialog app={app} />
       <AboutDialog app={app} updates={updateCheck.about} />
+      <TagColorDialog app={app} />
       <DragFailureDialog app={app} />
       <NamePromptDialog app={app} />
       <DeleteFolderDialog app={app} />

@@ -84,4 +84,5 @@ export interface Actions {
   setTheme: (theme: "dark" | "light") => void;
   setGrid: (size: ViewMode) => void;
   showAbout: () => void;
+  openTagColors: () => void;
 }

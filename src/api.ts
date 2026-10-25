@@ -4,6 +4,7 @@ import type {
   FileRow,
   LibraryStats,
   FolderRow,
+  TagColorChoice,
   TagCount,
   TypeCount,
   ImportSummary,
@@ -83,6 +84,8 @@ export const api = {
   listCreators: (args?: { folder: string; folderId: number | null }) =>
     invoke<string[]>("list_creators", { args: args ?? { folder: "", folderId: null } }),
   listTags: () => invoke<string[]>("list_tags"),
+  listTagColors: () => invoke<TagColorChoice[]>("list_tag_colors"),
+  setTagColor: (id: number, color: string | null) => invoke<void>("set_tag_color", { id, color }),
   listTagCounts: (args: {
     folder: string;
     folderId: number | null;
