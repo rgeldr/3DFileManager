@@ -25,6 +25,7 @@ export function useSessionEffects(s: {
   setSidebarWidth: React.Dispatch<React.SetStateAction<number>>;
   setInspectorWidth: React.Dispatch<React.SetStateAction<number>>;
   setInspectorPinned: React.Dispatch<React.SetStateAction<boolean>>;
+  setSidebarPinned: React.Dispatch<React.SetStateAction<boolean>>;
   setPreviewHeight: (height: number) => void;
   setFolders: React.Dispatch<React.SetStateAction<import("../types").FolderRow[]>>;
   setMissingCount: React.Dispatch<React.SetStateAction<number>>;
@@ -79,7 +80,7 @@ export function useSessionEffects(s: {
 }) {
   const {
     dialogOpen,
-    ready, settings, setSettings, setSidebarWidth, setInspectorWidth, setInspectorPinned, setPreviewHeight, setFolders, setMissingCount,
+    ready, settings, setSettings, setSidebarWidth, setInspectorWidth, setInspectorPinned, setSidebarPinned, setPreviewHeight, setFolders, setMissingCount,
     setTheme, refreshLists, setReady, setError, dragIconRef, runImportRef, setProgress, setThumbNonce,
     browse, query, creator, selectedTagIds, selectedTypeIds, tagMatch, sort, setPreviewIconsEnabled, aboutOpen, setAboutVersion,
     setAboutVersionFailed, creatorTarget, setCreatorFileCount, includeSubfolders, fileMenu, setFileMenu,
@@ -235,6 +236,7 @@ export function useSessionEffects(s: {
       setSidebarWidth(clampSidebar(boot.settings.sidebarWidth, window.innerWidth));
       setInspectorWidth(clampInspector(boot.settings.inspectorWidth, window.innerWidth));
       setInspectorPinned(boot.settings.inspectorPinned !== false);
+      setSidebarPinned(boot.settings.sidebarPinned !== false);
       setPreviewHeight(persistPreviewHeight(boot.settings.previewHeight, 0));
       setFolders(boot.folders);
       setMissingCount(boot.missingCount);

@@ -1,6 +1,21 @@
 /// Resolve a catalog row to a real file that stays inside the library root.
 /// `stored_relpath` comes from the database, so a `..` segment or an absolute
 /// path must not escape the root.
+pub(crate) fn contained_library_dir(root: &std::path::Path, relpath: &str) -> Result<PathBuf, String> {
+    if relpath.contains('\0') {
+        return Err("That folder is outside the library.".into());
+    }
+    let root = root.canonicalize().map_err(|err| err.to_string())?;
+    let joined = if relpath.is_empty() { root.clone() } else { root.join(relpath) };
+    let path = joined
+        .canonicalize()
+        .map_err(|_| "That folder is missing from the library.".to_string())?;
+    if !path.starts_with(&root) || !path.is_dir() {
+        return Err("That folder is outside the library.".into());
+    }
+    Ok(path)
+}
+
 pub(crate) fn contained_library_file(root: &std::path::Path, stored_relpath: &str) -> Result<PathBuf, String> {
     if stored_relpath.is_empty() || stored_relpath.contains('\0') {
         return Err("That file is outside the library.".into());
@@ -234,6 +249,27 @@ async fn reveal_file(app: AppHandle, file_id: i64) -> Result<(), String> {
         let path = {
             let db = db.lock().map_err(|err| err.to_string())?;
             catalog_file_path(&db, file_id)?
+        };
+        app.opener()
+            .reveal_item_in_dir(&path)
+            .map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+async fn reveal_folder(app: AppHandle, folder_id: Option<i64>) -> Result<(), String> {
+    let db = app.state::<AppState>().db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = {
+            let db = db.lock().map_err(|err| err.to_string())?;
+            let root = db.library_root()?;
+            let rel = match folder_id {
+                Some(id) => db.folder_relpath(id)?,
+                None => String::new(),
+            };
+            contained_library_dir(&root, &rel)?
         };
         app.opener()
             .reveal_item_in_dir(&path)

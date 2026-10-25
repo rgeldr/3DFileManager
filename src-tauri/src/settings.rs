@@ -23,6 +23,10 @@ fn default_inspector_pinned() -> bool {
     true
 }
 
+fn default_sidebar_pinned() -> bool {
+    true
+}
+
 fn default_search_scope() -> String {
     "library".into()
 }
@@ -43,6 +47,8 @@ pub struct Settings {
     pub thumb_retry: u32,
     #[serde(default = "default_inspector_pinned")]
     pub inspector_pinned: bool,
+    #[serde(default = "default_sidebar_pinned")]
+    pub sidebar_pinned: bool,
     #[serde(default = "default_search_scope")]
     pub search_scope: String,
 }
@@ -58,6 +64,7 @@ impl Default for Settings {
             preview_height: default_preview_height(),
             thumb_retry: default_thumb_retry(),
             inspector_pinned: default_inspector_pinned(),
+            sidebar_pinned: default_sidebar_pinned(),
             search_scope: default_search_scope(),
         }
     }
@@ -118,6 +125,7 @@ mod tests {
         assert_eq!(loaded.preview_height, 240);
         assert_eq!(loaded.thumb_retry, 0);
         assert!(loaded.inspector_pinned);
+        assert!(loaded.sidebar_pinned);
         assert_eq!(loaded.search_scope, "library");
         let mut next = loaded;
         next.sidebar_width = 360;
@@ -125,6 +133,7 @@ mod tests {
         next.preview_height = 480;
         next.thumb_retry = 1;
         next.inspector_pinned = false;
+        next.sidebar_pinned = false;
         save(&dir, &next).unwrap();
         let again = load(&dir);
         assert_eq!(again.sidebar_width, 360);
@@ -132,6 +141,7 @@ mod tests {
         assert_eq!(again.preview_height, 480);
         assert_eq!(again.thumb_retry, 1);
         assert!(!again.inspector_pinned);
+        assert!(!again.sidebar_pinned);
         let _ = fs::remove_dir_all(&dir);
     }
 

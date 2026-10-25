@@ -15,6 +15,7 @@ function app(selected: number[], fileId: number) {
     setCreatorValue: vi.fn(),
     setFolderTagTarget: vi.fn(),
     setFolderTagInput: vi.fn(),
+    openRenameFile: vi.fn(),
   };
   const model = {
     fileMenu: { x: 10, y: 20, fileId },
@@ -65,5 +66,13 @@ describe("File context menu", () => {
       name: "1 file",
       fileIds: [3],
     });
+  });
+
+  it("renames the clicked file", () => {
+    const { model, calls } = app([1, 2], 2);
+    render(<FileContextMenu app={model} />);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
+    expect(calls.setFileMenu).toHaveBeenCalledWith(null);
+    expect(calls.openRenameFile).toHaveBeenCalledWith(2);
   });
 });

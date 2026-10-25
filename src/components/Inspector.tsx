@@ -8,7 +8,7 @@ import { displayTagColor } from "../lib/tagColor";
 import { TagChip } from "./TagChip";
 import { Viewer } from "./Viewer";
 
-function PinIcon({ pinned }: { pinned: boolean }) {
+export function PinIcon({ pinned }: { pinned: boolean }) {
   return (
     <svg
       className="inspector-pin-icon"

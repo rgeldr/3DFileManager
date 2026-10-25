@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { FolderRow } from "../types";
+import { PinIcon } from "./Inspector";
 
 type FolderContextMenu = { x: number; y: number; folderId: number | null };
 
@@ -35,7 +36,11 @@ export function Sidebar({
   onDeleteFolder,
   onTagFolder,
   onSetCreator,
+  onReveal,
+  onRescan,
   onMoveFolder,
+  pinned,
+  onPinnedChange,
 }: {
   folders: FolderRow[];
   libraryName: string;
@@ -51,7 +56,11 @@ export function Sidebar({
   onDeleteFolder: (folderId: number) => void;
   onTagFolder: (folderId: number | null) => void;
   onSetCreator: (folderId: number | null) => void;
+  onReveal: (folderId: number | null) => void;
+  onRescan: (folderId: number | null) => void;
   onMoveFolder: (id: number, parentId: number | null) => void;
+  pinned: boolean;
+  onPinnedChange: (pinned: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([ROOT_KEY]));
   const [contextMenu, setContextMenu] = useState<FolderContextMenu | null>(null);
@@ -353,12 +362,34 @@ export function Sidebar({
 
   const rootKids = hasChildren(null);
 
+  const pinButton = (
+    <button
+      type="button"
+      className="inspector-pin"
+      aria-pressed={pinned}
+      aria-label={pinned ? "Unpin folders" : "Pin folders open"}
+      title={pinned ? "Unpin folders" : "Pin folders open"}
+      onClick={() => onPinnedChange(!pinned)}
+    >
+      <PinIcon pinned={pinned} />
+    </button>
+  );
+
+  if (!pinned) {
+    return (
+      <aside className="sidebar collapsed" data-pinned="false">
+        <div className="sidebar-head">{pinButton}</div>
+      </aside>
+    );
+  }
+
   return (
-    <aside className={`sidebar${folderDragging ? " folder-dragging" : ""}`}>
+    <aside className={`sidebar${folderDragging ? " folder-dragging" : ""}`} data-pinned="true">
       <div className="sidebar-head">
         <button type="button" onClick={onNew}>New folder</button>
         <button type="button" onClick={onRename}>Rename</button>
         <button type="button" onClick={onDelete}>Delete</button>
+        {pinButton}
       </div>
       <div className="sidebar-scroll" ref={scrollRef}>
         <div className="section-label">Library</div>
@@ -444,6 +475,26 @@ export function Sidebar({
                 }}
               >
                 Set Creator…
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  onReveal(contextMenu.folderId);
+                  setContextMenu(null);
+                }}
+              >
+                Show in Explorer
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  onRescan(contextMenu.folderId);
+                  setContextMenu(null);
+                }}
+              >
+                Rescan
               </button>
             </div>,
             document.body,
