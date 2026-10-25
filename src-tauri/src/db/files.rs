@@ -397,6 +397,91 @@ impl AppDb {
         Ok(())
     }
 
+    pub fn rename_library_file(&self, id: i64, typed: &str) -> Result<(), String> {
+        let loc = self.file_location(id)?;
+        let root = self.library_root()?;
+        let joined = root.join(&loc.stored_relpath);
+        let source = match crate::contained_library_file(&root, &loc.stored_relpath) {
+            Ok(path) => path,
+            Err(err) => {
+                if !joined.exists() {
+                    return Err("That file is missing on disk, so it can't be renamed.".into());
+                }
+                return Err(err);
+            }
+        };
+        let current_ext = crate::names::extension_of(&loc.stored_relpath);
+        let parts = crate::names::rename_parts(&current_ext, typed)?;
+        let parent_rel = match loc.stored_relpath.rsplit_once('/') {
+            Some((parent, _)) => parent.to_string(),
+            None => String::new(),
+        };
+        let new_rel = if parent_rel.is_empty() {
+            parts.file_name.clone()
+        } else {
+            format!("{parent_rel}/{}", parts.file_name)
+        };
+        if new_rel.split('/').any(|part| part.is_empty() || part == "." || part == "..") {
+            return Err("That file is outside the library.".into());
+        }
+        let Some(parent) = source.parent() else {
+            return Err("That file is outside the library.".into());
+        };
+        let parent = parent
+            .canonicalize()
+            .map_err(|_| "That file is outside the library.".to_string())?;
+        let root = root
+            .canonicalize()
+            .map_err(|_| "That file is outside the library.".to_string())?;
+        if !parent.starts_with(&root) {
+            return Err("That file is outside the library.".into());
+        }
+        let dest = parent.join(&parts.file_name);
+        if directory_has_other_name(&parent, &parts.file_name, &source)? {
+            return Err(format!(
+                "A file named \"{}\" is already in this folder.",
+                parts.file_name
+            ));
+        }
+        let taken: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE id <> ?1 AND stored_relpath = ?2 COLLATE NOCASE",
+                params![id, new_rel],
+                |row| row.get(0),
+            )
+            .map_err(|err| err.to_string())?;
+        if taken > 0 {
+            return Err(format!(
+                "A file named \"{}\" is already in this folder.",
+                parts.file_name
+            ));
+        }
+        let current_name = source
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let write_row = |mtime: i64| {
+            self.conn
+                .execute(
+                    "UPDATE files SET original_name = ?1, sort_name = ?2, stored_relpath = ?3, ext = ?4, mtime = ?5, missing = 0 WHERE id = ?6",
+                    params![parts.file_name, parts.sort_name, new_rel, parts.ext, mtime, id],
+                )
+                .map_err(|err| err.to_string())?;
+            Ok(())
+        };
+        if current_name == parts.file_name {
+            let mtime = file_mtime(&source);
+            return write_row(mtime);
+        }
+        rename_then(&source, &dest, || {
+            if crate::contained_library_file(&root, &new_rel).is_err() {
+                return Err("That file is outside the library.".into());
+            }
+            write_row(file_mtime(&dest))
+        })
+    }
+
     pub fn all_file_index(&self) -> Result<Vec<IndexRow>, String> {
         let mut stmt = self
             .conn
@@ -421,4 +506,49 @@ impl AppDb {
             .map_err(|e| e.to_string())?;
         Ok(rows)
     }
+}
+
+fn file_mtime(path: &std::path::Path) -> i64 {
+    std::fs::metadata(path)
+        .ok()
+        .and_then(|meta| meta.modified().ok())
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+fn directory_has_other_name(dir: &std::path::Path, file_name: &str, source: &std::path::Path) -> Result<bool, String> {
+    let entries = std::fs::read_dir(dir).map_err(|err| err.to_string())?;
+    for entry in entries {
+        let entry = entry.map_err(|err| err.to_string())?;
+        if !entry.file_name().to_string_lossy().eq_ignore_ascii_case(file_name) {
+            continue;
+        }
+        let path = entry.path();
+        if path == source {
+            continue;
+        }
+        if let (Ok(found), Ok(current)) = (path.canonicalize(), source.canonicalize()) {
+            if found == current {
+                continue;
+            }
+        }
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+pub(crate) fn rename_then(
+    source: &std::path::Path,
+    dest: &std::path::Path,
+    write: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    std::fs::rename(source, dest).map_err(|err| err.to_string())?;
+    if let Err(err) = write() {
+        if let Err(undo) = std::fs::rename(dest, source) {
+            return Err(format!("{err} The rename could not be undone: {undo}"));
+        }
+        return Err(err);
+    }
+    Ok(())
 }

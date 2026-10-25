@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SUPPORTED_TYPE_GROUPS, mergeTypeCounts } from "../lib/typeFilter";
-import { TypeFilter } from "./TypeFilter";
+import { FilterChips, TypeFilter } from "./TypeFilter";
 
 afterEach(() => cleanup());
 
@@ -60,5 +60,23 @@ describe("Types popover", () => {
     fireEvent.change(screen.getByPlaceholderText("Filter types"), { target: { value: "obj" } });
     fireEvent.click(screen.getByRole("button", { name: "Select all" }));
     expect(onSelectedIds).toHaveBeenCalledWith(["stl", "obj"]);
+  });
+});
+
+describe("selected tag chips", () => {
+  it("uses the tag color and readable text", () => {
+    render(
+      <FilterChips
+        tags={[{ id: 4, name: "Skulls", fileCount: 3, color: "#6a3d8a" }]}
+        types={[]}
+        selectedTagIds={[4]}
+        selectedTypeIds={[]}
+        onSelectedTagIds={() => undefined}
+        onSelectedTypeIds={() => undefined}
+      />,
+    );
+    const chip = screen.getByRole("button", { name: "Remove Skulls" });
+    expect(chip.style.backgroundColor).toBe("rgb(106, 61, 138)");
+    expect(chip.style.color).toBe("rgb(255, 255, 255)");
   });
 });

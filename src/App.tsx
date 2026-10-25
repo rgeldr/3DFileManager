@@ -11,6 +11,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Inspector } from "./components/Inspector";
 import {
   AboutDialog,
+  TagColorDialog,
   CreatorDialog,
   DeleteFolderDialog,
   DiskProgressDialog,
@@ -85,6 +86,8 @@ function AppShell({ app }: { app: LibraryModel }) {
     setInspectorWidth,
     inspectorPinned,
     setInspectorPinned,
+    sidebarPinned,
+    setSidebarPinned,
     previewHeight,
     setPreviewHeight,
     setFolderTagInput,
@@ -154,7 +157,7 @@ function AppShell({ app }: { app: LibraryModel }) {
   };
 
   const paneStyle = {
-    "--sidebar-width": `${sidebarWidth}px`,
+    "--sidebar-width": `${sidebarPinned ? sidebarWidth : INSPECTOR_RAIL_WIDTH}px`,
     "--inspector-width": `${inspectorPinned ? inspectorWidth : INSPECTOR_RAIL_WIDTH}px`,
   } as CSSProperties;
   if (!ready || !settings) {
@@ -237,7 +240,7 @@ function AppShell({ app }: { app: LibraryModel }) {
         themeItems={app.themeItems}
         gridItems={app.gridItems}
       />
-      <div className="app-panes">
+      <div className={`app-panes${sidebarPinned ? "" : " sidebar-collapsed"}`}>
       <Sidebar
         folders={folders}
         libraryName={libraryName}
@@ -261,6 +264,31 @@ function AppShell({ app }: { app: LibraryModel }) {
         onNewInFolder={openNewFolderPrompt}
         onRenameFolder={openRenameFolderPrompt}
         onDeleteFolder={openDeleteFolderConfirm}
+        pinned={sidebarPinned}
+        onPinnedChange={(next) => {
+          setSidebarPinned(next);
+          setSettings((current) => (current ? { ...current, sidebarPinned: next } : current));
+          void api.setSidebarPinned(next).catch((err) => setError(String(err)));
+        }}
+        onReveal={(folderId) => {
+          void api.revealFolder(folderId).catch((err) => setError(String(err)));
+        }}
+        onRescan={(folderId) => {
+          const name = folderId == null
+            ? libraryName
+            : folders.find((item) => item.id === folderId)?.name ?? "folder";
+          void runDiskOp({
+            title: `Rescanning "${name}"...`,
+            cancellable: true,
+            success: "Rescan finished",
+            cancelled: "Rescan cancelled",
+            run: () => (folderId == null ? api.rescanLibrary() : api.rescanFolder(folderId)),
+            after: async () => {
+              await refreshLists();
+            },
+            tree: true,
+          });
+        }}
         onTagFolder={(folderId) => {
           const name =
             folderId === null
@@ -295,14 +323,16 @@ function AppShell({ app }: { app: LibraryModel }) {
           });
         }}
       />
-      <div
-        className="pane-splitter"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize folders"
-        tabIndex={0}
-        onPointerDown={onPanePointerDown("sidebar")}
-      />
+      {sidebarPinned ? (
+        <div
+          className="pane-splitter"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize folders"
+          tabIndex={0}
+          onPointerDown={onPanePointerDown("sidebar")}
+        />
+      ) : null}
       <section className="main">
         <div className="toolbar">
           <Breadcrumb
@@ -451,6 +481,7 @@ function AppShell({ app }: { app: LibraryModel }) {
             folders={folders}
             creators={creators}
             knownTags={tags}
+            tagCounts={tagCounts}
             pinned={inspectorPinned}
             onPinnedChange={(next) => {
               setInspectorPinned(next);
@@ -535,6 +566,7 @@ function AppShell({ app }: { app: LibraryModel }) {
       <FolderTagDialog app={app} />
       <CreatorDialog app={app} />
       <AboutDialog app={app} updates={updateCheck.about} />
+      <TagColorDialog app={app} />
       <DragFailureDialog app={app} />
       <NamePromptDialog app={app} />
       <DeleteFolderDialog app={app} />

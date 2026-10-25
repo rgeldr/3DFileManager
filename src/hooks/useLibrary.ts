@@ -64,6 +64,7 @@ export function useLibrary() {
   const [includeSubfolders, setIncludeSubfolders] = useState(true);
   const [creatorFileCount, setCreatorFileCount] = useState<number | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [tagColorOpen, setTagColorOpen] = useState(false);
   const [aboutVersion, setAboutVersion] = useState<string | null>(null);
   const [aboutVersionFailed, setAboutVersionFailed] = useState(false);
   const [dragFailure, setDragFailure] = useState<{ message: string; fileId: number } | null>(null);
@@ -71,6 +72,7 @@ export function useLibrary() {
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const [inspectorWidth, setInspectorWidth] = useState(320);
   const [inspectorPinned, setInspectorPinned] = useState(true);
+  const [sidebarPinned, setSidebarPinned] = useState(true);
   const [previewHeight, setPreviewHeight] = useState(240);
   const [folderTagInput, setFolderTagInput] = useState("");
   const [folderTagFileCount, setFolderTagFileCount] = useState<number | null>(null);
@@ -101,6 +103,7 @@ export function useLibrary() {
     setTheme: () => undefined,
     setGrid: () => undefined,
     showAbout: () => undefined,
+    openTagColors: () => undefined,
   });
   const themeItems = useRef<{ dark?: CheckMenuItem; light?: CheckMenuItem }>({});
   const gridItems = useRef<Partial<Record<ViewMode, CheckMenuItem>>>({});
@@ -295,6 +298,25 @@ export function useLibrary() {
     });
   }, [folders, runDiskOp]);
 
+  const openRenameFile = useCallback((fileId: number) => {
+    const file = filesRef.current.find((item) => item.id === fileId);
+    if (!file) return;
+    const shown = file.ext ? `${file.sortName}.${file.ext}` : file.sortName;
+    setNamePrompt({
+      title: "Rename",
+      value: shown,
+      onOk: (value) => {
+        void runDiskOp({
+          title: `Renaming "${shown}"...`,
+          cancellable: false,
+          success: `Renamed "${value.trim()}"`,
+          cancelled: "Rename cancelled",
+          run: () => api.renameFile(file.id, value),
+        });
+      },
+    });
+  }, [runDiskOp]);
+
   const openDeleteFolderConfirm = useCallback((folderId: number) => {
     const folder = folders.find((item) => item.id === folderId);
     if (!folder) return;
@@ -353,7 +375,7 @@ export function useLibrary() {
   runImportRef.current = runImport;
 
   const dialogOpen = Boolean(
-    busy || progress || summary || namePrompt || deleteConfirm || missingOpen || error || diskDialog || aboutOpen || creatorTarget || dragFailure,
+    busy || progress || summary || namePrompt || deleteConfirm || missingOpen || error || diskDialog || aboutOpen || tagColorOpen || creatorTarget || dragFailure,
   );
   const dialogBlockRef = useRef(false);
   dialogBlockRef.current = Boolean(dialogOpen || folderTagTarget || fileMenu);
@@ -407,9 +429,10 @@ export function useLibrary() {
     importCreator, setImportCreator, importTags, setImportTags, importTagText, setImportTagText,
     folderTagTarget, setFolderTagTarget, creatorTarget, setCreatorTarget, creatorValue, setCreatorValue,
     includeSubfolders, setIncludeSubfolders, creatorFileCount, setCreatorFileCount,
-    aboutOpen, setAboutOpen, aboutVersion, setAboutVersion, aboutVersionFailed, setAboutVersionFailed,
+    aboutOpen, setAboutOpen, tagColorOpen, setTagColorOpen, aboutVersion, setAboutVersion, aboutVersionFailed, setAboutVersionFailed,
     dragFailure, setDragFailure, fileMenu, setFileMenu, sidebarWidth, setSidebarWidth,
     inspectorWidth, setInspectorWidth, inspectorPinned, setInspectorPinned,
+    sidebarPinned, setSidebarPinned,
     previewHeight, setPreviewHeight,
     folderTagInput, setFolderTagInput, folderTagFileCount, setFolderTagFileCount,
     namePrompt, setNamePrompt, deleteConfirm, setDeleteConfirm, error, setError, diskDialog, setDiskDialog,
@@ -417,7 +440,7 @@ export function useLibrary() {
     thumbNonce, setThumbNonce, thumbGeneration, gridScrollRef, dragIconRef, sidebarWidthRef, inspectorWidthRef,
     previewIconsEnabled, setPreviewIconsEnabled, folderExpandHint, setFolderExpandHint, libraryBusy, diskProgress,
     toastTimer, libraryName, targetFolderId, refreshLists, reloadTree, showToast, runDiskOp, openNewFolderPrompt,
-    openRenameFolderPrompt, openDeleteFolderConfirm, performDeleteFolder, runImportRef, refreshListsRef,
+    openRenameFolderPrompt, openRenameFile, openDeleteFolderConfirm, performDeleteFolder, runImportRef, refreshListsRef,
     runImport, dialogOpen, browseKey, onSelect, selectedFile,
   };
   const drag = useLibraryEffects(model);

@@ -7,7 +7,9 @@ import {
   tagFilterKeyAction,
   toggleTagId,
 } from "../lib/tagFilter";
+import { displayTagColor, tagChipStyle } from "../lib/tagColor";
 import type { TagCount, TagMatchMode } from "../types";
+import { TagChip } from "./TagChip";
 import { AppErrorBoundary } from "./AppErrorBoundary";
 import { FilterPopover } from "./FilterPopover";
 
@@ -129,7 +131,7 @@ export function TagFilter({
                     checked={selectedIds.includes(tag.id)}
                     onChange={() => onSelectedIds(toggleTagId(selectedIds, tag.id))}
                   />
-                  <span className="tag-filter-name">{tag.name}</span>
+                  <span className="tag-filter-name tag" style={tagChipStyle(displayTagColor(tag.name, [tag]))}>{tag.name}</span>
                   <span className="tag-filter-count">{tag.fileCount}</span>
                 </label>
               ))}
@@ -161,15 +163,13 @@ export function TagChips({
   return (
     <div className="tag-filter-chips">
       {selected.map((tag) => (
-        <button
+        <TagChip
           key={tag.id}
-          type="button"
-          className="tag"
-          aria-label={`Remove ${tag.name}`}
+          name={tag.name}
+          color={displayTagColor(tag.name, [tag])}
+          ariaLabel={`Remove ${tag.name}`}
           onClick={() => onSelectedIds(toggleTagId(selectedIds, tag.id))}
-        >
-          {tag.name} ×
-        </button>
+        />
       ))}
     </div>
   );

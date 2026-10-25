@@ -73,6 +73,17 @@ pub struct TagCount {
     pub id: i64,
     pub name: String,
     pub file_count: i64,
+    pub color: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagColorRow {
+    pub id: i64,
+    pub name: String,
+    pub color: String,
+    pub auto_color: String,
+    pub custom: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

@@ -186,3 +186,77 @@
         assert_eq!(scoped, vec!["Alpha", "Beta"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn tag_colors_are_assigned_once_and_a_custom_color_resets() {
+        let dir = std::env::temp_dir().join(format!("filelib-tagcolor-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = open(&dir).unwrap();
+        let root = dir.join("library");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        let file = db
+            .insert_file("a.stl", "a.stl", "stl", 1, "sha-color", 1, None, None)
+            .unwrap();
+
+        db.conn
+            .execute("INSERT INTO tags (name, auto_color) VALUES ('Legacy', '')", [])
+            .unwrap();
+        backfill_tag_colors(&db.conn).unwrap();
+        let legacy = db
+            .conn
+            .query_row(
+                "SELECT auto_color FROM tags WHERE name = 'Legacy'",
+                [],
+                |r| r.get::<_, String>(0),
+            )
+            .unwrap();
+        assert_eq!(legacy, tag_auto_color("Legacy"));
+        backfill_tag_colors(&db.conn).unwrap();
+        let again = db
+            .conn
+            .query_row(
+                "SELECT auto_color FROM tags WHERE name = 'Legacy'",
+                [],
+                |r| r.get::<_, String>(0),
+            )
+            .unwrap();
+        assert_eq!(again, legacy);
+
+        db.set_tags(file, &["FDM".into()]).unwrap();
+        let created = db.list_tag_colors().unwrap();
+        let fdm = created.iter().find(|tag| tag.name == "FDM").unwrap();
+        assert_eq!(fdm.auto_color, tag_auto_color("FDM"));
+        assert_eq!(fdm.auto_color, "#2f6e32");
+        assert!(!fdm.custom);
+        assert_eq!(fdm.color, fdm.auto_color);
+
+        db.set_tag_color(fdm.id, Some("#336699")).unwrap();
+        let painted = db.list_tag_colors().unwrap();
+        let fdm = painted.iter().find(|tag| tag.name == "FDM").unwrap();
+        assert!(fdm.custom);
+        assert_eq!(fdm.color, "#336699");
+        assert_eq!(fdm.auto_color, tag_auto_color("FDM"));
+        let counts = db.tag_counts(FolderFilter::All, "", "", &[]).unwrap();
+        assert_eq!(counts.iter().find(|tag| tag.name == "FDM").unwrap().color, "#336699");
+
+        db.set_tag_color(fdm.id, None).unwrap();
+        let reset = db.list_tag_colors().unwrap();
+        let fdm = reset.iter().find(|tag| tag.name == "FDM").unwrap();
+        assert!(!fdm.custom);
+        assert_eq!(fdm.color, tag_auto_color("FDM"));
+        db.set_tags(file, &["FDM".into()]).unwrap();
+        let kept = db
+            .conn
+            .query_row(
+                "SELECT auto_color FROM tags WHERE name = 'FDM'",
+                [],
+                |r| r.get::<_, String>(0),
+            )
+            .unwrap();
+        assert_eq!(kept, tag_auto_color("FDM"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }

@@ -4,6 +4,7 @@ import type {
   FileRow,
   LibraryStats,
   FolderRow,
+  TagColorChoice,
   TagCount,
   TypeCount,
   ImportSummary,
@@ -29,6 +30,17 @@ export const api = {
     invoke<void>("set_preview_height", { previewHeight }),
   setInspectorPinned: (inspectorPinned: boolean) =>
     invoke<void>("set_inspector_pinned", { inspectorPinned }),
+  setSidebarPinned: (sidebarPinned: boolean) =>
+    invoke<void>("set_sidebar_pinned", { sidebarPinned }),
+  revealFolder: (folderId: number | null) => invoke<void>("reveal_folder", { folderId }),
+  rescanFolder: (folderId: number) =>
+    invoke<{
+      addedFolders: number;
+      addedFiles: number;
+      relocated: number;
+      missing: number;
+      cancelled: boolean;
+    }>("rescan_folder", { folderId }),
   createFolder: (parentId: number | null, name: string) =>
     invoke<FolderRow>("create_folder", { parentId, name }),
   renameFolder: (id: number, name: string) => invoke<DiskOutcome>("rename_folder", { id, name }),
@@ -51,6 +63,7 @@ export const api = {
   }) => invoke<FileRow[]>("list_files", { args }),
   missingFiles: () => invoke<FileRow[]>("missing_files"),
   removeMissing: () => invoke<void>("remove_missing"),
+  renameFile: (id: number, name: string) => invoke<DiskOutcome>("rename_file", { id, name }),
   updateFile: (payload: {
     id: number;
     sortName: string;
@@ -72,6 +85,8 @@ export const api = {
   listCreators: (args?: { folder: string; folderId: number | null }) =>
     invoke<string[]>("list_creators", { args: args ?? { folder: "", folderId: null } }),
   listTags: () => invoke<string[]>("list_tags"),
+  listTagColors: () => invoke<TagColorChoice[]>("list_tag_colors"),
+  setTagColor: (id: number, color: string | null) => invoke<void>("set_tag_color", { id, color }),
   listTagCounts: (args: {
     folder: string;
     folderId: number | null;

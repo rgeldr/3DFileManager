@@ -203,6 +203,16 @@ async fn update_file(
 }
 
 #[tauri::command]
+async fn rename_file(app: AppHandle, id: i64, name: String) -> Result<DiskOutcome, String> {
+    let _timer = CommandTimer::start("rename_file");
+    block_on_disk(app, move |db, _cancel, _handle| {
+        db.rename_library_file(id, &name)?;
+        Ok(DiskOutcome { cancelled: false })
+    })
+    .await
+}
+
+#[tauri::command]
 async fn set_tags(app: AppHandle, id: i64, tags: Vec<String>) -> Result<(), String> {
     let db = app.state::<AppState>().db.clone();
     off_ui("set_tags", move || {
@@ -309,6 +319,26 @@ async fn list_tags(app: AppHandle) -> Result<Vec<String>, String> {
     off_ui("list_tags", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         db.list_tags()
+    })
+    .await
+}
+
+#[tauri::command]
+async fn list_tag_colors(app: AppHandle) -> Result<Vec<db::TagColorRow>, String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("list_tag_colors", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.list_tag_colors()
+    })
+    .await
+}
+
+#[tauri::command]
+async fn set_tag_color(app: AppHandle, id: i64, color: Option<String>) -> Result<(), String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("set_tag_color", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.set_tag_color(id, color.as_deref())
     })
     .await
 }

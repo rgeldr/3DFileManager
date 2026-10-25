@@ -60,6 +60,31 @@
   flex: 1;
 }
 
+.tag-color-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 360px;
+  overflow: auto;
+}
+
+.tag-color-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tag-color-row .tag {
+  margin-right: auto;
+}
+
+.tag-color-row input[type="color"] {
+  width: 36px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+}
+
 .card .row {
   flex-shrink: 0;
 }
