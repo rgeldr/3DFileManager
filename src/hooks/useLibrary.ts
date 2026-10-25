@@ -71,6 +71,7 @@ export function useLibrary() {
   const [sidebarWidth, setSidebarWidth] = useState(240);
   const [inspectorWidth, setInspectorWidth] = useState(320);
   const [inspectorPinned, setInspectorPinned] = useState(true);
+  const [sidebarPinned, setSidebarPinned] = useState(true);
   const [previewHeight, setPreviewHeight] = useState(240);
   const [folderTagInput, setFolderTagInput] = useState("");
   const [folderTagFileCount, setFolderTagFileCount] = useState<number | null>(null);
@@ -295,6 +296,30 @@ export function useLibrary() {
     });
   }, [folders, runDiskOp]);
 
+  const openRenameFile = useCallback((fileId: number) => {
+    const file = filesRef.current.find((item) => item.id === fileId);
+    if (!file) return;
+    setNamePrompt({
+      title: "Rename",
+      value: file.sortName,
+      onOk: (value) => {
+        void runDiskOp({
+          title: `Renaming "${file.sortName}"...`,
+          cancellable: false,
+          success: `Renamed "${value}"`,
+          cancelled: "Rename cancelled",
+          run: () => api.updateFile({
+            id: file.id,
+            sortName: value,
+            creator: file.creator,
+            notes: file.notes,
+            folderId: file.folderId,
+          }),
+        });
+      },
+    });
+  }, [runDiskOp]);
+
   const openDeleteFolderConfirm = useCallback((folderId: number) => {
     const folder = folders.find((item) => item.id === folderId);
     if (!folder) return;
@@ -410,6 +435,7 @@ export function useLibrary() {
     aboutOpen, setAboutOpen, aboutVersion, setAboutVersion, aboutVersionFailed, setAboutVersionFailed,
     dragFailure, setDragFailure, fileMenu, setFileMenu, sidebarWidth, setSidebarWidth,
     inspectorWidth, setInspectorWidth, inspectorPinned, setInspectorPinned,
+    sidebarPinned, setSidebarPinned,
     previewHeight, setPreviewHeight,
     folderTagInput, setFolderTagInput, folderTagFileCount, setFolderTagFileCount,
     namePrompt, setNamePrompt, deleteConfirm, setDeleteConfirm, error, setError, diskDialog, setDiskDialog,
@@ -417,7 +443,7 @@ export function useLibrary() {
     thumbNonce, setThumbNonce, thumbGeneration, gridScrollRef, dragIconRef, sidebarWidthRef, inspectorWidthRef,
     previewIconsEnabled, setPreviewIconsEnabled, folderExpandHint, setFolderExpandHint, libraryBusy, diskProgress,
     toastTimer, libraryName, targetFolderId, refreshLists, reloadTree, showToast, runDiskOp, openNewFolderPrompt,
-    openRenameFolderPrompt, openDeleteFolderConfirm, performDeleteFolder, runImportRef, refreshListsRef,
+    openRenameFolderPrompt, openRenameFile, openDeleteFolderConfirm, performDeleteFolder, runImportRef, refreshListsRef,
     runImport, dialogOpen, browseKey, onSelect, selectedFile,
   };
   const drag = useLibraryEffects(model);

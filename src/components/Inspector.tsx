@@ -6,7 +6,7 @@ import type { FileRow, FolderRow } from "../types";
 import { appendCommaTags, commaTagOptions, tagFieldKey } from "../lib/commaTags";
 import { Viewer } from "./Viewer";
 
-function PinIcon({ pinned }: { pinned: boolean }) {
+export function PinIcon({ pinned }: { pinned: boolean }) {
   return (
     <svg
       className="inspector-pin-icon"

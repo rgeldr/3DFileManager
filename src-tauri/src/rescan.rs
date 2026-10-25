@@ -21,17 +21,26 @@ pub struct RescanSummary {
 
 #[cfg(test)]
 pub fn rescan<F: FnMut(DiskProgress)>(db: &AppDb, progress: F) -> Result<RescanSummary, String> {
-    rescan_with(db, &AtomicBool::new(false), progress)
+    rescan_with(db, &AtomicBool::new(false), None, progress)
 }
 
+/// `scope` is a folder relpath. `None` scans the whole library.
 pub fn rescan_with<F: FnMut(DiskProgress)>(
     db: &AppDb,
     cancel: &AtomicBool,
+    scope: Option<&str>,
     mut progress: F,
 ) -> Result<RescanSummary, String> {
     let root = db.library_root()?;
     if !root.exists() {
         return Err("The library folder is missing.".into());
+    }
+    let start = match scope.map(str::trim).filter(|rel| !rel.is_empty()) {
+        Some(rel) => root.join(rel),
+        None => root.clone(),
+    };
+    if !start.is_dir() {
+        return Err("That folder is missing from the library.".into());
     }
     progress(DiskProgress {
         current: 0,
@@ -43,13 +52,13 @@ pub fn rescan_with<F: FnMut(DiskProgress)>(
     });
     let mut disk_dirs: Vec<PathBuf> = Vec::new();
     let mut disk_files: Vec<(PathBuf, u64)> = Vec::new();
-    for entry in WalkDir::new(&root).follow_links(false) {
+    for entry in WalkDir::new(&start).follow_links(false) {
         if cancel.load(Ordering::SeqCst) {
             return Ok(empty_cancelled());
         }
         let entry = entry.map_err(|e| e.to_string())?;
         if entry.file_type().is_dir() {
-            if entry.path() != root {
+            if entry.path() != start {
                 disk_dirs.push(entry.into_path());
             }
         } else if entry.file_type().is_file() {
@@ -220,7 +229,7 @@ pub fn rescan_with<F: FnMut(DiskProgress)>(
                 cancelled: true,
             });
         }
-        if !seen_ids.contains(&row.id) {
+        if !seen_ids.contains(&row.id) && in_rescan_scope(&row.stored_relpath, scope) {
             if !row.missing {
                 db.mark_missing(row.id, true)?;
             }
@@ -254,6 +263,14 @@ fn empty_cancelled() -> RescanSummary {
     }
 }
 
+pub fn in_rescan_scope(stored_relpath: &str, scope: Option<&str>) -> bool {
+    let Some(scope) = scope.map(str::trim).filter(|rel| !rel.is_empty()) else {
+        return true;
+    };
+    let prefix = format!("{scope}/");
+    stored_relpath == scope || stored_relpath.starts_with(&prefix)
+}
+
 fn rel_string(root: &Path, path: &Path) -> Result<String, String> {
     let rel = path.strip_prefix(root).map_err(|e| e.to_string())?;
     Ok(rel.to_string_lossy().replace('\\', "/"))
@@ -279,7 +296,7 @@ mod tests {
         std::fs::write(root.join("new.stl"), b"solid new").unwrap();
         db.insert_file("gone.stl", "gone.stl", "stl", 1, "sha-gone", 1, None, None)
             .unwrap();
-        let summary = rescan_with(&db, &AtomicBool::new(false), |_| {}).unwrap();
+        let summary = rescan_with(&db, &AtomicBool::new(false), None, |_| {}).unwrap();
         assert!(!summary.cancelled);
         assert_eq!(summary.added_files, 1);
         assert_eq!(summary.missing, 1);
@@ -304,19 +321,63 @@ mod tests {
         std::fs::write(root.join("kept.stl"), b"solid kept").unwrap();
         db.insert_file("gone.stl", "gone.stl", "stl", 1, "sha-gone", 1, None, None)
             .unwrap();
-        let first = rescan_with(&db, &AtomicBool::new(false), |_| {}).unwrap();
+        let first = rescan_with(&db, &AtomicBool::new(false), None, |_| {}).unwrap();
         assert_eq!(first.added_files, 1);
         assert_eq!(first.missing, 1);
         let changes = db.conn.total_changes();
-        let again = rescan_with(&db, &AtomicBool::new(false), |_| {}).unwrap();
+        let again = rescan_with(&db, &AtomicBool::new(false), None, |_| {}).unwrap();
         assert_eq!(again.added_files, 0);
         assert_eq!(again.relocated, 0);
         assert_eq!(again.missing, 1);
         assert_eq!(db.conn.total_changes(), changes);
         std::fs::write(root.join("gone.stl"), b"x").unwrap();
-        let restored = rescan_with(&db, &AtomicBool::new(false), |_| {}).unwrap();
+        let restored = rescan_with(&db, &AtomicBool::new(false), None, |_| {}).unwrap();
         assert_eq!(restored.missing, 0);
         assert!(db.missing_files().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rescan_scope_marks_only_the_folder_subtree() {
+        assert!(in_rescan_scope("Toys/a.stl", Some("Toys")));
+        assert!(in_rescan_scope("Toys/Nested/a.stl", Some("Toys")));
+        assert!(!in_rescan_scope("Toyshelf/a.stl", Some("Toys")));
+        assert!(!in_rescan_scope("other.stl", Some("Toys")));
+        assert!(in_rescan_scope("other.stl", None));
+
+        let dir = std::env::temp_dir().join(format!("filelib-rescan-scope-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        let toys = db.create_folder(None, "Toys", 0).unwrap();
+        std::fs::write(root.join(&toys.relpath).join("kept.stl"), b"kept").unwrap();
+        std::fs::write(root.join("other.stl"), b"other").unwrap();
+        db.insert_file(
+            "gone.stl",
+            &format!("{}/gone.stl", toys.relpath),
+            "stl",
+            1,
+            "sha-gone",
+            1,
+            Some(toys.id),
+            None,
+        )
+        .unwrap();
+        db.insert_file("other.stl", "other.stl", "stl", 1, "sha-other", 1, None, None)
+            .unwrap();
+        let summary = rescan_with(&db, &AtomicBool::new(false), Some(&toys.relpath), |_| {}).unwrap();
+        assert_eq!(summary.added_files, 1);
+        assert_eq!(summary.missing, 1);
+        let missing = db.missing_files().unwrap();
+        assert_eq!(missing.len(), 1);
+        assert_eq!(missing[0].original_name, "gone.stl");
+        let rows = db.list_files(FolderFilter::All, "", "", "", "name", "asc").unwrap();
+        assert!(rows.iter().any(|file| file.original_name == "kept.stl" && !file.missing));
+        assert!(rows.iter().any(|file| file.original_name == "other.stl" && !file.missing));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
