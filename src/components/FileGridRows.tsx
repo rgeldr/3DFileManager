@@ -1,4 +1,10 @@
 import { formatBytes } from "../hooks/libraryTypes";
+import {
+  clampDetailsColumn,
+  DETAILS_COLUMN_LIMITS,
+  type DetailsColumnId,
+  type DetailsColumns,
+} from "../lib/detailsColumns";
 import type { FileRow, FolderRow, LibrarySort, SortField } from "../types";
 
 export function fileDisplayName(file: FileRow) {
@@ -9,37 +15,83 @@ export function formatFileDate(seconds: number) {
   return new Date(seconds * 1000).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
 }
 
-const SORT_COLUMNS: { field: SortField; label: string; className: string }[] = [
-  { field: "name", label: "Name", className: "details-col-name" },
-  { field: "size", label: "Size", className: "details-col-size" },
-  { field: "modified", label: "Date modified", className: "details-col-date" },
-  { field: "date", label: "Date added", className: "details-col-date" },
-  { field: "creator", label: "Creator", className: "details-col-creator" },
+const SORT_COLUMNS: { id: DetailsColumnId; field: SortField; label: string; className: string }[] = [
+  { id: "name", field: "name", label: "Name", className: "details-col-name" },
+  { id: "size", field: "size", label: "Size", className: "details-col-size" },
+  { id: "modified", field: "modified", label: "Date modified", className: "details-col-date" },
+  { id: "added", field: "date", label: "Date added", className: "details-col-date" },
+  { id: "creator", field: "creator", label: "Creator", className: "details-col-creator" },
 ];
 
 export function DetailsHeader({
   sort,
+  columns,
   onSort,
+  onColumnResize,
+  onColumnResizeEnd,
 }: {
   sort: LibrarySort;
+  columns: DetailsColumns;
   onSort: (field: SortField) => void;
+  onColumnResize?: (id: DetailsColumnId, width: number) => void;
+  onColumnResizeEnd?: (id: DetailsColumnId, width: number) => void;
 }) {
+  const startResize = (event: React.PointerEvent<HTMLDivElement>, id: DetailsColumnId) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.detail >= 2) {
+      onColumnResizeEnd?.(id, DETAILS_COLUMN_LIMITS[id].default);
+      return;
+    }
+    const handle = event.currentTarget;
+    const startX = event.clientX;
+    const origin = columns[id];
+    handle.setPointerCapture?.(event.pointerId);
+    const move = (ev: PointerEvent) => {
+      if (ev.clientX === startX) return;
+      onColumnResize?.(id, clampDetailsColumn(id, origin + ev.clientX - startX));
+    };
+    const finish = (ev: PointerEvent) => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", finish);
+      handle.removeEventListener("pointercancel", finish);
+      if (handle.hasPointerCapture?.(ev.pointerId)) handle.releasePointerCapture(ev.pointerId);
+      if (ev.clientX === startX) return;
+      onColumnResizeEnd?.(id, clampDetailsColumn(id, origin + ev.clientX - startX));
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", finish);
+    handle.addEventListener("pointercancel", finish);
+  };
+
   return (
     <div className="details-header" data-sort-header>
       {SORT_COLUMNS.map((column) => {
         const active = sort.field === column.field;
         const ariaSort = active ? (sort.direction === "asc" ? "ascending" : "descending") : "none";
         return (
-          <button
-            key={column.field}
-            type="button"
+          <div
+            key={column.id}
             className={`details-header-cell ${column.className}${active ? " active" : ""}`}
+            role="columnheader"
             aria-sort={ariaSort}
-            onClick={() => onSort(column.field)}
           >
-            <span>{column.label}</span>
-            {active ? <span className="sort-arrow" aria-hidden>{sort.direction === "asc" ? "▲" : "▼"}</span> : null}
-          </button>
+            <button type="button" className="details-header-sort" onClick={() => onSort(column.field)}>
+              <span>{column.label}</span>
+              {active ? <span className="sort-arrow" aria-hidden>{sort.direction === "asc" ? "▲" : "▼"}</span> : null}
+            </button>
+            <div
+              className="details-col-resize"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label={`Resize ${column.label}`}
+              aria-valuemin={DETAILS_COLUMN_LIMITS[column.id].min}
+              aria-valuemax={DETAILS_COLUMN_LIMITS[column.id].max}
+              aria-valuenow={columns[column.id]}
+              onPointerDown={(event) => startResize(event, column.id)}
+            />
+          </div>
         );
       })}
     </div>

@@ -88,6 +88,8 @@ function AppShell({ app }: { app: LibraryModel }) {
     setInspectorPinned,
     previewHeight,
     setPreviewHeight,
+    detailsColumns,
+    setDetailsColumns,
     setFolderTagInput,
     error,
     setError,
@@ -431,6 +433,17 @@ function AppShell({ app }: { app: LibraryModel }) {
                 setSelected([]);
               }}
               onSort={(field) => setSort(nextSort(sort, field))}
+              detailsColumns={detailsColumns}
+              onDetailsColumnResize={(id, width) => {
+                setDetailsColumns((current) => ({ ...current, [id]: width }));
+              }}
+              onDetailsColumnResizeEnd={(id, width) => {
+                setDetailsColumns((current) => {
+                  const next = { ...current, [id]: width };
+                  void api.setDetailsColumns(next).catch((err) => setError(String(err)));
+                  return next;
+                });
+              }}
               onContextMenu={(event, file) => {
                 if (!selected.includes(file.id)) onSelect(file.id, "replace");
                 setFileMenu({ x: event.clientX, y: event.clientY, fileId: file.id });

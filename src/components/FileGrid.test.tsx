@@ -368,6 +368,45 @@ describe("FileGrid", () => {
     expect(cells?.[0]?.textContent).toContain("Agave.stl");
     expect(cells?.[1]?.textContent).toMatch(/MB|KB/);
     expect(cells?.[4]?.textContent).toBe("Epic Basing");
+    const template = view.container.querySelector(".details-virtual")?.getAttribute("style") ?? "";
+    expect(template).toContain("minmax(240px, 1fr) 96px 176px 176px 128px");
+    view.unmount();
+    scroller.remove();
+  });
+
+  it("drags a details header border to resize that column and double-click resets it", () => {
+    const scroller = document.createElement("div");
+    sizeScroller(scroller, 0);
+    document.body.appendChild(scroller);
+    const commits: number[] = [];
+    function Host() {
+      const [size, setSize] = useState(96);
+      return (
+        <FileGrid
+          {...gridBase({
+            view: "details",
+            files: [file({ id: 1, sortName: "Agave", ext: "stl" })],
+            scrollRootRef: { current: scroller },
+            detailsColumns: { name: 240, size, modified: 176, added: 176, creator: 128 },
+            onDetailsColumnResize: (_id: string, width: number) => setSize(width),
+            onDetailsColumnResizeEnd: (_id: string, width: number) => {
+              commits.push(width);
+              setSize(width);
+            },
+          })}
+        />
+      );
+    }
+    const view = render(<Host />, { container: scroller });
+    const handle = screen.getByRole("separator", { name: "Resize Size" });
+    fireEvent.pointerDown(handle, { clientX: 100, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientX: 30, pointerId: 1 });
+    expect(handle.getAttribute("aria-valuenow")).toBe("64");
+    fireEvent.pointerUp(handle, { clientX: 30, pointerId: 1 });
+    expect(commits).toEqual([64]);
+    fireEvent.pointerDown(handle, { clientX: 100, button: 0, pointerId: 2, detail: 2 });
+    expect(commits).toEqual([64, 96]);
+    expect(handle.getAttribute("aria-valuenow")).toBe("96");
     view.unmount();
     scroller.remove();
   });

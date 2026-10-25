@@ -27,6 +27,26 @@ fn default_search_scope() -> String {
     "library".into()
 }
 
+fn default_details_columns() -> DetailsColumns {
+    DetailsColumns {
+        name: 240,
+        size: 96,
+        modified: 176,
+        added: 176,
+        creator: 128,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetailsColumns {
+    pub name: u32,
+    pub size: u32,
+    pub modified: u32,
+    pub added: u32,
+    pub creator: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -45,6 +65,8 @@ pub struct Settings {
     pub inspector_pinned: bool,
     #[serde(default = "default_search_scope")]
     pub search_scope: String,
+    #[serde(default = "default_details_columns")]
+    pub details_columns: DetailsColumns,
 }
 
 impl Default for Settings {
@@ -59,6 +81,7 @@ impl Default for Settings {
             thumb_retry: default_thumb_retry(),
             inspector_pinned: default_inspector_pinned(),
             search_scope: default_search_scope(),
+            details_columns: default_details_columns(),
         }
     }
 }
@@ -82,6 +105,22 @@ pub fn check_pane_widths(sidebar_width: u32, inspector_width: u32) -> Result<(),
     if !(240..=560).contains(&inspector_width) {
         return Err("Inspector width must be between 240 and 560.".into());
     }
+    Ok(())
+}
+
+fn column_in_range(name: &str, value: u32, min: u32, max: u32) -> Result<(), String> {
+    if (min..=max).contains(&value) {
+        return Ok(());
+    }
+    Err(format!("{name} width must be between {min} and {max}."))
+}
+
+pub fn check_details_columns(columns: &DetailsColumns) -> Result<(), String> {
+    column_in_range("Name", columns.name, 120, 800)?;
+    column_in_range("Size", columns.size, 64, 280)?;
+    column_in_range("Date modified", columns.modified, 96, 360)?;
+    column_in_range("Date added", columns.added, 96, 360)?;
+    column_in_range("Creator", columns.creator, 72, 400)?;
     Ok(())
 }
 
@@ -119,12 +158,19 @@ mod tests {
         assert_eq!(loaded.thumb_retry, 0);
         assert!(loaded.inspector_pinned);
         assert_eq!(loaded.search_scope, "library");
+        assert_eq!(loaded.details_columns.name, 240);
+        assert_eq!(loaded.details_columns.size, 96);
+        assert_eq!(loaded.details_columns.modified, 176);
+        assert_eq!(loaded.details_columns.added, 176);
+        assert_eq!(loaded.details_columns.creator, 128);
         let mut next = loaded;
         next.sidebar_width = 360;
         next.inspector_width = 400;
         next.preview_height = 480;
         next.thumb_retry = 1;
         next.inspector_pinned = false;
+        next.details_columns.size = 140;
+        next.details_columns.name = 320;
         save(&dir, &next).unwrap();
         let again = load(&dir);
         assert_eq!(again.sidebar_width, 360);
@@ -132,6 +178,8 @@ mod tests {
         assert_eq!(again.preview_height, 480);
         assert_eq!(again.thumb_retry, 1);
         assert!(!again.inspector_pinned);
+        assert_eq!(again.details_columns.size, 140);
+        assert_eq!(again.details_columns.name, 320);
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -143,6 +191,20 @@ mod tests {
         assert!(check_pane_widths(641, 320).is_err());
         assert!(check_pane_widths(240, 239).is_err());
         assert!(check_pane_widths(240, 561).is_err());
+    }
+
+    #[test]
+    fn details_columns_reject_values_outside_the_saved_range() {
+        let mut columns = default_details_columns();
+        assert!(check_details_columns(&columns).is_ok());
+        columns.size = 63;
+        assert!(check_details_columns(&columns).is_err());
+        columns.size = 280;
+        columns.name = 119;
+        assert!(check_details_columns(&columns).is_err());
+        columns.name = 800;
+        columns.creator = 401;
+        assert!(check_details_columns(&columns).is_err());
     }
 
     #[test]

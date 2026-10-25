@@ -9,6 +9,14 @@ export interface LibrarySort {
   direction: SortDirection;
 }
 
+export interface DetailsColumns {
+  name: number;
+  size: number;
+  modified: number;
+  added: number;
+  creator: number;
+}
+
 export interface Settings {
   libraryRoot: string | null;
   theme: "dark" | "light";
@@ -19,6 +27,7 @@ export interface Settings {
   thumbRetry: number;
   inspectorPinned: boolean;
   searchScope: SearchScope;
+  detailsColumns: DetailsColumns;
 }
 
 export interface DragReport {

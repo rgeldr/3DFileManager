@@ -81,6 +81,7 @@ pub fn run() {
             set_search_scope,
             set_pane_widths,
             set_preview_height,
+            set_details_columns,
             set_inspector_pinned,
             create_folder,
             rename_folder,
