@@ -68,7 +68,7 @@ describe("File context menu", () => {
     });
   });
 
-  it("renames the clicked file's sort name", () => {
+  it("renames the clicked file", () => {
     const { model, calls } = app([1, 2], 2);
     render(<FileContextMenu app={model} />);
     fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));

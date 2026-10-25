@@ -301,22 +301,17 @@ export function useLibrary() {
   const openRenameFile = useCallback((fileId: number) => {
     const file = filesRef.current.find((item) => item.id === fileId);
     if (!file) return;
+    const shown = file.ext ? `${file.sortName}.${file.ext}` : file.sortName;
     setNamePrompt({
       title: "Rename",
-      value: file.sortName,
+      value: shown,
       onOk: (value) => {
         void runDiskOp({
-          title: `Renaming "${file.sortName}"...`,
+          title: `Renaming "${shown}"...`,
           cancellable: false,
-          success: `Renamed "${value}"`,
+          success: `Renamed "${value.trim()}"`,
           cancelled: "Rename cancelled",
-          run: () => api.updateFile({
-            id: file.id,
-            sortName: value,
-            creator: file.creator,
-            notes: file.notes,
-            folderId: file.folderId,
-          }),
+          run: () => api.renameFile(file.id, value),
         });
       },
     });

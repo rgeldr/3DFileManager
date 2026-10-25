@@ -63,6 +63,7 @@ export const api = {
   }) => invoke<FileRow[]>("list_files", { args }),
   missingFiles: () => invoke<FileRow[]>("missing_files"),
   removeMissing: () => invoke<void>("remove_missing"),
+  renameFile: (id: number, name: string) => invoke<DiskOutcome>("rename_file", { id, name }),
   updateFile: (payload: {
     id: number;
     sortName: string;

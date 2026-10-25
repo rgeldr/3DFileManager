@@ -91,6 +91,7 @@ pub fn run() {
             missing_files,
             remove_missing,
             update_file,
+            rename_file,
             set_tags,
             add_tags_under_folder,
             add_tags_to_files,

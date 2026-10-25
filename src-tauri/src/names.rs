@@ -83,6 +83,80 @@ pub fn default_sort_name(file_name: &str) -> String {
     stem.replace('_', " ").trim().to_string()
 }
 
+pub struct RenameParts {
+    pub file_name: String,
+    pub sort_name: String,
+    pub ext: String,
+}
+
+/// Turn what the user typed into a disk name. The current extension stays unless the
+/// typed name ends in a different extension this library already stores.
+pub fn rename_parts(current_ext: &str, typed: &str) -> Result<RenameParts, String> {
+    let typed = typed.trim();
+    if typed.is_empty() {
+        return Err("Enter a file name.".into());
+    }
+    if typed.ends_with('.') {
+        return Err("A file name can't end with a space or a period.".into());
+    }
+    let current_ext = current_ext.trim().trim_start_matches('.').to_ascii_lowercase();
+    let typed_ext = extension_of(typed);
+    let (stem, ext) = if typed_ext.is_empty() {
+        (typed.to_string(), current_ext)
+    } else if typed_ext == current_ext || is_supported_file(&typed_ext) {
+        let stem = Path::new(typed)
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if stem.is_empty() || stem == "." || stem == ".." || stem.ends_with('.') || stem.ends_with(' ') {
+            return Err("A file name can't end with a space or a period.".into());
+        }
+        (stem, typed_ext)
+    } else {
+        (typed.to_string(), current_ext.clone())
+    };
+    let file_name = if ext.is_empty() {
+        stem.clone()
+    } else {
+        format!("{stem}.{ext}")
+    };
+    validate_windows_file_name(&file_name)?;
+    let sort_name = stem.trim().to_string();
+    if sort_name.is_empty() {
+        return Err("Enter a file name.".into());
+    }
+    Ok(RenameParts {
+        file_name,
+        sort_name,
+        ext,
+    })
+}
+
+pub fn validate_windows_file_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name == "." || name == ".." {
+        return Err("Enter a file name.".into());
+    }
+    if name.len() > 180 {
+        return Err("That name is too long.".into());
+    }
+    if name.chars().any(|c| {
+        c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*')
+    }) {
+        return Err("That name has a character Windows doesn't allow: \\ / : * ? \" < > |.".into());
+    }
+    if name.ends_with('.') || name.ends_with(' ') {
+        return Err("A file name can't end with a space or a period.".into());
+    }
+    let stem = Path::new(name)
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_ascii_uppercase())
+        .unwrap_or_default();
+    if RESERVED.contains(&stem.as_str()) {
+        return Err(format!("\"{name}\" is a reserved Windows name."));
+    }
+    Ok(())
+}
+
 pub fn extension_of(file_name: &str) -> String {
     Path::new(file_name)
         .extension()
@@ -167,6 +241,36 @@ mod tests {
         assert_eq!(sanitize_component("a:b*c"), "a_b_c");
         assert_eq!(sanitize_component("CON"), "_CON");
         assert_eq!(sanitize_component("  name.  "), "name");
+    }
+
+    #[test]
+    fn rename_keeps_the_extension_unless_a_supported_one_is_typed() {
+        let kept = rename_parts("stl", "New Model").unwrap();
+        assert_eq!(kept.file_name, "New Model.stl");
+        assert_eq!(kept.sort_name, "New Model");
+        assert_eq!(kept.ext, "stl");
+        let same = rename_parts("stl", "New Model.STL").unwrap();
+        assert_eq!(same.file_name, "New Model.stl");
+        let changed = rename_parts("stl", "New Model.obj").unwrap();
+        assert_eq!(changed.file_name, "New Model.obj");
+        assert_eq!(changed.ext, "obj");
+        let unknown = rename_parts("stl", "New Model.backup").unwrap();
+        assert_eq!(unknown.file_name, "New Model.backup.stl");
+        assert_eq!(unknown.sort_name, "New Model.backup");
+    }
+
+    #[test]
+    fn rename_rejects_invalid_windows_names() {
+        assert!(rename_parts("stl", "a:b").is_err());
+        assert!(rename_parts("stl", "a/b").is_err());
+        assert!(rename_parts("stl", "a\\b").is_err());
+        assert!(rename_parts("stl", "a*b?.stl").is_err());
+        assert!(rename_parts("stl", "CON").is_err());
+        assert!(rename_parts("stl", "aux.stl").is_err());
+        assert!(rename_parts("stl", "trailing.").is_err());
+        assert!(rename_parts("stl", "trailing. ").is_err());
+        assert!(rename_parts("stl", "").is_err());
+        assert!(rename_parts("stl", "a".repeat(181).as_str()).is_err());
     }
 
     #[test]
