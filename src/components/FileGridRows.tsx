@@ -1,6 +1,6 @@
 import { formatBytes } from "../hooks/libraryTypes";
 import {
-  clampDetailsColumn,
+  columnResizeWidth,
   DETAILS_COLUMN_LIMITS,
   type DetailsColumnId,
   type DetailsColumns,
@@ -46,11 +46,14 @@ export function DetailsHeader({
     }
     const handle = event.currentTarget;
     const startX = event.clientX;
-    const origin = columns[id];
+    const cell = handle.parentElement;
+    const rendered = cell instanceof HTMLElement ? cell.getBoundingClientRect().width : 0;
+    const saved = columns[id];
+    const widthAt = (clientX: number) => columnResizeWidth(id, rendered, saved, clientX - startX);
     handle.setPointerCapture?.(event.pointerId);
     const move = (ev: PointerEvent) => {
       if (ev.clientX === startX) return;
-      onColumnResize?.(id, clampDetailsColumn(id, origin + ev.clientX - startX));
+      onColumnResize?.(id, widthAt(ev.clientX));
     };
     const finish = (ev: PointerEvent) => {
       handle.removeEventListener("pointermove", move);
@@ -58,7 +61,7 @@ export function DetailsHeader({
       handle.removeEventListener("pointercancel", finish);
       if (handle.hasPointerCapture?.(ev.pointerId)) handle.releasePointerCapture(ev.pointerId);
       if (ev.clientX === startX) return;
-      onColumnResizeEnd?.(id, clampDetailsColumn(id, origin + ev.clientX - startX));
+      onColumnResizeEnd?.(id, widthAt(ev.clientX));
     };
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", finish);

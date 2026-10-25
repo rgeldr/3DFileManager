@@ -1,4 +1,4 @@
-/** Pixel widths for the Details view. The name column grows past its saved width. */
+/** Pixel widths for the Details view. Leftover space sits after the last column. */
 export const DETAILS_COLUMN_IDS = ["name", "size", "modified", "added", "creator"] as const;
 
 export type DetailsColumnId = (typeof DETAILS_COLUMN_IDS)[number];
@@ -47,12 +47,44 @@ export function resizeDetailsColumn(columns: DetailsColumns, id: DetailsColumnId
   return { ...columns, [id]: clampDetailsColumn(id, columns[id] + deltaX) };
 }
 
+/**
+ * Width after dragging the right edge of one header cell.
+ * The origin is that cell's on-screen width, so the border follows the pointer
+ * when the saved width and the laid-out width differ. A zero reading (hidden
+ * header, or jsdom) falls back to the saved width.
+ */
+export function columnResizeWidth(
+  id: DetailsColumnId,
+  renderedWidth: number,
+  savedWidth: number,
+  deltaX: number,
+): number {
+  const origin = renderedWidth > 0 ? renderedWidth : savedWidth;
+  return clampDetailsColumn(id, origin + deltaX);
+}
+
+/** Right edge of a column when every column is a fixed track and leftover space is after Creator. */
+export function detailsColumnRightEdge(columns: DetailsColumns, id: DetailsColumnId): number {
+  const next = clampDetailsColumns(columns);
+  let edge = 0;
+  for (const columnId of DETAILS_COLUMN_IDS) {
+    edge += next[columnId];
+    if (columnId === id) break;
+  }
+  return edge;
+}
+
 export function resetDetailsColumn(columns: DetailsColumns, id: DetailsColumnId): DetailsColumns {
   return { ...columns, [id]: DETAILS_COLUMN_LIMITS[id].default };
 }
 
-/** Name fills leftover space. The other columns stay at their saved pixel widths. */
+/**
+ * Every column is its saved pixel width, left to right.
+ * Leftover space is a blank track after Creator. A flexible Name track would pin
+ * the other columns to the right edge, so dragging a border would move the edge
+ * to its left in the opposite direction.
+ */
 export function detailsColumnTemplate(columns: DetailsColumns): string {
   const next = clampDetailsColumns(columns);
-  return `minmax(${next.name}px, 1fr) ${next.size}px ${next.modified}px ${next.added}px ${next.creator}px`;
+  return `${next.name}px ${next.size}px ${next.modified}px ${next.added}px ${next.creator}px minmax(0px, 1fr)`;
 }

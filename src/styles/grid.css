@@ -141,7 +141,7 @@
 .details-virtual {
   width: 100%;
   min-width: min-content;
-  --details-columns: minmax(240px, 1fr) 96px 176px 176px 128px;
+  --details-columns: 240px 96px 176px 176px 128px minmax(0px, 1fr);
 }
 
 .details-virtual .details-header {
@@ -169,6 +169,9 @@
   color: var(--color-text-muted);
   font-size: 12px;
   font-weight: 600;
+  /* Later cells paint over the previous cell's right-edge grip. Let that grip
+     receive the border click; the sort button opts back in below. */
+  pointer-events: none;
 }
 
 .details-header-sort {
@@ -187,13 +190,19 @@
   cursor: pointer;
   text-align: left;
   overflow: hidden;
+  pointer-events: auto;
+  margin-right: 4px;
+}
+
+.details-header-cell + .details-header-cell .details-header-sort {
+  margin-left: 4px;
 }
 
 .details-col-resize {
   position: absolute;
   top: 0;
   right: -4px;
-  z-index: 1;
+  z-index: 2;
   width: 8px;
   height: 100%;
   padding: 0;
@@ -201,6 +210,7 @@
   background: transparent;
   cursor: col-resize;
   touch-action: none;
+  pointer-events: auto;
 }
 
 .details-col-resize:hover,
