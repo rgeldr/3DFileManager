@@ -12,7 +12,7 @@ import {
   pushFolder,
   samePlace,
 } from "../lib/folderHistory";
-import { libraryListScope, libraryRefreshKey, librarySearchLimit, truncateLibraryList } from "../lib/tagFilter";
+import { libraryListScope, libraryRefreshKey, librarySearchLimit, tagCountScope, truncateLibraryList } from "../lib/tagFilter";
 import { extsForSelectedTypes, mergeTypeCounts } from "../lib/typeFilter";
 import { useLibraryEffects } from "./useLibraryEffects";
 import { useSelection } from "./useSelection";
@@ -183,7 +183,7 @@ export function useLibrary() {
           limit: searchLimit == null ? undefined : searchLimit + 1,
         }),
         api.listCreators(),
-        api.listTagCounts({ ...scope, exts }),
+        api.listTagCounts({ ...tagCountScope({ listed: scope, query: nextQuery, scope: searchScope }), exts }),
         api.listTypeCounts({ ...scope, tagIds: selectedTagIds, tagMatch }),
         scopedCreators ?? Promise.resolve(null),
       ]);

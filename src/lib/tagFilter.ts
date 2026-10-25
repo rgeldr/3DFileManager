@@ -67,6 +67,23 @@ export function libraryRefreshKey(input: {
 /** Entire-library searches stop here so a 100,000-file catalog does not all land in the grid. */
 export const LIBRARY_SEARCH_LIMIT = 5000;
 
+/** Tag list scope. Entire library counts every file. Current folder uses the grid's folder, and a zero count still keeps the tag. */
+export function tagCountScope(input: {
+  listed: { folder: "all" | "root" | "id" | "subtree"; folderId: number | null; creator: string };
+  query: string;
+  scope: SearchScope;
+}): { folder: "all" | "root" | "id" | "subtree"; folderId: number | null; query: string; creator: string } {
+  if (input.scope === "library") {
+    return { folder: "all", folderId: null, query: input.query, creator: input.listed.creator };
+  }
+  return {
+    folder: input.listed.folder,
+    folderId: input.listed.folderId,
+    query: input.query,
+    creator: input.listed.creator,
+  };
+}
+
 export function librarySearchLimit(folder: "all" | "root" | "id" | "subtree"): number | undefined {
   return folder === "all" ? LIBRARY_SEARCH_LIMIT : undefined;
 }

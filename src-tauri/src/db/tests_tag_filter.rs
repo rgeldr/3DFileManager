@@ -205,3 +205,27 @@
         assert_eq!(ids(named), vec![guild]);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn folder_tag_counts_keep_tags_that_only_exist_in_another_folder() {
+        let (dir, db) = scratch_db("tag-other-folder");
+        let models = db.create_folder(None, "Models", 0).unwrap();
+        let other = db.create_folder(None, "Other", 0).unwrap();
+        let here = db
+            .insert_file("here.stl", "Models/here.stl", "stl", 1, "sha-here", 1, Some(models.id), None)
+            .unwrap();
+        let there = db
+            .insert_file("there.stl", "Other/there.stl", "stl", 1, "sha-there", 1, Some(other.id), None)
+            .unwrap();
+        db.set_tags(here, &["Local".into()]).unwrap();
+        db.set_tags(there, &["RemoteOnly".into()]).unwrap();
+
+        let counts = db.tag_counts(FolderFilter::Id(models.id), "", "", &[]).unwrap();
+        assert_eq!(
+            counts.iter().map(|tag| (tag.name.as_str(), tag.file_count)).collect::<Vec<_>>(),
+            vec![("Local", 1), ("RemoteOnly", 0)]
+        );
+        let all = db.tag_counts(FolderFilter::All, "", "", &[]).unwrap();
+        assert!(all.iter().any(|tag| tag.name == "RemoteOnly" && tag.file_count == 1));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
