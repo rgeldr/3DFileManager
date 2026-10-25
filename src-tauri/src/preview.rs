@@ -12,6 +12,8 @@ use crate::ctb;
 use crate::names::extension_of;
 
 const MAX_EDGE: u32 = 256;
+/// Uncompressed thumbnail bytes. A larger inflate is skipped.
+const MAX_BGCODE_INFLATE: u64 = 4 * 1024 * 1024;
 
 #[derive(Debug)]
 pub enum ThumbFail {
@@ -208,12 +210,10 @@ fn bgcode_preview(path: &Path) -> Option<Vec<u8>> {
         if kind == 5 {
             let raw = match compression {
                 0 => payload.to_vec(),
-                1 | 2 | 3 => {
-                    let mut decoder = DeflateDecoder::new(payload);
-                    let mut out = Vec::new();
-                    decoder.read_to_end(&mut out).ok()?;
-                    out
-                }
+                1 | 2 | 3 => match inflate_capped(payload, uncompressed) {
+                    Some(out) => out,
+                    None => continue,
+                },
                 _ => continue,
             };
             if raw.len() < 6 {
@@ -232,6 +232,21 @@ fn bgcode_preview(path: &Path) -> Option<Vec<u8>> {
         }
     }
     None
+}
+
+/// Inflate a bgcode thumbnail, stopping once the output passes the cap.
+/// A header that claims more than the cap, or a stream that expands past it, skips the thumbnail.
+fn inflate_capped(payload: &[u8], claimed: usize) -> Option<Vec<u8>> {
+    if claimed as u64 > MAX_BGCODE_INFLATE {
+        return None;
+    }
+    let mut out = Vec::new();
+    let mut limited = DeflateDecoder::new(payload).take(MAX_BGCODE_INFLATE + 1);
+    limited.read_to_end(&mut out).ok()?;
+    if out.len() as u64 > MAX_BGCODE_INFLATE {
+        return None;
+    }
+    Some(out)
 }
 
 fn read_limited(path: &Path, max: u64) -> Option<Vec<u8>> {
@@ -255,6 +270,19 @@ mod tests {
     use super::*;
     use std::fs;
     use std::io::Write;
+
+    fn bgcode_bytes(compression: u16, uncompressed: u32, payload: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"GCDE");
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&0u16.to_le_bytes());
+        bytes.extend_from_slice(&5u16.to_le_bytes());
+        bytes.extend_from_slice(&compression.to_le_bytes());
+        bytes.extend_from_slice(&uncompressed.to_le_bytes());
+        bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(payload);
+        bytes
+    }
 
     fn scratch(name: &str) -> std::path::PathBuf {
         let nanos = std::time::SystemTime::now()
@@ -403,6 +431,24 @@ mod tests {
         let nope = dir.join("nope.bgcode");
         fs::write(&nope, b"NOPE rest of file").unwrap();
         assert!(bgcode_preview(&nope).is_none());
+
+        let mut encoder = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&raw).unwrap();
+        let compressed = encoder.finish().unwrap();
+        let packed = bgcode_bytes(1, raw.len() as u32, &compressed);
+        let deflated = dir.join("deflated.bgcode");
+        fs::write(&deflated, &packed).unwrap();
+        assert!(extract_thumbnail_png(&deflated).unwrap().is_some());
+
+        let mut bomb = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::fast());
+        bomb.write_all(&vec![0u8; (MAX_BGCODE_INFLATE as usize) + 64]).unwrap();
+        let bomb_bytes = bomb.finish().unwrap();
+        let over = dir.join("bomb.bgcode");
+        fs::write(&over, bgcode_bytes(1, 32, &bomb_bytes)).unwrap();
+        assert!(bgcode_preview(&over).is_none());
+        let claimed = dir.join("claimed.bgcode");
+        fs::write(&claimed, bgcode_bytes(1, (MAX_BGCODE_INFLATE as u32) + 1, &compressed)).unwrap();
+        assert!(bgcode_preview(&claimed).is_none());
         let _ = fs::remove_dir_all(&dir);
     }
 
