@@ -80,7 +80,17 @@ async fn move_folder(app: AppHandle, id: i64, parent_id: Option<i64>) -> Result<
 async fn rescan_library(app: AppHandle) -> Result<rescan::RescanSummary, String> {
     let _timer = CommandTimer::start("rescan_library");
     block_on_disk(app, move |db, cancel, handle| {
-        rescan::rescan_with(db, cancel, |progress| emit_disk(&handle, &progress))
+        rescan::rescan_with(db, cancel, None, |progress| emit_disk(&handle, &progress))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn rescan_folder(app: AppHandle, folder_id: i64) -> Result<rescan::RescanSummary, String> {
+    let _timer = CommandTimer::start("rescan_folder");
+    block_on_disk(app, move |db, cancel, handle| {
+        let rel = db.folder_relpath(folder_id)?;
+        rescan::rescan_with(db, cancel, Some(&rel), |progress| emit_disk(&handle, &progress))
     })
     .await
 }

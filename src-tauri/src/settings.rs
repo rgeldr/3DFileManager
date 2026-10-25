@@ -23,6 +23,10 @@ fn default_inspector_pinned() -> bool {
     true
 }
 
+fn default_sidebar_pinned() -> bool {
+    true
+}
+
 fn default_search_scope() -> String {
     "library".into()
 }
@@ -63,6 +67,8 @@ pub struct Settings {
     pub thumb_retry: u32,
     #[serde(default = "default_inspector_pinned")]
     pub inspector_pinned: bool,
+    #[serde(default = "default_sidebar_pinned")]
+    pub sidebar_pinned: bool,
     #[serde(default = "default_search_scope")]
     pub search_scope: String,
     #[serde(default = "default_details_columns")]
@@ -80,6 +86,7 @@ impl Default for Settings {
             preview_height: default_preview_height(),
             thumb_retry: default_thumb_retry(),
             inspector_pinned: default_inspector_pinned(),
+            sidebar_pinned: default_sidebar_pinned(),
             search_scope: default_search_scope(),
             details_columns: default_details_columns(),
         }
@@ -157,6 +164,7 @@ mod tests {
         assert_eq!(loaded.preview_height, 240);
         assert_eq!(loaded.thumb_retry, 0);
         assert!(loaded.inspector_pinned);
+        assert!(loaded.sidebar_pinned);
         assert_eq!(loaded.search_scope, "library");
         assert_eq!(loaded.details_columns.name, 240);
         assert_eq!(loaded.details_columns.size, 96);
@@ -171,6 +179,7 @@ mod tests {
         next.inspector_pinned = false;
         next.details_columns.size = 140;
         next.details_columns.name = 320;
+        next.sidebar_pinned = false;
         save(&dir, &next).unwrap();
         let again = load(&dir);
         assert_eq!(again.sidebar_width, 360);
@@ -180,6 +189,7 @@ mod tests {
         assert!(!again.inspector_pinned);
         assert_eq!(again.details_columns.size, 140);
         assert_eq!(again.details_columns.name, 320);
+        assert!(!again.sidebar_pinned);
         let _ = fs::remove_dir_all(&dir);
     }
 

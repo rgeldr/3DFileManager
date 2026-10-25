@@ -72,6 +72,16 @@ async fn set_inspector_pinned(app: AppHandle, inspector_pinned: bool) -> Result<
 }
 
 #[tauri::command]
+async fn set_sidebar_pinned(app: AppHandle, sidebar_pinned: bool) -> Result<(), String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("set_sidebar_pinned", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.set_sidebar_pinned(sidebar_pinned)
+    })
+    .await
+}
+
+#[tauri::command]
 async fn set_search_scope(app: AppHandle, search_scope: String) -> Result<(), String> {
     let db = app.state::<AppState>().db.clone();
     off_ui("set_search_scope", move || {

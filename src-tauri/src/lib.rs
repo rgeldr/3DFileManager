@@ -83,6 +83,7 @@ pub fn run() {
             set_preview_height,
             set_details_columns,
             set_inspector_pinned,
+            set_sidebar_pinned,
             create_folder,
             rename_folder,
             delete_folder,
@@ -91,6 +92,7 @@ pub fn run() {
             missing_files,
             remove_missing,
             update_file,
+            rename_file,
             set_tags,
             add_tags_under_folder,
             add_tags_to_files,
@@ -111,6 +113,7 @@ pub fn run() {
             move_files,
             delete_files,
             rescan_library,
+            rescan_folder,
             export_library_backup,
             restore_library_backup,
             next_thumbnail,
@@ -124,6 +127,7 @@ pub fn run() {
             start_file_drag,
             open_in_default_app,
             reveal_file,
+            reveal_folder,
             text_preview,
             debug_log
         ])

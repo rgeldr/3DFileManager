@@ -203,6 +203,16 @@ async fn update_file(
 }
 
 #[tauri::command]
+async fn rename_file(app: AppHandle, id: i64, name: String) -> Result<DiskOutcome, String> {
+    let _timer = CommandTimer::start("rename_file");
+    block_on_disk(app, move |db, _cancel, _handle| {
+        db.rename_library_file(id, &name)?;
+        Ok(DiskOutcome { cancelled: false })
+    })
+    .await
+}
+
+#[tauri::command]
 async fn set_tags(app: AppHandle, id: i64, tags: Vec<String>) -> Result<(), String> {
     let db = app.state::<AppState>().db.clone();
     off_ui("set_tags", move || {

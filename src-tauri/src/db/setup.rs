@@ -183,6 +183,12 @@ impl AppDb {
         self.save_settings(&settings)
     }
 
+    pub fn set_sidebar_pinned(&self, sidebar_pinned: bool) -> Result<(), String> {
+        let mut settings = self.settings();
+        settings.sidebar_pinned = sidebar_pinned;
+        self.save_settings(&settings)
+    }
+
 }
 
 fn dir_is_empty(path: &Path) -> Result<bool, String> {

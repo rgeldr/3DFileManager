@@ -26,6 +26,7 @@ export interface Settings {
   previewHeight: number;
   thumbRetry: number;
   inspectorPinned: boolean;
+  sidebarPinned: boolean;
   searchScope: SearchScope;
   detailsColumns: DetailsColumns;
 }

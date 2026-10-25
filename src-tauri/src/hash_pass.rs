@@ -63,12 +63,9 @@ pub fn process_one_unhashed(db: &AppDb) -> Result<bool, String> {
         None => Err(()),
     };
     if let Some(sha) = commit_if_unmoved(db, candidate.id, &candidate.stored_relpath, hashed)? {
-        if let Some(path) = path {
-            if path.exists() {
-                trash::delete(&path).map_err(|err| err.to_string())?;
-            }
-        }
-        drop_if_unmoved(db, candidate.id, &candidate.stored_relpath, &sha)?;
+        recycle_duplicate(db, candidate.id, &candidate.stored_relpath, &sha, &mut |path| {
+            trash::delete(path).map_err(|err| err.to_string())
+        })?;
     }
     Ok(true)
 }
@@ -102,14 +99,34 @@ fn hash_one_released_with(
     let Some(sha) = duplicate else {
         return Ok(true);
     };
-    if let Some(path) = path {
+    let guard = db.lock().map_err(|err| err.to_string())?;
+    recycle_duplicate(&guard, id, &relpath, &sha, recycle)?;
+    Ok(true)
+}
+
+/// Re-resolve the catalog path under the caller's lock, then recycle only that file.
+/// A row that moved is left in place. A path that no longer stays inside the library is not deleted.
+fn recycle_duplicate(
+    db: &AppDb,
+    id: i64,
+    relpath: &str,
+    sha: &str,
+    recycle: &mut dyn FnMut(&PathBuf) -> Result<(), String>,
+) -> Result<(), String> {
+    let Ok(loc) = db.file_location(id) else {
+        return Ok(());
+    };
+    if loc.stored_relpath != relpath {
+        db.set_thumb_status(id, "unhashed")?;
+        return Ok(());
+    }
+    let root = db.library_root()?;
+    if let Ok(path) = crate::contained_library_file(&root, &loc.stored_relpath) {
         if path.exists() {
             recycle(&path)?;
         }
     }
-    let guard = db.lock().map_err(|err| err.to_string())?;
-    drop_if_unmoved(&guard, id, &relpath, &sha)?;
-    Ok(true)
+    drop_if_unmoved(db, id, relpath, sha)
 }
 
 fn hash_one_released(db: &Mutex<AppDb>) -> Result<bool, String> {
@@ -313,6 +330,56 @@ mod tests {
             .query_row("SELECT thumb_status FROM files WHERE id = ?1", [id], |row| row.get(0))
             .unwrap();
         assert_eq!(status, "unhashed");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn duplicate_recycle_skips_a_row_that_moved_and_refuses_an_outside_path() {
+        let (dir, db) = scratch("hash-recycle-check");
+        let root = db.library_root().unwrap();
+        std::fs::write(root.join("b.stl"), b"same-bytes").unwrap();
+        let id = db
+            .insert_file_with_thumb_status("b.stl", "b.stl", "stl", 10, "", 1, None, None, "hashing")
+            .unwrap();
+        db.update_path(id, "moved/b.stl", None, 10, 2).unwrap();
+        let mut recycled = false;
+        recycle_duplicate(&db, id, "b.stl", "abc", &mut |_| {
+            recycled = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(!recycled);
+        assert!(root.join("b.stl").is_file());
+        assert!(db.file_row_exists(id).unwrap());
+        let status: String = db
+            .conn
+            .query_row("SELECT thumb_status FROM files WHERE id = ?1", [id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(status, "unhashed");
+
+        let secret = dir.join("secret.stl");
+        std::fs::write(&secret, b"same-bytes").unwrap();
+        let outside = db
+            .insert_file_with_thumb_status(
+                "secret.stl",
+                "../secret.stl",
+                "stl",
+                10,
+                "",
+                1,
+                None,
+                None,
+                "hashing",
+            )
+            .unwrap();
+        recycle_duplicate(&db, outside, "../secret.stl", "abc", &mut |_| {
+            recycled = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(!recycled);
+        assert!(secret.is_file());
+        assert!(!db.file_row_exists(outside).unwrap());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
