@@ -98,6 +98,8 @@ pub fn run() {
             set_creator_under_folder,
             list_creators,
             list_tags,
+            list_tag_colors,
+            set_tag_color,
             list_tag_counts,
             list_type_counts,
             import_paths,

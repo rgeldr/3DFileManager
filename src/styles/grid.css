@@ -98,6 +98,21 @@
   white-space: nowrap;
 }
 
+.tile-tags {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tile-tags .tag {
+  font-size: 10px;
+  line-height: 12px;
+  padding: 0 3px;
+  max-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .row-virtual {
   position: relative;
   width: 100%;
