@@ -68,6 +68,18 @@ AFTER UPDATE OF sort_name, original_name, creator, notes, tags_text ON files BEG
 END;
 ";
 
+fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool, String> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(|e| e.to_string())?;
+    let names = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(names.iter().any(|name| name == column))
+}
+
 fn migrate(conn: &Connection) -> Result<(), String> {
     let version: i32 = conn
         .pragma_query_value(None, "user_version", |r| r.get(0))
@@ -96,6 +108,23 @@ fn migrate(conn: &Connection) -> Result<(), String> {
         ))
         .map_err(|e| e.to_string())?;
         conn.pragma_update(None, "user_version", 3)
+            .map_err(|e| e.to_string())?;
+        version = 3;
+    }
+    if version < 4 {
+        if !column_exists(conn, "tags", "auto_color")? {
+            conn.execute(
+                "ALTER TABLE tags ADD COLUMN auto_color TEXT NOT NULL DEFAULT ''",
+                [],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        if !column_exists(conn, "tags", "custom_color")? {
+            conn.execute("ALTER TABLE tags ADD COLUMN custom_color TEXT", [])
+                .map_err(|e| e.to_string())?;
+        }
+        backfill_tag_colors(conn)?;
+        conn.pragma_update(None, "user_version", 4)
             .map_err(|e| e.to_string())?;
     }
     conn.execute(

@@ -3,6 +3,7 @@ export { ImportSummaryDialog } from "./ImportSummaryDialog";
 export { FolderTagDialog } from "./FolderTagDialog";
 export { CreatorDialog } from "./CreatorDialog";
 export { AboutDialog } from "./AboutDialog";
+export { TagColorDialog } from "./TagColorDialog";
 export { DragFailureDialog } from "./DragFailureDialog";
 export { NamePromptDialog } from "./NamePromptDialog";
 export { DeleteFolderDialog } from "./DeleteFolderDialog";

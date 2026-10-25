@@ -64,6 +64,7 @@ export function useLibrary() {
   const [includeSubfolders, setIncludeSubfolders] = useState(true);
   const [creatorFileCount, setCreatorFileCount] = useState<number | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [tagColorOpen, setTagColorOpen] = useState(false);
   const [aboutVersion, setAboutVersion] = useState<string | null>(null);
   const [aboutVersionFailed, setAboutVersionFailed] = useState(false);
   const [dragFailure, setDragFailure] = useState<{ message: string; fileId: number } | null>(null);
@@ -101,6 +102,7 @@ export function useLibrary() {
     setTheme: () => undefined,
     setGrid: () => undefined,
     showAbout: () => undefined,
+    openTagColors: () => undefined,
   });
   const themeItems = useRef<{ dark?: CheckMenuItem; light?: CheckMenuItem }>({});
   const gridItems = useRef<Partial<Record<ViewMode, CheckMenuItem>>>({});
@@ -353,7 +355,7 @@ export function useLibrary() {
   runImportRef.current = runImport;
 
   const dialogOpen = Boolean(
-    busy || progress || summary || namePrompt || deleteConfirm || missingOpen || error || diskDialog || aboutOpen || creatorTarget || dragFailure,
+    busy || progress || summary || namePrompt || deleteConfirm || missingOpen || error || diskDialog || aboutOpen || tagColorOpen || creatorTarget || dragFailure,
   );
   const dialogBlockRef = useRef(false);
   dialogBlockRef.current = Boolean(dialogOpen || folderTagTarget || fileMenu);
@@ -407,7 +409,7 @@ export function useLibrary() {
     importCreator, setImportCreator, importTags, setImportTags, importTagText, setImportTagText,
     folderTagTarget, setFolderTagTarget, creatorTarget, setCreatorTarget, creatorValue, setCreatorValue,
     includeSubfolders, setIncludeSubfolders, creatorFileCount, setCreatorFileCount,
-    aboutOpen, setAboutOpen, aboutVersion, setAboutVersion, aboutVersionFailed, setAboutVersionFailed,
+    aboutOpen, setAboutOpen, tagColorOpen, setTagColorOpen, aboutVersion, setAboutVersion, aboutVersionFailed, setAboutVersionFailed,
     dragFailure, setDragFailure, fileMenu, setFileMenu, sidebarWidth, setSidebarWidth,
     inspectorWidth, setInspectorWidth, inspectorPinned, setInspectorPinned,
     previewHeight, setPreviewHeight,

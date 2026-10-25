@@ -2,8 +2,10 @@ import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { usePreviewSplitter } from "../hooks/usePreviewSplitter";
-import type { FileRow, FolderRow } from "../types";
+import type { FileRow, FolderRow, TagCount } from "../types";
 import { appendCommaTags, commaTagOptions, tagFieldKey } from "../lib/commaTags";
+import { displayTagColor } from "../lib/tagColor";
+import { TagChip } from "./TagChip";
 import { Viewer } from "./Viewer";
 
 function PinIcon({ pinned }: { pinned: boolean }) {
@@ -39,6 +41,7 @@ export function Inspector({
   folders,
   creators,
   knownTags,
+  tagCounts = [],
   onSave,
   onDelete,
   previewHeight,
@@ -50,6 +53,7 @@ export function Inspector({
   folders: FolderRow[];
   creators: string[];
   knownTags: string[];
+  tagCounts?: TagCount[];
   onSave: (file: FileRow, tags: string[]) => void;
   onDelete: (id: number) => void;
   previewHeight: number;
@@ -177,14 +181,12 @@ export function Inspector({
           Tags
           <div className="tags">
             {tags.map((tag) => (
-              <button
+              <TagChip
                 key={tag}
-                type="button"
-                className="tag"
+                name={tag}
+                color={displayTagColor(tag, tagCounts)}
                 onClick={() => setTags(tags.filter((item) => item !== tag))}
-              >
-                {tag} ×
-              </button>
+              />
             ))}
           </div>
           <input

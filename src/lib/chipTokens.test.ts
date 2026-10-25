@@ -70,7 +70,7 @@ describe("chip color tokens", () => {
     for (const name of CHIP_TOKENS) {
       expect(tokensCss).toContain(`--${name}:`);
     }
-    expect(filterCss).toMatch(/\.tag-filter-chips \.tag\s*\{[^}]*var\(--chip-tag-bg\)[^}]*var\(--chip-tag-fg\)[^}]*var\(--chip-tag-border\)/s);
+    expect(filterCss).not.toMatch(/\.tag-filter-chips \.tag\s*\{[^}]*var\(--chip-tag-bg\)/);
     expect(filterCss).toMatch(/\.tag-filter-chips \.type-chip[\s\S]*var\(--chip-type-bg\)[\s\S]*var\(--chip-type-fg\)[\s\S]*var\(--chip-type-border\)/);
     expect(inspectorCss).toMatch(/\.tag\s*\{[^}]*var\(--chip-tag-bg\)[^}]*var\(--chip-tag-fg\)[^}]*var\(--chip-tag-border\)/s);
   });

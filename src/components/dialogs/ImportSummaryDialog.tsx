@@ -3,9 +3,11 @@ import type { LibraryModel } from "../../hooks/useLibrary";
 import { api } from "../../api";
 import { appendCommaTags, commaTagOptions, tagFieldKey } from "../../lib/commaTags";
 import { importMetaPayload } from "../../lib/importMeta";
+import { displayTagColor } from "../../lib/tagColor";
+import { TagChip } from "../TagChip";
 
 export function ImportSummaryDialog({ app }: { app: LibraryModel }) {
-  const { creators, tags, summary, setSummary, importCreator, setImportCreator, importTags, setImportTags, importTagText, setImportTagText, setError, refreshLists, runDiskOp } = app;
+  const { creators, tags, tagCounts = [], summary, setSummary, importCreator, setImportCreator, importTags, setImportTags, importTagText, setImportTagText, setError, refreshLists, runDiskOp } = app;
   return (
     <>
       {summary ? (
@@ -36,14 +38,12 @@ export function ImportSummaryDialog({ app }: { app: LibraryModel }) {
                 </datalist>
                 <div className="tags">
                   {importTags.map((item) => (
-                    <button
+                    <TagChip
                       key={item}
-                      type="button"
-                      className="tag"
+                      name={item}
+                      color={displayTagColor(item, tagCounts)}
                       onClick={() => setImportTags(importTags.filter((tag) => tag !== item))}
-                    >
-                      {item} ×
-                    </button>
+                    />
                   ))}
                 </div>
                 <input

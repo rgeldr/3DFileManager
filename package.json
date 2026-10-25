@@ -1,7 +1,7 @@
 {
   "name": "3d-file-library",
   "private": true,
-  "version": "26.10.30",
+  "version": "26.10.31",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,7 +11,8 @@
     "test": "node scripts/version.test.mjs && node scripts/check-capabilities.mjs",
     "test:unit": "vitest run --coverage",
     "preview": "vite preview",
-    "tauri": "node scripts/with-mingw.mjs"
+    "tauri": "node scripts/with-mingw.mjs",
+	"release": "tauri build && node scripts/make-latest-json.mjs"
   },
   "dependencies": {
     "@crabnebula/tauri-plugin-drag": "^2.1.0",
