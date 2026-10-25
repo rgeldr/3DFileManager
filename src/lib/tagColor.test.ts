@@ -51,12 +51,17 @@ describe("tag colors", () => {
     expect(effectiveTagColor(reset)).toBe(tag.autoColor);
   });
 
-  it("keeps palette chips and custom extremes readable", () => {
+  it("uses white text on dark chips and black text on light chips", () => {
+    expect(tagTextColor("#111111")).toBe("#ffffff");
+    expect(tagTextColor("#ffffff")).toBe("#000000");
+    expect(tagTextColor("#eeeeee")).toBe("#000000");
+    // Gray just below the white/black contrast crossover stays white; the next step is black.
+    expect(tagTextColor("#757575")).toBe("#ffffff");
+    expect(tagTextColor("#767676")).toBe("#000000");
     for (const color of TAG_PALETTE) {
+      expect(tagTextColor(color)).toBe("#ffffff");
       expect(contrast(color, tagTextColor(color))).toBeGreaterThanOrEqual(4.5);
     }
-    expect(tagTextColor("#ffffff")).toBe("#142018");
-    expect(tagTextColor("#111111")).toBe("#f4fbf7");
   });
 
   it("prefers a stored color over the automatic one", () => {

@@ -18,8 +18,8 @@ export const TAG_PALETTE = [
   "#6e4a28",
 ] as const;
 
-const LIGHT_TEXT = "#f4fbf7";
-const DARK_TEXT = "#142018";
+const WHITE_TEXT = "#ffffff";
+const BLACK_TEXT = "#000000";
 
 export interface StoredTagColor {
   name: string;
@@ -73,9 +73,9 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-/** Pick the light or dark text color that contrasts more with this chip background. */
+/** White on darker chips, black on lighter ones. Equal contrast uses white. */
 export function tagTextColor(background: string): string {
-  return contrast(background, DARK_TEXT) > contrast(background, LIGHT_TEXT) ? DARK_TEXT : LIGHT_TEXT;
+  return contrast(background, BLACK_TEXT) > contrast(background, WHITE_TEXT) ? BLACK_TEXT : WHITE_TEXT;
 }
 
 export function tagChipStyle(color: string): { background: string; color: string; borderColor: string } {
