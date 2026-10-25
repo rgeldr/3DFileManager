@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CheckMenuItem } from "@tauri-apps/api/menu";
 import { api } from "../api";
 import { useTheme } from "../theme/ThemeProvider";
-import type { Browse, DragReport, FileRow, FolderRow, ImportSummary, LibrarySort, Settings, TagCount, TagMatchMode, TypeCount, ViewMode } from "../types";
+import { DEFAULT_DETAILS_COLUMNS } from "../lib/detailsColumns";
+import type { Browse, DetailsColumns, DragReport, FileRow, FolderRow, ImportSummary, LibrarySort, Settings, TagCount, TagMatchMode, TypeCount, ViewMode } from "../types";
 import {
   acceptHistoryClick,
   emptyHistory,
@@ -74,6 +75,7 @@ export function useLibrary() {
   const [inspectorPinned, setInspectorPinned] = useState(true);
   const [sidebarPinned, setSidebarPinned] = useState(true);
   const [previewHeight, setPreviewHeight] = useState(240);
+  const [detailsColumns, setDetailsColumns] = useState<DetailsColumns>(DEFAULT_DETAILS_COLUMNS);
   const [folderTagInput, setFolderTagInput] = useState("");
   const [folderTagFileCount, setFolderTagFileCount] = useState<number | null>(null);
   const [namePrompt, setNamePrompt] = useState<null | { title: string; value: string; onOk: (value: string) => void }>(null);
@@ -433,7 +435,7 @@ export function useLibrary() {
     dragFailure, setDragFailure, fileMenu, setFileMenu, sidebarWidth, setSidebarWidth,
     inspectorWidth, setInspectorWidth, inspectorPinned, setInspectorPinned,
     sidebarPinned, setSidebarPinned,
-    previewHeight, setPreviewHeight,
+    previewHeight, setPreviewHeight, detailsColumns, setDetailsColumns,
     folderTagInput, setFolderTagInput, folderTagFileCount, setFolderTagFileCount,
     namePrompt, setNamePrompt, deleteConfirm, setDeleteConfirm, error, setError, diskDialog, setDiskDialog,
     toast, setToast, dragRef, filesRef, tryStartRef, prefetchRef, dragPrepCache, actions, themeItems, gridItems,

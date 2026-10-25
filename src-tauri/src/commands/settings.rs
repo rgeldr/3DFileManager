@@ -42,6 +42,16 @@ async fn set_pane_widths(app: AppHandle, sidebar_width: u32, inspector_width: u3
 }
 
 #[tauri::command]
+async fn set_details_columns(app: AppHandle, columns: settings::DetailsColumns) -> Result<(), String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("set_details_columns", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.set_details_columns(columns)
+    })
+    .await
+}
+
+#[tauri::command]
 async fn set_preview_height(app: AppHandle, preview_height: u32) -> Result<(), String> {
     let db = app.state::<AppState>().db.clone();
     off_ui("set_preview_height", move || {

@@ -17,6 +17,7 @@ import {
   visibleGridWindow,
   visibleRowWindow,
 } from "../lib/gridWindow";
+import { DEFAULT_DETAILS_COLUMNS, detailsColumnTemplate, type DetailsColumnId, type DetailsColumns } from "../lib/detailsColumns";
 import type { FileRow, FolderRow, GridSize, LibrarySort, SortField, ViewMode } from "../types";
 import {
   DetailsFolderRow,
@@ -142,6 +143,9 @@ export function FileGrid({
   emptyMessage = "This folder is empty. Drop files here to import them.",
   view,
   sort,
+  detailsColumns = DEFAULT_DETAILS_COLUMNS,
+  onDetailsColumnResize,
+  onDetailsColumnResizeEnd,
   onClearFilters,
   selected,
   previewIconsEnabled,
@@ -158,6 +162,9 @@ export function FileGrid({
   emptyMessage?: string;
   view: ViewMode;
   sort: LibrarySort;
+  detailsColumns?: DetailsColumns;
+  onDetailsColumnResize?: (id: DetailsColumnId, width: number) => void;
+  onDetailsColumnResizeEnd?: (id: DetailsColumnId, width: number) => void;
   onClearFilters?: () => void;
   selected: number[];
   previewIconsEnabled: boolean;
@@ -432,8 +439,20 @@ export function FileGrid({
     const bodyTop = page.padTop + DETAILS_HEADER_PX;
     return (
       <>
-        <div className="row-virtual details-virtual" style={{ height: page.totalHeight + DETAILS_HEADER_PX }}>
-          <DetailsHeader sort={sort} onSort={(field) => onSort?.(field)} />
+        <div
+          className="row-virtual details-virtual"
+          style={{
+            height: page.totalHeight + DETAILS_HEADER_PX,
+            ["--details-columns" as string]: detailsColumnTemplate(detailsColumns),
+          }}
+        >
+          <DetailsHeader
+            sort={sort}
+            columns={detailsColumns}
+            onSort={(field) => onSort?.(field)}
+            onColumnResize={onDetailsColumnResize}
+            onColumnResizeEnd={onDetailsColumnResizeEnd}
+          />
           <div className="file-rows details-rows" style={{ top: bodyTop }}>
             {visible.map((item) => {
               if (item.kind === "folder") {

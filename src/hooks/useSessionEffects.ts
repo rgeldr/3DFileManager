@@ -6,6 +6,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../api";
 import { debugLog } from "../debugLog";
 import { clampInspector, clampSidebar } from "../lib/paneWidths";
+import { clampDetailsColumns } from "../lib/detailsColumns";
 import { persistPreviewHeight } from "../lib/previewSplit";
 import type { LibrarySort, Settings } from "../types";
 import { fallbackDragIconPath, type Actions, type DiskProgress } from "./libraryTypes";
@@ -27,6 +28,7 @@ export function useSessionEffects(s: {
   setInspectorPinned: React.Dispatch<React.SetStateAction<boolean>>;
   setSidebarPinned: React.Dispatch<React.SetStateAction<boolean>>;
   setPreviewHeight: (height: number) => void;
+  setDetailsColumns: (columns: import("../types").DetailsColumns) => void;
   setFolders: React.Dispatch<React.SetStateAction<import("../types").FolderRow[]>>;
   setMissingCount: React.Dispatch<React.SetStateAction<number>>;
   setTheme: (theme: "dark" | "light") => void;
@@ -80,7 +82,7 @@ export function useSessionEffects(s: {
 }) {
   const {
     dialogOpen,
-    ready, settings, setSettings, setSidebarWidth, setInspectorWidth, setInspectorPinned, setSidebarPinned, setPreviewHeight, setFolders, setMissingCount,
+    ready, settings, setSettings, setSidebarWidth, setInspectorWidth, setInspectorPinned, setSidebarPinned, setPreviewHeight, setDetailsColumns, setFolders, setMissingCount,
     setTheme, refreshLists, setReady, setError, dragIconRef, runImportRef, setProgress, setThumbNonce,
     browse, query, creator, selectedTagIds, selectedTypeIds, tagMatch, sort, setPreviewIconsEnabled, aboutOpen, setAboutVersion,
     setAboutVersionFailed, creatorTarget, setCreatorFileCount, includeSubfolders, fileMenu, setFileMenu,
@@ -238,6 +240,7 @@ export function useSessionEffects(s: {
       setInspectorPinned(boot.settings.inspectorPinned !== false);
       setSidebarPinned(boot.settings.sidebarPinned !== false);
       setPreviewHeight(persistPreviewHeight(boot.settings.previewHeight, 0));
+      setDetailsColumns(clampDetailsColumns(boot.settings.detailsColumns));
       setFolders(boot.folders);
       setMissingCount(boot.missingCount);
       if (boot.settings.theme === "light" || boot.settings.theme === "dark") {

@@ -28,6 +28,8 @@ export const api = {
     invoke<void>("set_pane_widths", { sidebarWidth, inspectorWidth }),
   setPreviewHeight: (previewHeight: number) =>
     invoke<void>("set_preview_height", { previewHeight }),
+  setDetailsColumns: (columns: Settings["detailsColumns"]) =>
+    invoke<void>("set_details_columns", { columns }),
   setInspectorPinned: (inspectorPinned: boolean) =>
     invoke<void>("set_inspector_pinned", { inspectorPinned }),
   setSidebarPinned: (sidebarPinned: boolean) =>

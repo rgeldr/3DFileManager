@@ -163,6 +163,13 @@ impl AppDb {
         self.save_settings(&settings)
     }
 
+    pub fn set_details_columns(&self, columns: settings::DetailsColumns) -> Result<(), String> {
+        settings::check_details_columns(&columns)?;
+        let mut settings = self.settings();
+        settings.details_columns = columns;
+        self.save_settings(&settings)
+    }
+
     pub fn set_preview_height(&self, preview_height: u32) -> Result<(), String> {
         settings::check_preview_height(preview_height)?;
         let mut settings = self.settings();
