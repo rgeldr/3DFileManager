@@ -122,7 +122,7 @@
         assert_eq!(ids(searched), vec![only_a]);
         let searched_counts = db.tag_counts(FolderFilter::Id(models.id), "onlya", "", &[]).unwrap();
         assert_eq!(searched_counts.iter().find(|tag| tag.name == "Alpha").unwrap().file_count, 1);
-        assert!(searched_counts.iter().all(|tag| tag.name != "Beta"));
+        assert_eq!(searched_counts.iter().find(|tag| tag.name == "Beta").unwrap().file_count, 0);
 
         let deduped = db
             .query_files(FileQuery {
@@ -207,7 +207,7 @@
     }
 
     #[test]
-    fn folder_tag_counts_omit_tags_that_only_exist_in_another_folder() {
+    fn folder_tag_counts_keep_tags_that_only_exist_in_another_folder() {
         let (dir, db) = scratch_db("tag-other-folder");
         let models = db.create_folder(None, "Models", 0).unwrap();
         let other = db.create_folder(None, "Other", 0).unwrap();
@@ -223,7 +223,7 @@
         let counts = db.tag_counts(FolderFilter::Id(models.id), "", "", &[]).unwrap();
         assert_eq!(
             counts.iter().map(|tag| (tag.name.as_str(), tag.file_count)).collect::<Vec<_>>(),
-            vec![("Local", 1)]
+            vec![("Local", 1), ("RemoteOnly", 0)]
         );
         let all = db.tag_counts(FolderFilter::All, "", "", &[]).unwrap();
         assert!(all.iter().any(|tag| tag.name == "RemoteOnly" && tag.file_count == 1));

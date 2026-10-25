@@ -5,6 +5,7 @@ import {
   gridEmptyMessage,
   libraryListScope,
   libraryRefreshKey,
+  tagCountScope,
   librarySearchLimit,
   LIBRARY_SEARCH_LIMIT,
   truncateLibraryList,
@@ -77,6 +78,54 @@ describe("libraryListScope", () => {
       creator: "",
     });
     expect(libraryListScope({ browse: { type: "root" }, query: "   ", creator: "", selectedTagCount: 0, selectedTypeCount: 0, scope: "library" }).folder).toBe("root");
+  });
+
+  it("counts every library tag when the scope is the entire library", () => {
+    const listed = libraryListScope({
+      browse: { type: "root" },
+      query: "",
+      creator: "",
+      selectedTagCount: 0,
+      selectedTypeCount: 0,
+      scope: "library",
+    });
+    expect(tagCountScope({ listed, query: "", scope: "library" })).toEqual({
+      folder: "all",
+      folderId: null,
+      query: "",
+      creator: "",
+    });
+    const inFolder = libraryListScope({
+      browse: folder,
+      query: "",
+      creator: "Ada",
+      selectedTagCount: 0,
+      selectedTypeCount: 0,
+      scope: "library",
+    });
+    expect(tagCountScope({ listed: inFolder, query: "", scope: "library" })).toEqual({
+      folder: "all",
+      folderId: null,
+      query: "",
+      creator: "Ada",
+    });
+  });
+
+  it("keeps the current folder for tag counts and still asks for every tag", () => {
+    const listed = libraryListScope({
+      browse: folder,
+      query: "",
+      creator: "",
+      selectedTagCount: 0,
+      selectedTypeCount: 0,
+      scope: "folder",
+    });
+    expect(tagCountScope({ listed, query: "", scope: "folder" })).toEqual({
+      folder: "id",
+      folderId: 9,
+      query: "",
+      creator: "",
+    });
   });
 
   it("limits filtered search to the folder subtree when scope is folder", () => {

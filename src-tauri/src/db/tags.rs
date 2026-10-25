@@ -276,8 +276,7 @@ impl AppDb {
                     CASE WHEN t.custom_color IS NOT NULL AND t.custom_color <> '' THEN t.custom_color ELSE t.auto_color END
              FROM tags t
              LEFT JOIN file_tags ft ON ft.tag_id = t.id
-             LEFT JOIN files f ON f.id = ft.file_id AND f.missing = 0
-             WHERE 1 = 1",
+             LEFT JOIN files f ON f.id = ft.file_id AND f.missing = 0",
         );
         let mut param_values: Vec<String> = Vec::new();
         if let Some(match_q) = &fts {
@@ -290,9 +289,7 @@ impl AppDb {
             param_values.push(creator.to_string());
         }
         push_ext_in(&mut sql, &mut param_values, exts);
-        sql.push_str(
-            " GROUP BY t.id, t.name, t.auto_color, t.custom_color HAVING COUNT(DISTINCT f.id) > 0 ORDER BY t.name COLLATE NOCASE",
-        );
+        sql.push_str(" GROUP BY t.id, t.name, t.auto_color, t.custom_color ORDER BY t.name COLLATE NOCASE");
         let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
         let params_ref: Vec<&dyn rusqlite::ToSql> = param_values
             .iter()
