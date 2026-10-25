@@ -17,9 +17,7 @@ import {
   visibleGridWindow,
   visibleRowWindow,
 } from "../lib/gridWindow";
-import { displayTagColor } from "../lib/tagColor";
-import type { FileRow, FolderRow, GridSize, LibrarySort, SortField, TagCount, ViewMode } from "../types";
-import { TagChip } from "./TagChip";
+import type { FileRow, FolderRow, GridSize, LibrarySort, SortField, ViewMode } from "../types";
 import {
   DetailsFolderRow,
   DetailsHeader,
@@ -141,7 +139,6 @@ export function LazyThumb({
 export function FileGrid({
   files,
   folders,
-  tagCounts = [],
   emptyMessage = "This folder is empty. Drop files here to import them.",
   view,
   sort,
@@ -158,7 +155,6 @@ export function FileGrid({
 }: {
   files: FileRow[];
   folders: FolderRow[];
-  tagCounts?: TagCount[];
   emptyMessage?: string;
   view: ViewMode;
   sort: LibrarySort;
@@ -517,15 +513,7 @@ export function FileGrid({
                   scrollRoot={scrollRoot}
                 />
                 <div className="tile-name">{file.sortName}</div>
-                {file.tags.length > 0 ? (
-                  <div className="tile-meta tile-tags">
-                    {file.tags.map((tag) => (
-                      <TagChip key={tag} name={tag} color={displayTagColor(tag, tagCounts)} />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="tile-meta">{file.creator || file.ext}</div>
-                )}
+                <div className="tile-meta">{file.creator || file.ext}</div>
               </button>
             );
           })}

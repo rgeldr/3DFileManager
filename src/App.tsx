@@ -402,7 +402,6 @@ function AppShell({ app }: { app: LibraryModel }) {
             <FileGrid
               files={files}
               folders={subfolders}
-              tagCounts={tagCounts}
               emptyMessage={gridEmptyMessage({
                 selectedTagCount: selectedTagIds.length,
                 selectedTypeCount: selectedTypeIds.length,
