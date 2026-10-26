@@ -5,7 +5,7 @@ import { api } from "../../api";
 export function FileContextMenu({ app }: { app: LibraryModel }) {
   const {
     fileMenu, setFileMenu, setError, selected, files,
-    setCreatorTarget, setCreatorValue, setFolderTagTarget, setFolderTagInput, openRenameFile,
+    setCreatorTarget, setCreatorValue, setFolderTagTarget, setFolderTagInput, openRenameFile, openContainingFolder,
   } = app;
   const selectionTarget = (fileId: number) => {
     const fileIds = selected.includes(fileId) ? selected : [fileId];
@@ -41,6 +41,17 @@ export function FileContextMenu({ app }: { app: LibraryModel }) {
                 }}
               >
                 Show in Explorer
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  const fileId = fileMenu.fileId;
+                  setFileMenu(null);
+                  openContainingFolder(fileId);
+                }}
+              >
+                Open containing folder
               </button>
               <button
                 type="button"

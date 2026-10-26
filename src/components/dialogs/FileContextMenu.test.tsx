@@ -16,6 +16,7 @@ function app(selected: number[], fileId: number) {
     setFolderTagTarget: vi.fn(),
     setFolderTagInput: vi.fn(),
     openRenameFile: vi.fn(),
+    openContainingFolder: vi.fn(),
   };
   const model = {
     fileMenu: { x: 10, y: 20, fileId },
@@ -66,6 +67,17 @@ describe("File context menu", () => {
       name: "1 file",
       fileIds: [3],
     });
+  });
+
+  it("opens the clicked file's folder under Show in Explorer", () => {
+    const { model, calls } = app([1, 2], 2);
+    render(<FileContextMenu app={model} />);
+    const items = screen.getAllByRole("menuitem").map((item) => item.textContent);
+    const show = items.indexOf("Show in Explorer");
+    expect(items[show + 1]).toBe("Open containing folder");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open containing folder" }));
+    expect(calls.setFileMenu).toHaveBeenCalledWith(null);
+    expect(calls.openContainingFolder).toHaveBeenCalledWith(2);
   });
 
   it("renames the clicked file", () => {
