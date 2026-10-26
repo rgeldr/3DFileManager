@@ -1,7 +1,7 @@
 {
   "name": "3d-file-library",
   "private": true,
-  "version": "26.10.32",
+  "version": "26.10.33",
   "type": "module",
   "scripts": {
     "dev": "vite",

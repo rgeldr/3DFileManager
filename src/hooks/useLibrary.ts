@@ -13,6 +13,7 @@ import {
   pushFolder,
   samePlace,
 } from "../lib/folderHistory";
+import { browseContainingFolder, containingFolderPlace } from "../lib/containingFolder";
 import { libraryListScope, libraryRefreshKey, librarySearchLimit, tagCountScope, truncateLibraryList } from "../lib/tagFilter";
 import { extsForSelectedTypes, mergeTypeCounts } from "../lib/typeFilter";
 import { useLibraryEffects } from "./useLibraryEffects";
@@ -300,6 +301,21 @@ export function useLibrary() {
     });
   }, [folders, runDiskOp]);
 
+  const openContainingFolder = useCallback((fileId: number) => {
+    const file = filesRef.current.find((item) => item.id === fileId);
+    const result = containingFolderPlace(file, foldersRef.current);
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    setQuery("");
+    setCreator("");
+    setSelectedTagIds([]);
+    setSelectedTypeIds([]);
+    setHistory((current) => browseContainingFolder(current, result.place));
+    setSelected([fileId]);
+  }, [setSelected]);
+
   const openRenameFile = useCallback((fileId: number) => {
     const file = filesRef.current.find((item) => item.id === fileId);
     if (!file) return;
@@ -442,7 +458,7 @@ export function useLibrary() {
     thumbNonce, setThumbNonce, thumbGeneration, gridScrollRef, dragIconRef, sidebarWidthRef, inspectorWidthRef,
     previewIconsEnabled, setPreviewIconsEnabled, folderExpandHint, setFolderExpandHint, libraryBusy, diskProgress,
     toastTimer, libraryName, targetFolderId, refreshLists, reloadTree, showToast, runDiskOp, openNewFolderPrompt,
-    openRenameFolderPrompt, openRenameFile, openDeleteFolderConfirm, performDeleteFolder, runImportRef, refreshListsRef,
+    openRenameFolderPrompt, openRenameFile, openContainingFolder, openDeleteFolderConfirm, performDeleteFolder, runImportRef, refreshListsRef,
     runImport, dialogOpen, browseKey, onSelect, selectedFile,
   };
   const drag = useLibraryEffects(model);
