@@ -12,12 +12,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../../../..");
 
 function parseArgs(argv) {
-  const opts = { changed: false, symbol: null, pathFilter: null };
+  const opts = { changed: false, symbol: null, pathFilter: null, out: null, summary: false };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--changed") opts.changed = true;
+    else if (a === "--summary") opts.summary = true;
     else if (a === "--symbol" && argv[i + 1]) opts.symbol = argv[++i];
     else if (a === "--path" && argv[i + 1]) opts.pathFilter = argv[++i];
+    else if (a === "--out" && argv[i + 1]) opts.out = argv[++i];
   }
   return opts;
 }
@@ -48,6 +50,32 @@ function walkDir(dir, ext, out = []) {
 
 function readText(file) {
   return fs.readFileSync(file, "utf8");
+}
+
+function isTsTestFile(rel) {
+  return /\.(test|spec)\.[cm]?[jt]sx?$/.test(rel);
+}
+
+function isRustTestFile(rel) {
+  return /(^|_)tests_\w+\.rs$/.test(path.basename(rel));
+}
+
+function braceDelta(line) {
+  return (line.match(/{/g) || []).length - (line.match(/}/g) || []).length;
+}
+
+/** Lines from `start` through the line that closes the first `{` opened at or after it. */
+function rustItemText(lines, start) {
+  let depth = 0;
+  let opened = false;
+  const out = [];
+  for (let j = start; j < lines.length; j++) {
+    out.push(lines[j]);
+    if (lines[j].includes("{")) opened = true;
+    depth += braceDelta(lines[j]);
+    if (opened && depth <= 0) break;
+  }
+  return out.join("\n");
 }
 
 /** @type {{ nodes: Map<string, object>, edges: object[] }} */
@@ -87,6 +115,9 @@ function collectTests() {
     ...walkDir(path.join(REPO_ROOT, "src"), ".ts").filter((f) =>
       /\.(test|spec)\./.test(f)
     ),
+    ...walkDir(path.join(REPO_ROOT, "src"), ".tsx").filter((f) =>
+      /\.(test|spec)\./.test(f)
+    ),
     ...walkDir(path.join(REPO_ROOT, "src-tauri", "src"), ".rs"),
   ];
 
@@ -98,14 +129,17 @@ function collectTests() {
       for (let i = 0; i < lines.length; i++) {
         if (/^\s*#\[test\]/.test(lines[i]) || /^\s*#\[tokio::test\]/.test(lines[i])) {
           let name = `test_at_${i + 1}`;
+          let fnLine = i;
           for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
             const m = lines[j].match(/^\s*fn\s+(\w+)/);
             if (m) {
               name = m[1];
+              fnLine = j;
               break;
             }
           }
-          testArtifacts.push({ file: rel, name, text, line: i + 1, kind: "rust-test" });
+          const body = rustItemText(lines, fnLine);
+          testArtifacts.push({ file: rel, name, text: body, line: i + 1, kind: "rust-test" });
         }
       }
       if (rel.includes("test") && testArtifacts.every((t) => t.file !== rel)) {
@@ -115,12 +149,19 @@ function collectTests() {
       testArtifacts.push({
         file: rel,
         name: path.basename(rel),
-        text,
+        text: stripModuleRefs(text),
         line: 1,
         kind: "test-file",
       });
     }
   }
+}
+
+/** Type-only imports and module paths (e.g. "../hooks/useLibrary") are not coverage. */
+function stripModuleRefs(text) {
+  return text
+    .replace(/^\s*import\s+type\b[^;]*;?/gm, "")
+    .replace(/(from\s+|import\s*\(\s*|vi\.mock\(\s*|require\(\s*)(["'`])[^"'`]*\2/g, '$1""');
 }
 
 function testMentionsName(testText, name) {
@@ -242,33 +283,60 @@ function analyzeTypeScript(pathFilter) {
         addEdge(fnId, stmtId, "cfg");
         resolveCall(node, fnId);
       }
+      if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && ts.isIdentifier(node.tagName)) {
+        let sym = checker.getSymbolAtLocation(node.tagName);
+        if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+        const decl = sym?.valueDeclaration ?? sym?.declarations?.[0];
+        const toId = decl ? declNodeId(decl) : null;
+        if (toId) pendingCalls.push({ from: fnId, to: toId });
+      }
       ts.forEachChild(node, walk);
     }
     walk(body);
   }
 
-  function resolveCall(callNode, fromFnId) {
-    const sig = checker.getResolvedSignature(callNode);
-    if (sig) {
-      const decl = sig.getDeclaration();
-      if (decl) {
-        const sf = decl.getSourceFile();
-        const rel = relFromRoot(sf.fileName);
-        const name = decl.name && ts.isIdentifier(decl.name) ? decl.name.text : "anonymous";
-        const line = sf.getLineAndCharacterOfPosition(decl.getStart(sf)).line + 1;
-        const toId = fnNodeId(rel, name, line);
-        if (graph.nodes.has(toId)) addEdge(fromFnId, toId, "call");
-        return;
+  /** Graph node id for a declaration, matching the ids built in visitTop. */
+  function declNodeId(decl) {
+    const sf = decl.getSourceFile();
+    const rel = relFromRoot(sf.fileName);
+    const lineOf = (n) => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+    const p = decl.parent;
+    if ((ts.isArrowFunction(decl) || ts.isFunctionExpression(decl)) && p) {
+      if (ts.isVariableDeclaration(p) && ts.isIdentifier(p.name)) return fnNodeId(rel, p.name.text, lineOf(p));
+      const owner = p.parent?.parent;
+      if (
+        ts.isPropertyAssignment(p) &&
+        ts.isIdentifier(p.name) &&
+        owner &&
+        ts.isVariableDeclaration(owner) &&
+        ts.isIdentifier(owner.name)
+      ) {
+        return fnNodeId(rel, `${owner.name.text}.${p.name.text}`, lineOf(p), "method");
       }
+      return null;
+    }
+    if (ts.isMethodDeclaration(decl) && ts.isIdentifier(decl.name) && p && ts.isClassDeclaration(p) && p.name) {
+      return fnNodeId(rel, `${p.name.text}.${decl.name.text}`, lineOf(decl), "method");
+    }
+    if (ts.isClassDeclaration(decl) && decl.name) return fnNodeId(rel, decl.name.text, lineOf(decl), "class");
+    if (decl.name && ts.isIdentifier(decl.name)) return fnNodeId(rel, decl.name.text, lineOf(decl));
+    return null;
+  }
+
+  // Targets in files not yet visited have no node yet, so edges resolve after all files.
+  const pendingCalls = [];
+
+  function resolveCall(callNode, fromFnId) {
+    const decl = checker.getResolvedSignature(callNode)?.getDeclaration();
+    const toId = decl ? declNodeId(decl) : null;
+    if (toId) {
+      pendingCalls.push({ from: fromFnId, to: toId });
+      return;
     }
     if (ts.isPropertyAccessExpression(callNode.expression)) {
-      const name = callNode.expression.name.text;
-      const ids = symbolNameToIds.get(name);
-      if (ids?.length === 1) addEdge(fromFnId, ids[0], "call");
+      pendingCalls.push({ from: fromFnId, name: callNode.expression.name.text });
     } else if (ts.isIdentifier(callNode.expression)) {
-      const name = callNode.expression.text;
-      const ids = symbolNameToIds.get(name);
-      if (ids?.length === 1) addEdge(fromFnId, ids[0], "call");
+      pendingCalls.push({ from: fromFnId, name: callNode.expression.text });
     }
   }
 
@@ -334,6 +402,7 @@ function analyzeTypeScript(pathFilter) {
     if (sf.isDeclarationFile) continue;
     const file = relFromRoot(sf.fileName);
     if (!file.startsWith("src/")) continue;
+    if (isTsTestFile(file)) continue;
     if (!matchesPathFilter(file, pathFilter)) continue;
     sourceFile = sf;
     const modId = moduleNodeId(file);
@@ -376,6 +445,15 @@ function analyzeTypeScript(pathFilter) {
       }
     });
   }
+
+  for (const { from, to, name } of pendingCalls) {
+    if (to) {
+      if (graph.nodes.has(to)) addEdge(from, to, "call");
+    } else {
+      const ids = symbolNameToIds.get(name);
+      if (ids?.length === 1 && graph.nodes.has(ids[0])) addEdge(from, ids[0], "call");
+    }
+  }
 }
 
 // --- Rust ---
@@ -384,6 +462,9 @@ function analyzeRust(pathFilter) {
   const rustDir = path.join(REPO_ROOT, "src-tauri", "src");
   const files = walkDir(rustDir, ".rs");
   const fnNameToIds = new Map();
+  // Names defined in later files are not registered yet, so edges resolve after all files.
+  const pendingCalls = [];
+  const pendingImpls = [];
 
   function regFn(name, id) {
     if (!fnNameToIds.has(name)) fnNameToIds.set(name, []);
@@ -392,6 +473,7 @@ function analyzeRust(pathFilter) {
 
   for (const abs of files) {
     const file = relFromRoot(abs);
+    if (isRustTestFile(file)) continue;
     if (!matchesPathFilter(file, pathFilter)) continue;
     const text = readText(abs);
     const lines = text.split("\n");
@@ -401,11 +483,34 @@ function analyzeRust(pathFilter) {
     let pendingTauri = false;
     let braceDepth = 0;
     let currentFn = null;
-    let currentFnStart = 0;
+    let currentFnBase = 0;
+    let currentFnOpened = false;
+    let pendingCfgTest = false;
+    let skipping = false;
+    let skipDepth = 0;
+    let skipOpened = false;
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const lineNo = i + 1;
+
+      // Items gated by #[cfg(test)] are test code, not shipped code.
+      if (/^\s*#\[cfg\(test\)\]/.test(line)) {
+        pendingCfgTest = true;
+        continue;
+      }
+      if (pendingCfgTest && line.trim() && !/^\s*(#\[|\/\/)/.test(line)) {
+        pendingCfgTest = false;
+        skipping = true;
+        skipDepth = 0;
+        skipOpened = false;
+      }
+      if (skipping) {
+        if (line.includes("{")) skipOpened = true;
+        skipDepth += braceDelta(line);
+        if ((skipOpened && skipDepth <= 0) || (!skipOpened && /;\s*$/.test(line))) skipping = false;
+        continue;
+      }
 
       if (/#\[tauri::command\]|#\[command\]/.test(line)) pendingTauri = true;
 
@@ -438,11 +543,10 @@ function analyzeRust(pathFilter) {
       if (implM) {
         const id = fnNodeId(file, `impl:${implM[1]}`, lineNo, "impl");
         addNode({ id, kind: "impl", name: implM[1], file, line: lineNo });
-        const targets = fnNameToIds.get(implM[1]);
-        if (targets) for (const t of targets) addEdge(id, t, "inherits");
+        pendingImpls.push({ from: id, name: implM[1] });
       }
 
-      const fnM = line.match(/^\s*(?:pub\s+)?(?:async\s+)?fn\s+(\w+)/);
+      const fnM = line.match(/^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:unsafe\s+)?fn\s+(\w+)/);
       if (fnM && !line.includes("fn main")) {
         const name = fnM[1];
         const exported = /^\s*pub\s+/.test(line);
@@ -459,7 +563,8 @@ function analyzeRust(pathFilter) {
         regFn(name, id);
         pendingTauri = false;
         currentFn = id;
-        currentFnStart = i;
+        currentFnBase = braceDepth;
+        currentFnOpened = false;
       }
 
       if (currentFn) {
@@ -494,31 +599,56 @@ function analyzeRust(pathFilter) {
           const cname = callM[1];
           if (["if", "while", "for", "match", "return", "let", "pub", "fn", "async"].includes(cname))
             continue;
-          const targets = fnNameToIds.get(cname);
-          if (targets?.length === 1) addEdge(currentFn, targets[0], "call");
+          pendingCalls.push({ from: currentFn, name: cname });
         }
       }
 
       braceDepth += (line.match(/{/g) || []).length;
       braceDepth -= (line.match(/}/g) || []).length;
-      if (currentFn && braceDepth <= 0 && i > currentFnStart) {
-        currentFn = null;
-        braceDepth = 0;
+      // Signatures often span lines, so a fn ends only once its body brace has opened and closed.
+      if (currentFn) {
+        if (braceDepth > currentFnBase || line.includes("{")) currentFnOpened = true;
+        if (currentFnOpened ? braceDepth <= currentFnBase : /;\s*$/.test(line)) currentFn = null;
       }
     }
+  }
+
+  for (const { from, name } of pendingCalls) {
+    const targets = fnNameToIds.get(name);
+    if (targets?.length === 1) addEdge(from, targets[0], "call");
+  }
+  for (const { from, name } of pendingImpls) {
+    for (const t of fnNameToIds.get(name) || []) addEdge(from, t, "inherits");
   }
 }
 
 // --- Metrics ---
 
+// Name-mention linking can only reach named symbols, so NC is measured over these kinds.
+const SYMBOL_KINDS = new Set(["function", "method", "class", "struct", "enum", "trait"]);
+
 function computeMetrics() {
   const nodes = [...graph.nodes.values()];
-  const reachable = nodes.filter((n) => n.kind !== "test");
+  const reachable = nodes.filter((n) => SYMBOL_KINDS.has(n.kind));
   const coveredIds = new Set(
     graph.edges.filter((e) => e.kind === "covers").map((e) => e.to)
   );
   const ncCovered = reachable.filter((n) => coveredIds.has(n.id)).length;
   const ncTotal = reachable.length;
+
+  const { callees } = buildCallGraph();
+  const reachedIds = new Set();
+  const queue = [...coveredIds];
+  while (queue.length) {
+    const id = queue.shift();
+    for (const c of callees.get(id) || []) {
+      if (!coveredIds.has(c) && !reachedIds.has(c)) {
+        reachedIds.add(c);
+        queue.push(c);
+      }
+    }
+  }
+  const ncTransitive = reachable.filter((n) => coveredIds.has(n.id) || reachedIds.has(n.id)).length;
 
   const cfgEdges = graph.edges.filter((e) => e.kind === "cfg");
   const fnHasCover = new Set();
@@ -563,8 +693,28 @@ function computeMetrics() {
     .sort((a, b) => b.score - a.score)
     .slice(0, 25);
 
+  const untested = reachable
+    .filter((n) => !coveredIds.has(n.id))
+    .map((n) => ({
+      name: n.parent ? `${n.parent}.${n.name}` : n.name,
+      file: n.file,
+      line: n.line,
+      kind: n.kind,
+      exported: !!n.exported,
+      tauriCommand: !!n.tauriCommand,
+      reachedFromTest: reachedIds.has(n.id),
+      score: (inDeg.get(n.id) || 0) + (outDeg.get(n.id) || 0),
+    }))
+    .sort((a, b) => b.score - a.score);
+
   return {
-    nodeCoverage: { covered: ncCovered, total: ncTotal, ratio: ncTotal ? ncCovered / ncTotal : 0 },
+    nodeCoverage: {
+      covered: ncCovered,
+      total: ncTotal,
+      ratio: ncTotal ? ncCovered / ncTotal : 0,
+      transitiveCovered: ncTransitive,
+      transitiveRatio: ncTotal ? ncTransitive / ncTotal : 0,
+    },
     edgeCoverage: { covered: ecCovered, total: ecTotal, ratio: ecTotal ? ecCovered / ecTotal : 0 },
     defUse: {
       pairs: defUseEdges.length,
@@ -572,6 +722,7 @@ function computeMetrics() {
       ambiguousUses: 0,
     },
     hotspots,
+    untested,
   };
 }
 
@@ -671,7 +822,7 @@ function gitChangedSymbols() {
 
   const seeds = [];
   for (const node of graph.nodes.values()) {
-    if (node.kind === "module" || node.kind === "test" || node.kind === "branch") continue;
+    if (!SYMBOL_KINDS.has(node.kind)) continue;
     const nf = norm(node.file);
     for (const tf of touchedFiles) {
       if (nf === norm(tf) || nf.endsWith("/" + tf)) {
@@ -686,6 +837,7 @@ function gitChangedSymbols() {
 function findSymbolIds(symbol) {
   const out = [];
   for (const node of graph.nodes.values()) {
+    if (!SYMBOL_KINDS.has(node.kind)) continue;
     if (node.name === symbol || node.id.includes(`::${symbol}::`)) out.push(node.id);
   }
   return out;
@@ -729,11 +881,15 @@ function main() {
         return acc;
       }, {}),
     },
-    nodes: [...graph.nodes.values()],
-    edges: graph.edges,
   };
+  if (!opts.summary) {
+    output.nodes = [...graph.nodes.values()];
+    output.edges = graph.edges;
+  }
 
-  process.stdout.write(JSON.stringify(output, null, 2));
+  const json = JSON.stringify(output, null, 2);
+  if (opts.out) fs.writeFileSync(path.resolve(opts.out), json, "utf8");
+  else process.stdout.write(json);
 }
 
 main();
