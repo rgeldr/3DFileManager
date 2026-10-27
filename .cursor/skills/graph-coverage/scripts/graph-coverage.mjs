@@ -115,6 +115,7 @@ function collectTests() {
     ...walkDir(path.join(REPO_ROOT, "src"), ".ts").filter((f) =>
       /\.(test|spec)\./.test(f)
     ),
+    // RTL/component suites live in *.test.tsx; include them for static name covers.
     ...walkDir(path.join(REPO_ROOT, "src"), ".tsx").filter((f) =>
       /\.(test|spec)\./.test(f)
     ),

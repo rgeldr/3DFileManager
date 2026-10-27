@@ -411,6 +411,131 @@ describe("FileGrid", () => {
     scroller.remove();
   });
 
+  it("merges marquee hits with the current selection when Ctrl is held", () => {
+    const files = [
+      file({ id: 1, sortName: "Alpha", originalName: "a.stl", ext: "stl", thumbPath: null }),
+      file({ id: 2, sortName: "Bravo", originalName: "b.stl", ext: "stl", thumbPath: null }),
+      file({ id: 3, sortName: "Charlie", originalName: "c.stl", ext: "stl", thumbPath: null }),
+    ];
+    const scroller = document.createElement("div");
+    scroller.className = "grid-wrap";
+    sizeScroller(scroller, 0);
+    scroller.getBoundingClientRect = () =>
+      ({
+        width: 1000,
+        height: 400,
+        top: 0,
+        left: 0,
+        bottom: 400,
+        right: 1000,
+        x: 0,
+        y: 0,
+        toJSON() {
+          return {};
+        },
+      }) as DOMRect;
+    Object.defineProperty(scroller, "clientLeft", { configurable: true, get: () => 0 });
+    Object.defineProperty(scroller, "clientTop", { configurable: true, get: () => 0 });
+    scroller.setPointerCapture = vi.fn();
+    scroller.releasePointerCapture = vi.fn();
+    scroller.hasPointerCapture = vi.fn(() => false);
+    document.body.appendChild(scroller);
+    const onSelectionChange = vi.fn();
+    const pending: FrameRequestCallback[] = [];
+    const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      pending.push(cb);
+      return pending.length;
+    });
+    const view = render(
+      <FileGrid
+        {...gridBase({
+          files,
+          selected: [3],
+          scrollRootRef: { current: scroller },
+          onSelectionChange,
+        })}
+      />,
+      { container: scroller },
+    );
+
+    fireEvent.pointerDown(scroller, {
+      button: 0,
+      pointerId: 7,
+      clientX: 10,
+      clientY: 10,
+      ctrlKey: true,
+    });
+    fireEvent.pointerMove(window, { pointerId: 7, clientX: 280, clientY: 180 });
+    act(() => {
+      const frame = pending.shift();
+      frame?.(0);
+    });
+    fireEvent.pointerUp(window, { pointerId: 7, clientX: 280, clientY: 180 });
+
+    expect(onSelectionChange).toHaveBeenCalled();
+    const last = onSelectionChange.mock.calls.at(-1)?.[0] as number[];
+    expect(last).toContain(3);
+    expect(last.some((id) => id === 1 || id === 2)).toBe(true);
+    raf.mockRestore();
+    view.unmount();
+    scroller.remove();
+  });
+
+  it("clears the selection when an empty click does not move", () => {
+    const files = [file({ id: 1, sortName: "Alpha", originalName: "a.stl", ext: "stl", thumbPath: null })];
+    const scroller = document.createElement("div");
+    scroller.className = "grid-wrap";
+    sizeScroller(scroller, 0);
+    scroller.getBoundingClientRect = () =>
+      ({
+        width: 1000,
+        height: 400,
+        top: 0,
+        left: 0,
+        bottom: 400,
+        right: 1000,
+        x: 0,
+        y: 0,
+        toJSON() {
+          return {};
+        },
+      }) as DOMRect;
+    Object.defineProperty(scroller, "clientLeft", { configurable: true, get: () => 0 });
+    Object.defineProperty(scroller, "clientTop", { configurable: true, get: () => 0 });
+    scroller.setPointerCapture = vi.fn();
+    scroller.releasePointerCapture = vi.fn();
+    scroller.hasPointerCapture = vi.fn(() => false);
+    document.body.appendChild(scroller);
+    const onSelectionChange = vi.fn();
+    const pending: FrameRequestCallback[] = [];
+    const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      pending.push(cb);
+      return pending.length;
+    });
+    const view = render(
+      <FileGrid
+        {...gridBase({
+          files,
+          selected: [1],
+          scrollRootRef: { current: scroller },
+          onSelectionChange,
+        })}
+      />,
+      { container: scroller },
+    );
+
+    fireEvent.pointerDown(scroller, { button: 0, pointerId: 9, clientX: 20, clientY: 20 });
+    act(() => {
+      const frame = pending.shift();
+      frame?.(0);
+    });
+    fireEvent.pointerUp(window, { pointerId: 9, clientX: 20, clientY: 20 });
+    expect(onSelectionChange).toHaveBeenCalledWith([]);
+    raf.mockRestore();
+    view.unmount();
+    scroller.remove();
+  });
+
   it("puts each resize handle on the right edge of its own header and drags that column", () => {
     const scroller = document.createElement("div");
     sizeScroller(scroller, 0);
