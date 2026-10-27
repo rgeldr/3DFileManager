@@ -61,6 +61,26 @@ describe("Types popover", () => {
     fireEvent.click(screen.getByRole("button", { name: "Select all" }));
     expect(onSelectedIds).toHaveBeenCalledWith(["stl", "obj"]);
   });
+
+  it("moves arrow-up from the first highlight into the search field", () => {
+    const focus = vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(() => undefined);
+    const types = mergeTypeCounts([]);
+    render(<TypeFilter types={types} selectedIds={[]} onSelectedIds={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "File Types" }));
+    const dialog = screen.getByRole("dialog", { name: "Filter by type" });
+    focus.mockClear();
+    fireEvent.keyDown(dialog, { key: "ArrowUp" });
+    expect(focus).toHaveBeenCalled();
+    focus.mockRestore();
+  });
+
+  it("shows No types when the search matches nothing", () => {
+    const types = mergeTypeCounts([]);
+    render(<TypeFilter types={types} selectedIds={[]} onSelectedIds={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "File Types" }));
+    fireEvent.change(screen.getByPlaceholderText("Filter types"), { target: { value: "zzz-no-match" } });
+    expect(screen.getByText("No types")).toBeTruthy();
+  });
 });
 
 describe("selected tag chips", () => {

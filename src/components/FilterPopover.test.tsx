@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createRef, useRef } from "react";
+import { FilterPopover } from "./FilterPopover";
 import { TagFilter } from "./TagFilter";
 import { TypeFilter } from "./TypeFilter";
 import { mergeTypeCounts } from "../lib/typeFilter";
@@ -32,6 +34,56 @@ function rect(values: Partial<DOMRect>): DOMRect {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+
+describe("FilterPopover", () => {
+  it("renders through the portal and closes on outside pointerdown", () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1280 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("filter-popover-anchor")) {
+        return rect({ top: 40, right: 200, bottom: 68, left: 100, width: 100, height: 28 });
+      }
+      return rect({});
+    });
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(120);
+    vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(() => undefined);
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+
+    const onClose = vi.fn();
+    const focusRef = createRef<HTMLInputElement>();
+
+    function Host() {
+      const anchorRef = useRef<HTMLButtonElement>(null);
+      return (
+        <>
+          <button type="button" className="filter-popover-anchor" ref={anchorRef}>
+            Anchor
+          </button>
+          <FilterPopover
+            anchorRef={anchorRef}
+            label="Direct filter popover"
+            layoutKey="direct"
+            onClose={onClose}
+            onKeyDown={() => undefined}
+            focusRef={focusRef}
+          >
+            <input ref={focusRef} type="search" placeholder="Direct search" />
+            <div>Popover body</div>
+          </FilterPopover>
+        </>
+      );
+    }
+
+    render(<Host />);
+    expect(screen.getByRole("dialog", { name: "Direct filter popover" })).toBeTruthy();
+    expect(screen.getByPlaceholderText("Direct search")).toBeTruthy();
+    fireEvent.pointerDown(document.documentElement);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("filter popovers", () => {
