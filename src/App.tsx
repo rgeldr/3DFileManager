@@ -38,7 +38,7 @@ export function App() {
   return <AppShell app={app} />;
 }
 
-function AppShell({ app }: { app: LibraryModel }) {
+export function AppShell({ app }: { app: LibraryModel }) {
   const updateCheck = useAppUpdate();
   const {
     ready,
