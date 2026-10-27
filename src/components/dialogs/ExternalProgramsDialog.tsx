@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../../api";
 import type { LibraryModel } from "../../hooks/useLibrary";
+import { normalizeProgramPath, sameProgramPath } from "../../lib/programPath";
 import type { ExternalProgram, ProgramSuggestion } from "../../types";
 import { Modal } from "./Modal";
 
@@ -15,7 +16,8 @@ async function pickExecutable(): Promise<string | null> {
 }
 
 function suggestionTaken(suggestion: ProgramSuggestion, programs: ExternalProgram[]): boolean {
-  if (suggestion.path) return programs.some((program) => program.path === suggestion.path);
+  const detected = suggestion.path;
+  if (detected) return programs.some((program) => sameProgramPath(program.path, detected));
   return programs.some((program) => program.name.toLowerCase() === suggestion.name.toLowerCase());
 }
 
@@ -57,7 +59,7 @@ export function ExternalProgramsDialog({ app }: { app: LibraryModel }) {
     const cleaned = next.map((program) => ({
       ...program,
       name: program.name.trim(),
-      path: program.path.trim(),
+      path: normalizeProgramPath(program.path),
     }));
     if (cleaned.some((program) => !program.name || !program.path)) {
       setError("Enter a name and the full path to an .exe file.");
@@ -86,8 +88,8 @@ export function ExternalProgramsDialog({ app }: { app: LibraryModel }) {
   };
 
   const addProgram = (name: string, path: string) => {
-    const trimmedPath = path.trim();
-    if (programsRef.current.some((program) => program.path === trimmedPath)) {
+    const trimmedPath = normalizeProgramPath(path);
+    if (programsRef.current.some((program) => sameProgramPath(program.path, trimmedPath))) {
       return Promise.resolve(false);
     }
     return persist([
