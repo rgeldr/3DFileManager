@@ -103,12 +103,8 @@ mod tests {
         let db_path = dir.join("library.db");
         {
             let conn = Connection::open(&db_path).unwrap();
-            conn.execute_batch(
-                "CREATE TABLE folders (id INTEGER PRIMARY KEY, parent_id INTEGER, name TEXT NOT NULL, relpath TEXT NOT NULL, sort_order INTEGER NOT NULL);
-                 CREATE TABLE files (id INTEGER PRIMARY KEY, original_name TEXT NOT NULL, stored_relpath TEXT NOT NULL, ext TEXT NOT NULL, size_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL, folder_id INTEGER, creator TEXT, tags_text TEXT NOT NULL DEFAULT '', missing INTEGER NOT NULL DEFAULT 0, thumb_status TEXT NOT NULL DEFAULT 'none', added_at INTEGER NOT NULL DEFAULT 0, modified_at INTEGER NOT NULL DEFAULT 0);
-                 PRAGMA user_version = 1;",
-            )
-            .unwrap();
+            conn.execute_batch(SCHEMA_BODY).unwrap();
+            conn.pragma_update(None, "user_version", 1).unwrap();
         }
         let db = open(&dir).unwrap();
         let has_attempts: bool = db

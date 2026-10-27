@@ -1,17 +1,18 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Actions } from "./libraryTypes";
 import { useSessionEffects } from "./useSessionEffects";
 
 const bootstrap = vi.fn();
 const setThemeApi = vi.fn();
-const listen = vi.fn(async () => () => undefined);
+const listen = vi.fn(async (..._args: unknown[]) => () => undefined);
 const getVersion = vi.fn();
-const getCurrentWebview = vi.fn(() => ({
+const getCurrentWebview = vi.fn((..._args: unknown[]) => ({
   setFocus: vi.fn(async () => undefined),
   onDragDropEvent: vi.fn(async () => () => undefined),
 }));
 const open = vi.fn();
-const dragIconPath = vi.fn(async () => "/icon.png");
+const dragIconPath = vi.fn(async (..._args: unknown[]) => "/icon.png");
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: (...args: unknown[]) => listen(...args),
@@ -90,7 +91,7 @@ function sessionBag(overrides: Record<string, unknown> = {}) {
   const refreshLists = vi.fn(async () => undefined);
   const runDiskOp = vi.fn(async () => undefined);
   const runImport = vi.fn(async () => undefined);
-  const actions = {
+  const actions: { current: Actions } = {
     current: {
       importFolder: () => undefined,
       importArchive: () => undefined,
@@ -144,12 +145,12 @@ function sessionBag(overrides: Record<string, unknown> = {}) {
     aboutOpen: false,
     setAboutVersion,
     setAboutVersionFailed,
-    creatorTarget: null,
+    creatorTarget: null as null | { folderId: number | null; name: string; fileIds?: number[] },
     setCreatorFileCount,
     includeSubfolders: true,
     fileMenu: null as null | { x: number; y: number; fileId: number },
     setFileMenu,
-    folderTagTarget: null,
+    folderTagTarget: null as null | { folderId: number | null; name: string; fileIds?: number[] },
     setFolderTagFileCount,
     diskProgress: { current: { current: 0, total: 0, name: "", bytesDone: 0, bytesTotal: 0, cancellable: false } },
     setDiskDialog,

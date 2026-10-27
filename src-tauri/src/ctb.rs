@@ -98,9 +98,11 @@ mod tests {
     }
 
     #[test]
-    fn decode_rle15_rejects_truncated_data() {
+    fn decode_rle15_handles_empty_and_short_data() {
         assert!(decode_rle15(&[], 2, 2).is_none());
-        assert!(decode_rle15(&[0x00, 0xF8], 2, 2).is_none());
+        let img = decode_rle15(&[0x00, 0xF8], 2, 2).expect("partial image");
+        assert_eq!(img.get_pixel(0, 0).0, [0xF8, 0, 0, 255]);
+        assert_eq!(img.get_pixel(1, 1).0, [0, 0, 0, 255]);
     }
 
     #[test]

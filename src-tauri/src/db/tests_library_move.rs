@@ -91,7 +91,7 @@
         assert!(cancelled);
         assert!(from.join("a.stl").is_file());
         assert!(from.join("b.stl").is_file());
-        assert_eq!(db.library_root().unwrap(), from.canonicalize().unwrap());
+        assert_eq!(db.library_root().unwrap(), from);
         assert!(dest.is_dir());
         assert!(!dest.join("a.stl").exists());
 

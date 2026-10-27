@@ -1,4 +1,3 @@
-    use super::*;
     use crate::settings::DetailsColumns;
     #[test]
     fn settings_setters_round_trip_through_bootstrap() {

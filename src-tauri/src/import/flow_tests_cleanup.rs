@@ -8,11 +8,11 @@
         struct ResetForceCopy;
         impl Drop for ResetForceCopy {
             fn drop(&mut self) {
-                FORCE_COPY.store(false, Ordering::SeqCst);
+                FORCE_COPY.set(false);
             }
         }
         let _reset = ResetForceCopy;
-        FORCE_COPY.store(true, Ordering::SeqCst);
+        FORCE_COPY.set(true);
 
         let dup_bytes = b"solid dup\nendsolid dup\n";
         let seed = incoming.join("already-in-library.stl");
@@ -164,11 +164,11 @@
         struct ResetForceCopy;
         impl Drop for ResetForceCopy {
             fn drop(&mut self) {
-                FORCE_COPY.store(false, Ordering::SeqCst);
+                FORCE_COPY.set(false);
             }
         }
         let _reset = ResetForceCopy;
-        FORCE_COPY.store(true, Ordering::SeqCst);
+        FORCE_COPY.set(true);
 
         let bytes = b"solid dup\nendsolid dup\n";
         let seed = incoming.join("seed.stl");

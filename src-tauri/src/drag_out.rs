@@ -373,7 +373,7 @@ mod tests {
         let long = format!("C:\\{}\\model.stl", "n".repeat(260));
         assert!(long.chars().count() > MAX_LEGACY);
         assert!(path_needs_staging(&long));
-        assert!(!path_needs_staging("/tmp/model.stl"));
+        assert!(!path_needs_staging(r"C:\Library\model.stl"));
     }
 
     fn source(path: &Path, file_name: &str, ext: &str) -> DragSource {

@@ -38,7 +38,7 @@ vi.mock("../api", () => ({
     {
       get(_target, prop: string) {
         return (...args: unknown[]) => {
-          const fn = (api as Record<string, ReturnType<typeof vi.fn>>)[prop];
+          const fn = (api as Record<string, (...args: unknown[]) => unknown>)[prop];
           if (!fn) return Promise.resolve(undefined);
           return fn(...args);
         };

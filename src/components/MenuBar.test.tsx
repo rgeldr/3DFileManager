@@ -87,7 +87,7 @@ describe("MenuBar", () => {
         openTagColors: vi.fn(),
       },
     };
-    const themeItems = { current: {} as { dark?: MenuRecord; light?: MenuRecord } };
+    const themeItems = { current: {} as Record<string, MenuRecord> };
     const gridItems = { current: {} as Record<string, MenuRecord> };
 
     const view = render(

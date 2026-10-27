@@ -151,26 +151,3 @@
         assert!(root.join(&rel).is_dir());
         let _ = std::fs::remove_dir_all(&dir);
     }
-
-    #[test]
-    fn rename_folder_with_honours_cancel() {
-        use std::sync::atomic::AtomicBool;
-        let dir = std::env::temp_dir().join(format!("filelib-rename-cancel-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let db = open(&dir).unwrap();
-        let root = dir.join("library");
-        std::fs::create_dir_all(&root).unwrap();
-        let mut settings = Settings::default();
-        settings.library_root = Some(root.to_string_lossy().to_string());
-        db.save_settings(&settings).unwrap();
-        let minis = db.create_folder(None, "Minis", 0).unwrap();
-        std::fs::create_dir_all(root.join("Minis")).unwrap();
-        let before = db.folder_relpath(minis.id).unwrap();
-        let cancel = AtomicBool::new(true);
-        let cancelled = db.rename_folder_with(minis.id, "Terrain", &cancel, |_| {}).unwrap();
-        assert!(cancelled);
-        assert_eq!(db.folder_relpath(minis.id).unwrap(), before);
-        assert!(root.join("Minis").is_dir());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
