@@ -4,12 +4,20 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { execSync } from "node:child_process";
-import ts from "typescript";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(__dirname, "../../../..");
+// Run from the repository root; the script itself lives outside the repo.
+const REPO_ROOT = process.cwd();
+
+// TypeScript comes from the analyzed repo's node_modules, not from next to this script.
+let ts;
+try {
+  ts = createRequire(path.join(REPO_ROOT, "package.json"))("typescript");
+} catch {
+  process.stderr.write(`graph-coverage: "typescript" is not installed in ${REPO_ROOT}. Run: npm i -D typescript\n`);
+  process.exit(1);
+}
 
 function parseArgs(argv) {
   const opts = { changed: false, symbol: null, pathFilter: null, out: null, summary: false };
@@ -115,7 +123,6 @@ function collectTests() {
     ...walkDir(path.join(REPO_ROOT, "src"), ".ts").filter((f) =>
       /\.(test|spec)\./.test(f)
     ),
-    // RTL/component suites live in *.test.tsx; include them for static name covers.
     ...walkDir(path.join(REPO_ROOT, "src"), ".tsx").filter((f) =>
       /\.(test|spec)\./.test(f)
     ),
@@ -173,9 +180,7 @@ function testMentionsName(testText, name) {
 }
 
 function linkCoversEdges() {
-  const codeNodes = [...graph.nodes.values()].filter(
-    (n) => n.kind !== "module" && n.kind !== "branch"
-  );
+  const codeNodes = [...graph.nodes.values()].filter((n) => SYMBOL_KINDS.has(n.kind));
   for (const test of testArtifacts) {
     const testId = fnNodeId(test.file, test.name, test.line, "test");
     addNode({
