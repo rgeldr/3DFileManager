@@ -72,6 +72,7 @@ export function MenuBar(s: {
               await PredefinedMenuItem.new({ item: "Separator" }),
               await Submenu.new({ text: "Theme", items: [dark, light] }),
               await MenuItem.new({ text: "Tag color…", action: () => actions.current.openTagColors() }),
+              await MenuItem.new({ text: "External programs…", action: () => actions.current.openExternalPrograms() }),
             ],
           }),
           await Submenu.new({

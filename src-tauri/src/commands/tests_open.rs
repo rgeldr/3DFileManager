@@ -1,4 +1,124 @@
     #[test]
+    fn save_external_programs_keeps_order_and_leaves_settings_unchanged_on_reject() {
+        let dir = std::env::temp_dir().join(format!("filelib-save-programs-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        save_external_programs(
+            &db,
+            vec![
+                crate::external_programs::ExternalProgram {
+                    id: " bambu ".into(),
+                    name: " Bambu Studio ".into(),
+                    path: r"  C:\Program Files\Bambu Studio\bambu-studio.exe  ".into(),
+                },
+                crate::external_programs::ExternalProgram {
+                    id: "orca".into(),
+                    name: "OrcaSlicer".into(),
+                    path: r"C:\Program Files\OrcaSlicer\orca-slicer.exe".into(),
+                },
+            ],
+        )
+        .unwrap();
+        let loaded = db.settings().external_programs;
+        assert_eq!(loaded[0].id, "bambu");
+        assert_eq!(loaded[0].name, "Bambu Studio");
+        assert_eq!(loaded[1].id, "orca");
+        let rejected = save_external_programs(
+            &db,
+            vec![crate::external_programs::ExternalProgram {
+                id: "bad".into(),
+                name: "Bad".into(),
+                path: "prusa-slicer.exe".into(),
+            }],
+        );
+        assert!(rejected.unwrap_err().contains(".exe"));
+        assert_eq!(db.settings().external_programs, loaded);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn launch_catalog_file_uses_the_saved_executable_and_the_library_file() {
+        let dir = std::env::temp_dir().join(format!("filelib-open-prog-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(root.join("Models")).unwrap();
+        let stored = "Models/My Cube ベンチ.stl";
+        fs::write(root.join("Models").join("My Cube ベンチ.stl"), b"solid").unwrap();
+        let exe = dir.join("orca slicer.exe");
+        let other = dir.join("other.exe");
+        let log = dir.join("launched.txt");
+        fs::write(
+            &exe,
+            format!("#!/bin/sh\nprintf '%s\\n' \"$0\" \"$@\" > '{}'\n", log.display()),
+        )
+        .unwrap();
+        fs::write(&other, b"#!/bin/sh\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&exe, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        settings.external_programs = vec![
+            crate::external_programs::ExternalProgram {
+                id: "orca".into(),
+                name: "OrcaSlicer".into(),
+                path: exe.to_string_lossy().to_string(),
+            },
+            crate::external_programs::ExternalProgram {
+                id: "other".into(),
+                name: "Other".into(),
+                path: other.to_string_lossy().to_string(),
+            },
+        ];
+        db.save_settings(&settings).unwrap();
+        let id = db
+            .insert_file("My Cube ベンチ.stl", stored, "stl", 5, "sha-cube", 1, None, None)
+            .unwrap();
+
+        launch_catalog_file(&db, id, "orca").unwrap();
+        let text = wait_for_launch_log(&log);
+        let mut lines = text.lines();
+        let argv0 = lines.next().unwrap();
+        assert!(argv0.contains("orca slicer.exe"));
+        assert!(!argv0.contains("other.exe"));
+        let argument = lines.next().unwrap();
+        assert!(argument.contains("My Cube ベンチ.stl"));
+        assert!(!argument.contains("other.exe"));
+        assert!(lines.next().is_none());
+
+        assert!(launch_catalog_file(&db, id, "missing")
+            .unwrap_err()
+            .contains("no longer"));
+        settings.external_programs[0].path = dir.join("gone.exe").to_string_lossy().to_string();
+        db.save_settings(&settings).unwrap();
+        let missing = launch_catalog_file(&db, id, "orca").unwrap_err();
+        assert!(missing.contains("Can't find OrcaSlicer"));
+        assert!(missing.contains("gone.exe"));
+
+        let outside = db
+            .insert_file("secret.stl", "../secret.stl", "stl", 6, "sha-secret", 1, None, None)
+            .unwrap();
+        settings.external_programs[0].path = exe.to_string_lossy().to_string();
+        db.save_settings(&settings).unwrap();
+        assert!(launch_catalog_file(&db, outside, "orca").is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    fn wait_for_launch_log(path: &std::path::Path) -> String {
+        for _ in 0..50 {
+            if let Ok(text) = fs::read_to_string(path) {
+                if !text.is_empty() {
+                    return text;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        panic!("timed out waiting for {}", path.display());
+    }
+
+    #[test]
     fn contained_library_dir_stays_inside_the_root() {
         let dir = std::env::temp_dir().join(format!("filelib-open-dir-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);

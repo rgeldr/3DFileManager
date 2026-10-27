@@ -4,6 +4,7 @@ export { FolderTagDialog } from "./FolderTagDialog";
 export { CreatorDialog } from "./CreatorDialog";
 export { AboutDialog } from "./AboutDialog";
 export { TagColorDialog } from "./TagColorDialog";
+export { ExternalProgramsDialog } from "./ExternalProgramsDialog";
 export { DragFailureDialog } from "./DragFailureDialog";
 export { NamePromptDialog } from "./NamePromptDialog";
 export { DeleteFolderDialog } from "./DeleteFolderDialog";

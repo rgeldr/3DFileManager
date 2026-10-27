@@ -5,6 +5,7 @@ mod drag_out;
 mod drag_session;
 #[cfg(windows)]
 mod drag_win;
+mod external_programs;
 mod hash_pass;
 mod import;
 mod names;
@@ -84,6 +85,8 @@ pub fn run() {
             set_details_columns,
             set_inspector_pinned,
             set_sidebar_pinned,
+            set_external_programs,
+            detect_external_programs,
             create_folder,
             rename_folder,
             delete_folder,
@@ -126,6 +129,7 @@ pub fn run() {
             prepare_drag_paths,
             start_file_drag,
             open_in_default_app,
+            open_in_program,
             reveal_file,
             reveal_folder,
             text_preview,

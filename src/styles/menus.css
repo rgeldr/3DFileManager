@@ -28,3 +28,38 @@
   background: var(--color-bg-hover);
 }
 
+.file-context-menu .menu-branch {
+  position: relative;
+}
+
+.file-context-menu .menu-submenu {
+  display: none;
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: calc(100% - 4px);
+  min-width: 12rem;
+  max-width: 18rem;
+  padding: var(--space-1);
+  background: var(--color-bg-sidebar);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.file-context-menu .menu-branch:hover > .menu-submenu,
+.file-context-menu .menu-branch:focus-within > .menu-submenu {
+  display: block;
+}
+
+.file-context-menu .menu-submenu.flip {
+  left: auto;
+  right: calc(100% - 4px);
+}
+
+.file-context-menu .menu-submenu button {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+

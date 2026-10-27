@@ -78,6 +78,7 @@ vi.mock("./components/UpdateBanner", () => ({
 
 vi.mock("./components/dialogs", () => ({
   AboutDialog: () => null,
+  ExternalProgramsDialog: () => null,
   TagColorDialog: () => null,
   CreatorDialog: () => null,
   DeleteFolderDialog: () => null,
@@ -107,6 +108,7 @@ const baseSettings: Settings = {
   sidebarPinned: true,
   searchScope: "library",
   detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+  externalPrograms: [],
 };
 
 function libraryModel(overrides: Record<string, unknown> = {}): LibraryModel {

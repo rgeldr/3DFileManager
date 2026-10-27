@@ -9,6 +9,7 @@ import type {
   TypeCount,
   ImportSummary,
   PreparedDrag,
+  ProgramSuggestion,
   Settings,
   ThumbJob,
 } from "./types";
@@ -34,6 +35,9 @@ export const api = {
     invoke<void>("set_inspector_pinned", { inspectorPinned }),
   setSidebarPinned: (sidebarPinned: boolean) =>
     invoke<void>("set_sidebar_pinned", { sidebarPinned }),
+  setExternalPrograms: (programs: Settings["externalPrograms"]) =>
+    invoke<void>("set_external_programs", { programs }),
+  detectExternalPrograms: () => invoke<ProgramSuggestion[]>("detect_external_programs"),
   revealFolder: (folderId: number | null) => invoke<void>("reveal_folder", { folderId }),
   rescanFolder: (folderId: number) =>
     invoke<{
@@ -139,6 +143,8 @@ export const api = {
   prepareDragPaths: (ids: number[], iconPath: string) =>
     invoke<PreparedDrag>("prepare_drag_paths", { ids, iconPath }),
   openInDefaultApp: (fileId: number) => invoke<void>("open_in_default_app", { fileId }),
+  openInProgram: (fileId: number, programId: string) =>
+    invoke<void>("open_in_program", { fileId, programId }),
   revealFile: (fileId: number) => invoke<void>("reveal_file", { fileId }),
   textPreview: (fileId: number) => invoke<string>("text_preview", { fileId }),
 };

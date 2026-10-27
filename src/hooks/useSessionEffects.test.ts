@@ -88,6 +88,7 @@ function sessionBag(overrides: Record<string, unknown> = {}) {
   const setFolderTagFileCount = vi.fn();
   const setDiskDialog = vi.fn();
   const setTagColorOpen = vi.fn();
+  const setExternalProgramsOpen = vi.fn();
   const refreshLists = vi.fn(async () => undefined);
   const runDiskOp = vi.fn(async () => undefined);
   const runImport = vi.fn(async () => undefined);
@@ -104,6 +105,7 @@ function sessionBag(overrides: Record<string, unknown> = {}) {
       setGrid: () => undefined,
       showAbout: () => undefined,
       openTagColors: () => undefined,
+      openExternalPrograms: () => undefined,
     },
   };
   return {
@@ -160,6 +162,7 @@ function sessionBag(overrides: Record<string, unknown> = {}) {
     runImport,
     setAboutOpen,
     setTagColorOpen,
+    setExternalProgramsOpen,
     ...overrides,
   };
 }
@@ -190,11 +193,13 @@ describe("useSessionEffects", () => {
     act(() => {
       state.actions.current.setTheme("light");
       state.actions.current.showAbout();
+      state.actions.current.openExternalPrograms();
     });
     expect(state.setTheme).toHaveBeenCalledWith("light");
     expect(setThemeApi).toHaveBeenCalledWith("light");
     expect(state.setAboutOpen).toHaveBeenCalledWith(true);
     expect(state.setAboutVersion).toHaveBeenCalledWith(null);
+    expect(state.setExternalProgramsOpen).toHaveBeenCalledWith(true);
   });
 
   it("marks ready after a bootstrap error", async () => {
