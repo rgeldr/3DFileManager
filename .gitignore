@@ -5,4 +5,4 @@ src-tauri/target/
 src-tauri/gen/
 .DS_Store
 *.log
-./cursor/plans/*
+.cursor/plans/*
