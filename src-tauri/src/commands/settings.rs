@@ -96,6 +96,37 @@ async fn set_search_scope(app: AppHandle, search_scope: String) -> Result<(), St
     .await
 }
 
+fn save_external_programs(
+    db: &AppDb,
+    programs: Vec<crate::external_programs::ExternalProgram>,
+) -> Result<(), String> {
+    let programs = crate::external_programs::normalize_external_programs(programs)?;
+    let mut settings = db.settings();
+    settings.external_programs = programs;
+    db.save_settings(&settings)
+}
+
+#[tauri::command]
+async fn set_external_programs(
+    app: AppHandle,
+    programs: Vec<crate::external_programs::ExternalProgram>,
+) -> Result<(), String> {
+    let db = app.state::<AppState>().db.clone();
+    off_ui("set_external_programs", move || {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        save_external_programs(&db, programs)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn detect_external_programs() -> Result<Vec<crate::external_programs::ProgramSuggestion>, String> {
+    off_ui("detect_external_programs", move || {
+        Ok(crate::external_programs::detect_installed_programs())
+    })
+    .await
+}
+
 #[tauri::command]
 async fn get_settings(app: AppHandle) -> Result<Settings, String> {
     let db = app.state::<AppState>().db.clone();

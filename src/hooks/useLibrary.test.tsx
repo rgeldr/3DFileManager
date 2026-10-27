@@ -86,6 +86,7 @@ const settings = {
   sidebarPinned: true,
   searchScope: "library" as const,
   detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+  externalPrograms: [],
 };
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -106,6 +107,19 @@ afterEach(() => {
 });
 
 describe("useLibrary", () => {
+  it("counts the external programs dialog as an open dialog", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.externalProgramsOpen).toBe(false);
+    expect(result.current.dialogOpen).toBe(false);
+    act(() => {
+      result.current.setExternalProgramsOpen(true);
+    });
+    expect(result.current.dialogOpen).toBe(true);
+  });
+
   it("skips a passive refresh when the list key is unchanged", async () => {
     api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
     mockCatalog();

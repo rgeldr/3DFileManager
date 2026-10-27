@@ -3,6 +3,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::external_programs::ExternalProgram;
+
 fn default_sidebar_width() -> u32 {
     240
 }
@@ -73,6 +75,8 @@ pub struct Settings {
     pub search_scope: String,
     #[serde(default = "default_details_columns")]
     pub details_columns: DetailsColumns,
+    #[serde(default)]
+    pub external_programs: Vec<ExternalProgram>,
 }
 
 impl Default for Settings {
@@ -89,6 +93,7 @@ impl Default for Settings {
             sidebar_pinned: default_sidebar_pinned(),
             search_scope: default_search_scope(),
             details_columns: default_details_columns(),
+            external_programs: Vec::new(),
         }
     }
 }
@@ -159,6 +164,7 @@ mod tests {
         assert_eq!(parsed.sidebar_pinned, default_sidebar_pinned());
         assert_eq!(parsed.search_scope, default_search_scope());
         assert_eq!(parsed.details_columns.name, default_details_columns().name);
+        assert!(parsed.external_programs.is_empty());
     }
 
     #[test]
@@ -193,6 +199,7 @@ mod tests {
         assert_eq!(loaded.details_columns.modified, 176);
         assert_eq!(loaded.details_columns.added, 176);
         assert_eq!(loaded.details_columns.creator, 128);
+        assert!(loaded.external_programs.is_empty());
         let mut next = loaded;
         next.sidebar_width = 360;
         next.inspector_width = 400;
@@ -212,6 +219,32 @@ mod tests {
         assert_eq!(again.details_columns.size, 140);
         assert_eq!(again.details_columns.name, 320);
         assert!(!again.sidebar_pinned);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn external_programs_round_trip_in_saved_order() {
+        let dir = std::env::temp_dir().join(format!("filelib-programs-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let mut settings = Settings::default();
+        settings.external_programs = vec![
+            ExternalProgram {
+                id: "bambu".into(),
+                name: "Bambu Studio".into(),
+                path: r"C:\Program Files\Bambu Studio\bambu-studio.exe".into(),
+            },
+            ExternalProgram {
+                id: "orca".into(),
+                name: "OrcaSlicer".into(),
+                path: r"C:\Program Files\OrcaSlicer\orca-slicer.exe".into(),
+            },
+        ];
+        save(&dir, &settings).unwrap();
+        let text = fs::read_to_string(settings_path(&dir)).unwrap();
+        assert!(text.contains("externalPrograms"));
+        let loaded = load(&dir);
+        assert_eq!(loaded.external_programs, settings.external_programs);
         let _ = fs::remove_dir_all(&dir);
     }
 

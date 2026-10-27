@@ -11,6 +11,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Inspector } from "./components/Inspector";
 import {
   AboutDialog,
+  ExternalProgramsDialog,
   TagColorDialog,
   CreatorDialog,
   DeleteFolderDialog,
@@ -580,6 +581,7 @@ export function AppShell({ app }: { app: LibraryModel }) {
       <CreatorDialog app={app} />
       <AboutDialog app={app} updates={updateCheck.about} />
       <TagColorDialog app={app} />
+      <ExternalProgramsDialog app={app} />
       <DragFailureDialog app={app} />
       <NamePromptDialog app={app} />
       <DeleteFolderDialog app={app} />

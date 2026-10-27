@@ -38,6 +38,52 @@
   background: rgba(0, 0, 0, 0.45);
 }
 
+.card.card-programs {
+  width: min(720px, calc(100% - 32px));
+}
+
+.program-add,
+.program-row-main {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.program-add input:first-child,
+.program-row-main input:first-child {
+  width: 11rem;
+  flex: 0 0 auto;
+}
+
+.program-add input:nth-child(2),
+.program-row-main input:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+
+.program-actions,
+.program-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.program-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 320px;
+  overflow: auto;
+}
+
+.program-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-divider);
+}
+
 .card {
   position: relative;
   z-index: 1;

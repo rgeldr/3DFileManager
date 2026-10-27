@@ -4,10 +4,12 @@ import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const invoked: string[] = [];
+const invokedArgs: { cmd: string; args: unknown }[] = [];
 
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn((cmd: string) => {
+  invoke: vi.fn((cmd: string, args?: unknown) => {
     invoked.push(cmd);
+    invokedArgs.push({ cmd, args });
     return Promise.resolve(undefined);
   }),
 }));
@@ -39,6 +41,8 @@ const sampleArgs: Record<string, unknown[]> = {
   setDetailsColumns: [{ name: 240, size: 96, modified: 176, added: 176, creator: 128 }],
   setInspectorPinned: [true],
   setSidebarPinned: [true],
+  setExternalPrograms: [[{ id: "orca", name: "OrcaSlicer", path: "C:\\Program Files\\OrcaSlicer\\orca-slicer.exe" }]],
+  openInProgram: [1, "orca"],
   revealFolder: [null],
   rescanFolder: [1],
   createFolder: [null, "New"],
@@ -90,6 +94,7 @@ const sampleArgs: Record<string, unknown[]> = {
 describe("api command contract", () => {
   beforeEach(() => {
     invoked.length = 0;
+    invokedArgs.length = 0;
   });
 
   it("invokes a registered Tauri command for every api wrapper", async () => {
@@ -102,5 +107,13 @@ describe("api command contract", () => {
     const missing = [...new Set(invoked)].filter((cmd) => !registered.has(cmd));
     expect(missing, `unregistered commands: ${missing.join(", ")}`).toEqual([]);
     expect(invoked.length).toBeGreaterThan(0);
+    expect(invokedArgs.find((call) => call.cmd === "set_external_programs")?.args).toEqual({
+      programs: sampleArgs.setExternalPrograms[0],
+    });
+    expect(invokedArgs.find((call) => call.cmd === "detect_external_programs")?.args).toBeUndefined();
+    expect(invokedArgs.find((call) => call.cmd === "open_in_program")?.args).toEqual({
+      fileId: 1,
+      programId: "orca",
+    });
   });
 });

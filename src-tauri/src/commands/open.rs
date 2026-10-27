@@ -226,6 +226,25 @@ pub(crate) fn write_debug_log(line: String) -> Result<String, String> {
     Ok(path.to_string_lossy().to_string())
 }
 
+/// The executable comes from saved settings. The argument is the catalog file, not a path from the page.
+fn launch_catalog_file(db: &AppDb, file_id: i64, program_id: &str) -> Result<(), String> {
+    let programs = db.settings().external_programs;
+    let file_path = catalog_file_path(db, file_id)?;
+    let launch = crate::external_programs::launch_for_program(&programs, program_id, &file_path)?;
+    crate::external_programs::spawn_launch(&launch)
+}
+
+#[tauri::command]
+async fn open_in_program(app: AppHandle, file_id: i64, program_id: String) -> Result<(), String> {
+    let db = app.state::<AppState>().db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let db = db.lock().map_err(|err| err.to_string())?;
+        launch_catalog_file(&db, file_id, &program_id)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
 #[tauri::command]
 async fn open_in_default_app(app: AppHandle, file_id: i64) -> Result<(), String> {
     let db = app.state::<AppState>().db.clone();

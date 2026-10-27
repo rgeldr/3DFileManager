@@ -12,7 +12,7 @@ How to use the app is on the [wiki](https://github.com/rgeldr/3DFileManager/wiki
 - Sort name, creator, notes, and tags on each file. Search matches those fields plus the original file name. Filter by file type, tag (any or all), and creator. Search the current folder or the whole library.
 - Views: Medium, Large, Extra large, List, and Details. Sort by name, size, date modified, date added, or creator. Dark and light themes.
 - Resizable folder tree, details pane, and preview. The details pane can be pinned shut. Widths, preview height, view, theme, pin, and search scope are restored next launch.
-- Mesh preview for stl, obj, and 3mf up to 150 MB. Thumbnails for images, meshes, and several slicer formats. Drag a file out to Explorer or a slicer. Open and Show in Explorer use the file’s catalog entry.
+- Mesh preview for stl, obj, and 3mf up to 150 MB. Thumbnails for images, meshes, and several slicer formats. Drag a file out to Explorer or a slicer. Open, Open in…, and Show in Explorer use the file’s catalog entry. Open in… starts a program you add under View > External programs.
 - **File > Backup library**, **Import backup**, **Rescan library**, and **Clear thumbnail cache**. Missing files can be reviewed and removed from the catalog.
 - **Help > About** shows the version (linked to [GitHub Releases](https://github.com/rgeldr/3DFileManager/releases)), file count, folder count, and size on disk, and can check for updates.
 
@@ -105,7 +105,7 @@ cargo test --locked --manifest-path src-tauri/Cargo.toml --lib -- --test-threads
 The catalog and settings are not inside the library folder. They live in `%APPDATA%\3D File Library\` (`dirs::data_dir()` plus `3D File Library`):
 
 - `library.db`
-- `settings.json` with `libraryRoot`, `theme`, `gridSize`, `sidebarWidth`, `inspectorWidth`, `previewHeight`, `inspectorPinned`, `searchScope`, and `thumbRetry`
+- `settings.json` with `libraryRoot`, `theme`, `gridSize`, `sidebarWidth`, `inspectorWidth`, `previewHeight`, `inspectorPinned`, `searchScope`, `thumbRetry`, and `externalPrograms`
 - `thumbs\{sha256}.png`
 - `debug.log`
 

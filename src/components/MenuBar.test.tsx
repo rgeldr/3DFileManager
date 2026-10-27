@@ -68,6 +68,7 @@ const settings: Settings = {
   sidebarPinned: true,
   searchScope: "library",
   detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+  externalPrograms: [],
 };
 
 describe("MenuBar", () => {
@@ -85,6 +86,7 @@ describe("MenuBar", () => {
         setGrid: vi.fn(),
         showAbout: vi.fn(),
         openTagColors: vi.fn(),
+        openExternalPrograms: vi.fn(),
       },
     };
     const themeItems = { current: {} as Record<string, MenuRecord> };
@@ -113,6 +115,7 @@ describe("MenuBar", () => {
     byText("Clear thumbnail cache")?.action?.();
     byText("About")?.action?.();
     byText("Tag color…")?.action?.();
+    byText("External programs…")?.action?.();
     byText("Dark")?.action?.();
     byText("Large")?.action?.();
 
@@ -125,6 +128,7 @@ describe("MenuBar", () => {
     expect(actions.current.clearThumbs).toHaveBeenCalled();
     expect(actions.current.showAbout).toHaveBeenCalled();
     expect(actions.current.openTagColors).toHaveBeenCalled();
+    expect(actions.current.openExternalPrograms).toHaveBeenCalled();
     expect(actions.current.setTheme).toHaveBeenCalledWith("dark");
     expect(actions.current.setGrid).toHaveBeenCalledWith("large");
 

@@ -79,6 +79,7 @@ export function useSessionEffects(s: {
   runImport: (paths: string[]) => Promise<void>;
   setAboutOpen: (open: boolean) => void;
   setTagColorOpen: (open: boolean) => void;
+  setExternalProgramsOpen: (open: boolean) => void;
 }) {
   const {
     dialogOpen,
@@ -87,7 +88,7 @@ export function useSessionEffects(s: {
     browse, query, creator, selectedTagIds, selectedTypeIds, tagMatch, sort, setPreviewIconsEnabled, aboutOpen, setAboutVersion,
     setAboutVersionFailed, creatorTarget, setCreatorFileCount, includeSubfolders, fileMenu, setFileMenu,
     folderTagTarget, setFolderTagFileCount, diskProgress, setDiskDialog, toastTimer, actions, runDiskOp,
-    runImport, setAboutOpen, setTagColorOpen,
+    runImport, setAboutOpen, setTagColorOpen, setExternalProgramsOpen,
   } = s;
   useEffect(() => {
     if (!dialogOpen) return;
@@ -203,6 +204,7 @@ export function useSessionEffects(s: {
         setAboutOpen(true);
       },
       openTagColors: () => setTagColorOpen(true),
+      openExternalPrograms: () => setExternalProgramsOpen(true),
     };
   }, [refreshLists, runDiskOp, runImport, setTheme]);
 

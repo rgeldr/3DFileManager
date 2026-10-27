@@ -17,6 +17,17 @@ export interface DetailsColumns {
   creator: number;
 }
 
+export interface ExternalProgram {
+  id: string;
+  name: string;
+  path: string;
+}
+
+export interface ProgramSuggestion {
+  name: string;
+  path: string | null;
+}
+
 export interface Settings {
   libraryRoot: string | null;
   theme: "dark" | "light";
@@ -29,6 +40,7 @@ export interface Settings {
   sidebarPinned: boolean;
   searchScope: SearchScope;
   detailsColumns: DetailsColumns;
+  externalPrograms: ExternalProgram[];
 }
 
 export interface DragReport {

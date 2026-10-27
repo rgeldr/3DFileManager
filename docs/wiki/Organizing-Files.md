@@ -37,7 +37,7 @@ Select more than one file, then right-click the selection:
 - **Set Creator…** sets the creator on the selected files.
 - **Add tags…** adds tags to the selected files and keeps tags they already have.
 
-**Open** and **Show in Explorer** act on the file you right-clicked.
+**Open**, **Show in Explorer**, and **Open in…** act on the file you right-clicked. **Open in…** starts a program from **View > External programs…** and passes that file. Each program is a name and the path to its `.exe`. If none are configured, the submenu shows **Configure programs…**.
 
 ## Drag a file out
 

@@ -85,4 +85,5 @@ export interface Actions {
   setGrid: (size: ViewMode) => void;
   showAbout: () => void;
   openTagColors: () => void;
+  openExternalPrograms: () => void;
 }

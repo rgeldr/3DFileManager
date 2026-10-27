@@ -4,9 +4,10 @@ import { api } from "../../api";
 
 export function FileContextMenu({ app }: { app: LibraryModel }) {
   const {
-    fileMenu, setFileMenu, setError, selected, files,
+    fileMenu, setFileMenu, setError, selected, files, settings, setExternalProgramsOpen,
     setCreatorTarget, setCreatorValue, setFolderTagTarget, setFolderTagInput, openRenameFile, openContainingFolder,
   } = app;
+  const programs = settings?.externalPrograms ?? [];
   const selectionTarget = (fileId: number) => {
     const fileIds = selected.includes(fileId) ? selected : [fileId];
     const name =
@@ -31,6 +32,49 @@ export function FileContextMenu({ app }: { app: LibraryModel }) {
               >
                 Open
               </button>
+              <div
+                className="menu-branch"
+                onMouseEnter={(event) => {
+                  const submenu = event.currentTarget.querySelector<HTMLElement>(".menu-submenu");
+                  if (!submenu) return;
+                  const right = event.currentTarget.getBoundingClientRect().right;
+                  const width = submenu.offsetWidth || submenu.scrollWidth || 180;
+                  submenu.classList.toggle("flip", right + width > window.innerWidth - 8);
+                }}
+              >
+                <button type="button" role="menuitem" aria-haspopup="menu">
+                  Open in…
+                </button>
+                <div className="menu-submenu" role="menu">
+                  {programs.length === 0 ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setFileMenu(null);
+                        setExternalProgramsOpen(true);
+                      }}
+                    >
+                      Configure programs…
+                    </button>
+                  ) : (
+                    programs.map((program) => (
+                      <button
+                        key={program.id}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          const fileId = fileMenu.fileId;
+                          setFileMenu(null);
+                          void api.openInProgram(fileId, program.id).catch((err) => setError(String(err)));
+                        }}
+                      >
+                        {program.name}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
               <button
                 type="button"
                 role="menuitem"
