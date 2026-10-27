@@ -130,7 +130,7 @@ pub fn normalize_external_programs(
     for program in programs {
         let id = program.id.trim().to_string();
         let name = program.name.trim().to_string();
-        let path = program.path.trim().to_string();
+        let path = normalize_saved_program_path(program.path.trim());
         if id.is_empty()
             || id.len() > 64
             || !id
@@ -246,15 +246,93 @@ fn search_bases(roots: &InstallRoots) -> Vec<PathBuf> {
         bases.push(path.clone());
     }
     if let Some(path) = &roots.local_app_data {
-        bases.push(path.join("Programs"));
+        bases.push(join_program_path(path, "Programs"));
     }
     bases
+}
+
+fn windows_style_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    if bytes.len() >= 2 && (bytes[0] == b'\\' || bytes[0] == b'/') && bytes[1] == bytes[0] {
+        return true;
+    }
+    bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':'
+}
+
+/// Drive and UNC paths always use `\`, including a relative piece that was written with `/`.
+fn normalize_windows_separators(path: &str) -> String {
+    let unc = {
+        let bytes = path.as_bytes();
+        bytes.len() >= 2 && (bytes[0] == b'\\' || bytes[0] == b'/') && bytes[1] == bytes[0]
+    };
+    let slashed: String = path
+        .chars()
+        .map(|ch| if ch == '/' { '\\' } else { ch })
+        .collect();
+    if unc {
+        format!(
+            "\\\\{}",
+            collapse_backslashes(slashed.trim_start_matches('\\'))
+        )
+    } else {
+        collapse_backslashes(&slashed)
+    }
+}
+
+fn collapse_backslashes(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    let mut prev_slash = false;
+    for ch in path.chars() {
+        if ch == '\\' {
+            if !prev_slash {
+                out.push('\\');
+            }
+            prev_slash = true;
+        } else {
+            prev_slash = false;
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn normalize_saved_program_path(path: &str) -> String {
+    if windows_style_path(path) {
+        normalize_windows_separators(path)
+    } else {
+        path.to_string()
+    }
+}
+
+fn join_program_path(root: &Path, relative: &str) -> PathBuf {
+    let root_text = root.as_os_str().to_string_lossy();
+    if windows_style_path(&root_text) {
+        let mut path = normalize_windows_separators(&root_text);
+        for part in relative.split(['/', '\\']) {
+            if part.is_empty() || part == "." {
+                continue;
+            }
+            if !path.ends_with('\\') {
+                path.push('\\');
+            }
+            path.push_str(part);
+        }
+        return PathBuf::from(path);
+    }
+    let mut path = root.to_path_buf();
+    for part in relative.split(['/', '\\']) {
+        if part.is_empty() || part == "." {
+            continue;
+        }
+        path.push(part);
+    }
+    path
 }
 
 fn find_known(known: &KnownProgram, bases: &[PathBuf]) -> Option<PathBuf> {
     for base in bases {
         for relative in known.relative {
-            let candidate = base.join(relative);
+            let candidate = join_program_path(base, relative);
             if candidate.is_file() {
                 return Some(candidate);
             }
@@ -292,7 +370,7 @@ fn find_prefixed(root: &Path, prefixes: &[&str], exes: &[&str]) -> Option<PathBu
     names.sort_by(|a, b| cmp_version(a, b));
     for name in names.iter().rev() {
         for exe in exes {
-            let candidate = root.join(name).join(exe);
+            let candidate = join_program_path(&join_program_path(root, name), exe);
             if candidate.is_file() {
                 return Some(candidate);
             }
@@ -323,6 +401,48 @@ mod tests {
             name: name.into(),
             path: path.into(),
         }
+    }
+
+    #[test]
+    fn detected_windows_paths_use_backslashes_only() {
+        let roots = [
+            Path::new(r"C:\Program Files"),
+            Path::new(r"C:\Program Files (x86)"),
+            Path::new(r"\\server\share"),
+        ];
+        for root in roots {
+            for known in KNOWN_PROGRAMS {
+                for relative in known.relative {
+                    let text = join_program_path(root, relative)
+                        .to_string_lossy()
+                        .into_owned();
+                    assert!(
+                        !text.contains('/'),
+                        "{} from {} -> {text}",
+                        known.name,
+                        root.display()
+                    );
+                    assert!(
+                        text.starts_with(&root.to_string_lossy().to_string()),
+                        "{text}"
+                    );
+                }
+                if !known.prefix_exes.is_empty() {
+                    let text = join_program_path(root, "UltiMaker Cura 5.10/UltiMaker-Cura.exe")
+                        .to_string_lossy()
+                        .into_owned();
+                    assert!(!text.contains('/'), "{text}");
+                    assert!(
+                        text.ends_with(r"\UltiMaker Cura 5.10\UltiMaker-Cura.exe"),
+                        "{text}"
+                    );
+                }
+            }
+        }
+        let local = join_program_path(Path::new(r"C:\Users\Jason\AppData\Local"), "Programs");
+        let text = local.to_string_lossy();
+        assert!(!text.contains('/'), "{text}");
+        assert_eq!(text, r"C:\Users\Jason\AppData\Local\Programs");
     }
 
     #[test]
@@ -518,6 +638,47 @@ mod tests {
     }
 
     #[test]
+    fn normalize_rewrites_mixed_separators_on_drive_and_unc_paths() {
+        let saved = normalize_external_programs(vec![
+            program(
+                "chitu",
+                "CHITUBOX",
+                r"C:\Program Files\CHITUBOX/CHITUBOX.exe",
+            ),
+            program(
+                "orca",
+                "OrcaSlicer",
+                "C:/Program Files/OrcaSlicer/orca-slicer.exe",
+            ),
+            program("share", "Share", r"\\server\share/Orca/orca-slicer.exe"),
+            program("unc", "UNC", "//server/share/app.exe"),
+            program(
+                "double",
+                "Orca",
+                "C://Program Files//OrcaSlicer/orca-slicer.exe",
+            ),
+            program("unix", "Local", "/tmp/orca-slicer.exe"),
+        ])
+        .unwrap();
+        assert_eq!(saved[0].path, r"C:\Program Files\CHITUBOX\CHITUBOX.exe");
+        assert_eq!(
+            saved[1].path,
+            r"C:\Program Files\OrcaSlicer\orca-slicer.exe"
+        );
+        assert_eq!(saved[2].path, r"\\server\share\Orca\orca-slicer.exe");
+        assert_eq!(saved[3].path, r"\\server\share\app.exe");
+        assert_eq!(
+            saved[4].path,
+            r"C:\Program Files\OrcaSlicer\orca-slicer.exe"
+        );
+        assert_eq!(saved[5].path, "/tmp/orca-slicer.exe");
+        assert!(saved
+            .iter()
+            .take(5)
+            .all(|program| !program.path.contains('/')));
+    }
+
+    #[test]
     fn normalize_accepts_exe_case_unc_and_drive_paths_and_rejects_limits() {
         let saved = normalize_external_programs(vec![
             program("ok_id-1", "Orca", r"\\server\share\OrcaSlicer.EXE"),
@@ -525,7 +686,7 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(saved[0].path, r"\\server\share\OrcaSlicer.EXE");
-        assert_eq!(saved[1].path, "D:/Tools/prusa-slicer.exe");
+        assert_eq!(saved[1].path, r"D:\Tools\prusa-slicer.exe");
         assert!(normalize_external_programs(vec![]).unwrap().is_empty());
 
         let long_id = "a".repeat(65);
@@ -552,6 +713,45 @@ mod tests {
             normalize_external_programs(vec![program("a", "Orca", r"C:\Tools\run.cmd")]).is_err()
         );
         assert!(normalize_external_programs(vec![program("a", "Orca", r"..\app.exe")]).is_err());
+    }
+
+    #[test]
+    fn launch_reports_a_missing_normalized_windows_executable() {
+        let programs = normalize_external_programs(vec![
+            program(
+                "chitu",
+                "CHITUBOX",
+                r"C:\Program Files\CHITUBOX/CHITUBOX.exe",
+            ),
+            program(
+                "unc",
+                "OrcaSlicer",
+                "//server/share/OrcaSlicer/orca-slicer.exe",
+            ),
+        ])
+        .unwrap();
+        let model = Path::new(r"C:\Models\My Cube.stl");
+        let missing = launch_for_program(&programs, "chitu", model).unwrap_err();
+        assert!(missing.contains(r"C:\Program Files\CHITUBOX\CHITUBOX.exe"));
+        assert!(!missing.contains('/'));
+        let unc = launch_for_program(&programs, "unc", model).unwrap_err();
+        assert!(unc.contains(r"\\server\share\OrcaSlicer\orca-slicer.exe"));
+        assert!(!unc.contains('/'));
+
+        let launch = ProgramLaunch {
+            program: PathBuf::from(&programs[1].path),
+            arguments: vec![model.as_os_str().to_os_string()],
+        };
+        let command = command_for(&launch);
+        assert_eq!(
+            command.get_program().to_string_lossy(),
+            r"\\server\share\OrcaSlicer\orca-slicer.exe"
+        );
+        let args: Vec<_> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(args, vec![r"C:\Models\My Cube.stl"]);
     }
 
     #[test]

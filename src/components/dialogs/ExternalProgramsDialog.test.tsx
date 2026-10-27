@@ -192,6 +192,41 @@ describe("External programs dialog", () => {
     expect(setExternalPrograms).not.toHaveBeenCalled();
   });
 
+  it("disables a suggestion when only the separators differ", async () => {
+    detectExternalPrograms.mockResolvedValue([
+      { name: "OrcaSlicer", path: "C:/Program Files/OrcaSlicer/orca-slicer.exe" },
+    ]);
+    const { model } = app();
+    render(<ExternalProgramsDialog app={model} />);
+    expect(await screen.findByRole("button", { name: "Add OrcaSlicer" })).toHaveProperty("disabled", true);
+  });
+
+  it("treats a mixed-separator path as the program already listed", async () => {
+    const { model } = app([saved[0]]);
+    render(<ExternalProgramsDialog app={model} />);
+    fireEvent.change(screen.getByLabelText("Program name"), { target: { value: "Orca again" } });
+    fireEvent.change(screen.getByLabelText("Program path"), {
+      target: { value: "C:/Program Files/OrcaSlicer/orca-slicer.exe" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    expect(setExternalPrograms).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Program name")).toHaveProperty("value", "Orca again");
+  });
+
+  it("saves a pasted path with windows separators", async () => {
+    const { model } = app([]);
+    render(<ExternalProgramsDialog app={model} />);
+    fireEvent.change(screen.getByLabelText("Program name"), { target: { value: "CHITUBOX" } });
+    fireEvent.change(screen.getByLabelText("Program path"), {
+      target: { value: "C:\\Program Files\\CHITUBOX/CHITUBOX.exe" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(setExternalPrograms).toHaveBeenCalled());
+    expect((setExternalPrograms.mock.calls[0][0] as ExternalProgram[])[0].path).toBe(
+      "C:\\Program Files\\CHITUBOX\\CHITUBOX.exe",
+    );
+  });
+
   it("saves a typed path edit", async () => {
     const { model } = app();
     render(<ExternalProgramsDialog app={model} />);
