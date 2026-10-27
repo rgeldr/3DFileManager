@@ -1,3 +1,75 @@
+    fn thumb_status(db: &db::AppDb, id: i64) -> String {
+        db.conn
+            .query_row("SELECT thumb_status FROM files WHERE id = ?1", [id], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn rendered_thumb_for_an_unhashed_file_is_marked_unhashed() {
+        let dir = std::env::temp_dir().join(format!("filelib-render-unhash-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        let id = db
+            .insert_file_with_thumb_status("x.stl", "x.stl", "stl", 1, "", 1, None, None, "none")
+            .unwrap();
+        let png = image::RgbaImage::from_pixel(2, 2, image::Rgba([1, 2, 3, 255]));
+        let mut bytes = Vec::new();
+        image::DynamicImage::ImageRgba8(png)
+            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        store_rendered_thumb(&db, id, &bytes).unwrap();
+        assert_eq!(thumb_status(&db, id), "unhashed");
+        assert!(!db::thumb_path(&dir, "").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rendered_thumb_that_is_not_a_png_is_marked_unavailable() {
+        let dir = std::env::temp_dir().join(format!("filelib-render-bad-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        let id = db
+            .insert_file("x.stl", "x.stl", "stl", 1, "sha-x", 1, None, None)
+            .unwrap();
+        store_rendered_thumb(&db, id, b"not a png").unwrap();
+        assert_eq!(thumb_status(&db, id), "unavailable");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rendered_thumb_is_written_and_marked_ok() {
+        let dir = std::env::temp_dir().join(format!("filelib-render-ok-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        let id = db
+            .insert_file("x.stl", "x.stl", "stl", 1, "sha-render", 1, None, None)
+            .unwrap();
+        let png = image::RgbaImage::from_pixel(2, 2, image::Rgba([4, 5, 6, 255]));
+        let mut bytes = Vec::new();
+        image::DynamicImage::ImageRgba8(png)
+            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        store_rendered_thumb(&db, id, &bytes).unwrap();
+        assert!(db::thumb_path(&dir, "sha-render").is_file());
+        assert_eq!(thumb_status(&db, id), "ok");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn png_thumbnail_is_written_once_and_empty_sha_is_not() {
         let dir = std::env::temp_dir().join(format!("filelib-settle-{}", std::process::id()));

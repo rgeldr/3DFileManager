@@ -149,6 +149,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn missing_fields_load_with_their_defaults() {
+        let parsed = serde_json::from_str::<Settings>(r#"{"theme":"dark","gridSize":"large"}"#).unwrap();
+        assert_eq!(parsed.sidebar_width, default_sidebar_width());
+        assert_eq!(parsed.inspector_width, default_inspector_width());
+        assert_eq!(parsed.preview_height, default_preview_height());
+        assert_eq!(parsed.thumb_retry, default_thumb_retry());
+        assert_eq!(parsed.inspector_pinned, default_inspector_pinned());
+        assert_eq!(parsed.sidebar_pinned, default_sidebar_pinned());
+        assert_eq!(parsed.search_scope, default_search_scope());
+        assert_eq!(parsed.details_columns.name, default_details_columns().name);
+    }
+
+    #[test]
+    fn unknown_fields_are_ignored() {
+        let parsed = serde_json::from_str::<Settings>(
+            r#"{"theme":"dark","gridSize":"large","futureFlag":true}"#,
+        )
+        .unwrap();
+        assert_eq!(parsed.theme, "dark");
+    }
+
+    #[test]
     fn load_defaults_missing_pane_widths_and_round_trips() {
         let dir = std::env::temp_dir().join(format!("filelib-settings-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);

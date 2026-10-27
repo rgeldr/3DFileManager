@@ -4,46 +4,46 @@ overview: Close the unit test gaps found by the graph-coverage skill and confirm
 todos:
   - id: vitest-coverage-scope
     content: Widen Vitest coverage.include to all of src so npm run test:unit reports the real baseline
-    status: pending
+    status: completed
   - id: rust-path-containment
     content: Test contained_library_dir and catalog_file_path (folder/file path escape checks)
-    status: pending
+    status: completed
   - id: rust-rendered-thumb
     content: Extract store_rendered_thumb from save_rendered_thumb and test it, plus png_from_bytes
-    status: pending
+    status: completed
   - id: rust-db-gaps
     content: Test rename_folder_with, settings setters via bootstrap, remove_missing, list_tags
-    status: pending
+    status: completed
   - id: rust-settings-defaults
     content: Test that Settings deserializes old or partial JSON with the serde defaults
-    status: pending
+    status: completed
   - id: rust-indirect-hotspots
     content: Direct edge-case tests for unique_file_path, unique_dir_name, decode_rle15, migrate
-    status: pending
+    status: completed
   - id: ts-pure-helpers
-    content: Test libraryTypes helpers, sortFromDropdown, isThemeName, readStoredTheme
-    status: pending
+    content: Test libraryTypes helpers, isThemeName, readStoredTheme
+    status: completed
   - id: ts-small-hooks
-    content: Test useSelection, useKeyboardShortcuts, useThumbPump, useLibraryEffects
-    status: pending
+    content: Test useSelection, useKeyboardShortcuts, useThumbPump
+    status: completed
   - id: ts-use-library
-    content: Test useLibrary refreshLists dedupe/stale results, runDiskOp, goHistory
-    status: pending
-  - id: ts-session-and-drag
-    content: Test useSessionEffects effects and useFileDrag pointer flow
-    status: pending
+    content: Fix the flaky passive-refresh test, then cover useLibrary in-flight dedupe, stale results, truncation, runDiskOp dialog/toast/error paths, goHistory
+    status: completed
+  - id: ts-session-effects
+    content: Cover the remaining useSessionEffects effects (outside-click close, file counts, resize, restore flow)
+    status: completed
   - id: ts-small-components
-    content: Render tests for the untested dialogs, Toast, UpdateBanner, MenuBar, TagChips
-    status: pending
+    content: Render tests for the untested dialogs, Toast, UpdateBanner
+    status: completed
   - id: ts-api-contract
     content: Contract test that every api.ts invoke name is registered in lib.rs generate_handler
-    status: pending
+    status: completed
   - id: ts-partial-components
-    content: Extend Viewer, Sidebar, TagFilter, FileGrid tests to cover their uncovered branches
-    status: pending
+    content: Extend Sidebar and Viewer tests to cover their uncovered branches
+    status: completed
   - id: rerun-and-record
     content: Re-run graph coverage and Vitest coverage, record before/after numbers in this plan
-    status: pending
+    status: completed
 isProject: false
 ---
 
@@ -57,19 +57,30 @@ isProject: false
 
 **Tech Stack:** Tauri 2 (Rust, rusqlite), React 19 + TypeScript, Vitest 5 + jsdom + @testing-library/react, `@vitest/coverage-v8`.
 
-## Baseline (Oct 27, 2026)
+## Baseline (Oct 27, 2026, after merging `cursor/graph-coverage-hotspots-509d`)
 
-From `node .cursor/skills/graph-coverage/scripts/graph-coverage.mjs --summary` (static name-mention linkage, not executed coverage):
+That merge (commit `b0bcbb5`) added tests for `App`, `useLibrary`, `useSessionEffects`, `useFileDrag`, `usePreviewSplitter`, `MenuBar`, `FilterPopover`, and more cases for `FileGrid`, `TagFilter`, and `TypeFilter`. This plan was trimmed to what is still open.
 
-| Criterion | Covered | Total | Ratio |
-| --- | --- | --- | --- |
-| Node, direct (named symbols mentioned by a test) | 287 | 687 | 41.8% |
-| Node, transitive (also reached by calls from tested symbols) | 492 | 687 | 71.6% |
-| Edge (cfg edges in test-linked functions) | 2301 | 5566 | 41.3% |
+From the personal graph-coverage skill (`node "$env:USERPROFILE\.cursor\skills\graph-coverage\scripts\graph-coverage.mjs" --summary`, run from the repo root). This is static name-mention linkage, not executed coverage:
 
-From Vitest v8 over all of `src/` (executed): **44.2% lines (1333/3017), 44.5% branches**. 40 files, 185 tests, all passing.
+| Criterion | Initial (before merge) | Current |
+| --- | --- | --- |
+| Node, direct (named symbols mentioned by a test) | 287 / 687 (41.8%) | 336 / 687 (48.9%) |
+| Node, transitive (also reached by calls from tested symbols) | 492 / 687 (71.6%) | 573 / 687 (83.4%) |
+| Edge (cfg edges in test-linked functions) | 2301 / 5566 (41.3%) | 3404 / 5566 (61.2%) |
+| Symbols no test reaches, even indirectly | 195 | 114 |
 
-The two sources agree on the TypeScript gaps. Every file below listed at 0% is also marked "no test reaches it" by the static graph.
+From Vitest v8 over all of `src/` (executed):
+
+| | Initial | Current |
+| --- | --- | --- |
+| Lines | 44.2% (1333/3017) | 62.8% (1894/3017) |
+| Branches | 44.5% | 56.3% |
+| Tests | 40 files, 185 tests | 47 files, 210 tests |
+
+**Known flaky test:** `src/hooks/useLibrary.test.tsx` › "skips a passive refresh when the list key is unchanged" failed 1 of 3 runs (expected 1 `listFiles` call, got 2). Task 9 fixes it first.
+
+**Where the static graph over-reports:** the small dialogs count as "reached" because `AppShell` renders them, and `api.*` methods count as covered because test mocks name them. Vitest shows both at 0–2%, so trust Vitest for those files.
 
 ## Gap summary
 
@@ -77,18 +88,29 @@ The two sources agree on the TypeScript gaps. Every file below listed at 0% is a
 
 - Path safety: `commands/open.rs` `contained_library_dir` (guards `reveal_folder`) and `catalog_file_path`. The file version, `contained_library_file`, already has tests. The folder version has none.
 - Thumbnails: the inline logic in `commands/thumbs.rs` `save_rendered_thumb` (empty sha, invalid PNG), and `preview.rs` `png_from_bytes`.
-- DB layer: `db/folders.rs` `rename_folder_with` (renames on disk and rewrites relpaths). `db/setup.rs` `bootstrap` and the five settings setters. `db/thumbs.rs` `remove_missing`. `db/tags.rs` `list_tags`.
+- DB layer: `db/folders.rs` `rename_folder_with` (renames on disk and rewrites relpaths). `db/setup.rs`: the five settings setters (`bootstrap` is now reached, but has no direct test). `db/thumbs.rs` `remove_missing`. `db/tags.rs` `list_tags`.
 - Settings: every `settings.rs` serde default function (`default_sidebar_width` and the rest). These decide what an older settings row loads as.
 - Reached only through import/flow tests, with no edge-case test of their own: `names.rs` `unique_file_path` / `unique_dir_name`, `ctb.rs` `decode_rle15`, `db/schema.rs` `migrate`.
 
 **TypeScript: 0% executed lines**
 
-- Hooks: `useLibrary` (272 lines), `useSessionEffects` (150), `useFileDrag` (123), `useThumbPump` (39), `useKeyboardShortcuts` (22), `useSelection` (21), `useLibraryEffects` (7).
-- Components: `MenuBar`, `UpdateBanner`, `DeleteFolderDialog`, `DiskProgressDialog`, `DragFailureDialog`, `ErrorDialog`, `ImportProgressDialog`, `MissingFilesDialog`, `NamePromptDialog`, `Toast`, and `TagChips` in `TagFilter.tsx`.
-- Pure helpers with no test: `hooks/libraryTypes.ts` (`formatBytes`, `formatErrorForDisplay`, `fallbackDragIconPath`, `emptyProgress`), `lib/tagFilter.ts` `sortFromDropdown`, `theme/themes.ts` `isThemeName`, `theme/ThemeProvider.tsx` `readStoredTheme`.
+- Components: `UpdateBanner`, `DeleteFolderDialog`, `DiskProgressDialog`, `DragFailureDialog`, `ErrorDialog`, `ImportProgressDialog`, `MissingFilesDialog`, `NamePromptDialog`, `Toast`.
+- Pure helpers with no direct test: `hooks/libraryTypes.ts` (77.8% lines, run only indirectly; `formatBytes` boundaries and the `fallbackDragIconPath` retry are untested), `theme/themes.ts` `isThemeName`, `theme/ThemeProvider.tsx` `readStoredTheme`.
 - `api.ts` at 1.7%: 44 thin `invoke` wrappers. The risk is a command name drifting from `lib.rs`. Wrapper bodies are not the risk.
 
-**TypeScript: partially covered** (lines / branches): `Viewer.tsx` 24% / 37%, `TagFilter.tsx` 41% / 21%, `Sidebar.tsx` 42% / 20%, `FileGrid.tsx` 59% / 49%.
+**TypeScript: low coverage** (lines / branches):
+
+| File | Lines | Branches | Notes |
+| --- | --- | --- | --- |
+| `hooks/useSelection.ts` | 19% | 22% | Only mounted by `App.test.tsx`. No selection mode is exercised. |
+| `hooks/useKeyboardShortcuts.ts` | 23% | 0% | The Delete key handler never runs. |
+| `components/Viewer.tsx` | 24% | 37% | |
+| `components/Sidebar.tsx` | 42% | 20% | Second-highest hotspot. |
+| `hooks/useSessionEffects.ts` | 53% | 31% | The merge covers theme/About wiring, bootstrap error, and Escape on the file menu. |
+| `hooks/useThumbPump.ts` | 56% | 30% | Highest-connectivity symbol with no direct test (48 downstream symbols). |
+| `hooks/useLibrary.ts` | 72% | 52% | The merge covers the passive skip, the busy guard, import tree reload, and Open containing folder. |
+
+**Now covered by the merge, removed from this plan:** `useFileDrag` (81% lines), `useLibraryEffects` (100%), `MenuBar` (95%), `TagFilter` including `TagChips` (92%), `FileGrid` (87.5%), `lib/tagFilter.ts` `sortFromDropdown` (98%).
 
 ## Decisions to confirm with Jason
 
@@ -122,18 +144,15 @@ The two sources agree on the TypeScript gaps. Every file below listed at 0% is a
 | `src-tauri/src/ctb.rs` (`mod tests`) | `decode_rle15` tests. |
 | `src-tauri/src/db/mod.rs` (`mod tests`) | `migrate` test on an old-schema database. |
 | `src/hooks/libraryTypes.test.ts` (new) | Pure helper tests. |
-| `src/lib/tagFilter.test.ts` | `sortFromDropdown`. |
 | `src/theme/themes.test.ts` (new) | `isThemeName`, `readStoredTheme`. |
 | `src/hooks/useSelection.test.ts` (new) | Selection modes. |
 | `src/hooks/useKeyboardShortcuts.test.ts` (new) | Delete key routing. |
 | `src/hooks/useThumbPump.test.ts` (new) | Thumbnail job loop. |
-| `src/hooks/useLibraryEffects.test.ts` (new) | Effect wiring. |
-| `src/hooks/useLibrary.test.ts` (new) | `refreshLists`, `runDiskOp`, `goHistory`. |
-| `src/hooks/useSessionEffects.test.ts` (new) | Effects listed in Task 10. |
-| `src/hooks/useFileDrag.test.ts` (new) | Pointer drag flow. |
+| `src/hooks/useLibrary.test.tsx` (extend) | Fix the flaky test. Add `refreshLists`, `runDiskOp`, and `goHistory` cases. |
+| `src/hooks/useSessionEffects.test.ts` (extend) | Effects listed in Task 10. |
 | `src/components/**/X.test.tsx` (new, one per component) | Small component render tests. |
 | `src/api.test.ts` (new) | Command name contract test. |
-| `src/components/{Viewer,Sidebar,TagFilter,FileGrid}.test.tsx` | Extend for uncovered branches. |
+| `src/components/{Viewer,Sidebar}.test.tsx` (extend) | Uncovered branches. |
 
 ---
 
@@ -151,7 +170,7 @@ Today `coverage.include` lists 11 files, so `npm run test:unit` reports high num
 ```
 
 - [ ] **Step 2:** Run `npm run test:unit`.
-  Expected: 40 files and 185 tests pass. The coverage table lists every `src/` file. The "All files" line reads about 44% lines.
+  Expected: 47 files and 210 tests pass. The coverage table lists every `src/` file. The "All files" line reads about 63% lines.
 - [ ] **Step 3:** Commit: `git commit -am "Measure unit test coverage across all of src"`
 
 ---
@@ -249,7 +268,7 @@ Today `coverage.include` lists 11 files, so `npm run test:unit` reports high num
 
 ### Task 7: Pure TypeScript helpers
 
-**Files:** Create `src/hooks/libraryTypes.test.ts` and `src/theme/themes.test.ts`. Modify `src/lib/tagFilter.test.ts`.
+**Files:** Create `src/hooks/libraryTypes.test.ts` and `src/theme/themes.test.ts`.
 
 - [ ] **Step 1:** `libraryTypes.test.ts`:
   - `formatBytes`: `0` → `"0 B"`, `1023` → `"1023 B"`, `1024` → `"1.0 KB"`, `10 * 1024` → `"10 KB"`, `1024 ** 2 * 1.5` → `"1.5 MB"`, and `1024 ** 5` stays in `"TB"`.
@@ -257,15 +276,16 @@ Today `coverage.include` lists 11 files, so `npm run test:unit` reports high num
   - `emptyProgress()` returns a fresh object each call.
   - `fallbackDragIconPath` (mock `../api` `dragIconPath`): two calls share one request. After a rejection, the next call retries. Use `vi.resetModules()` between cases, because the cache is module state.
 - [ ] **Step 2:** `themes.test.ts`: `isThemeName("dark")` and `isThemeName("light")` are true, while `"blue"`, `""`, and `null` are false. For `readStoredTheme` (exported from `ThemeProvider.tsx`), `localStorage` with a valid theme returns it, an invalid value falls back, and a throwing `localStorage.getItem` falls back.
-- [ ] **Step 3:** `tagFilter.test.ts`: add `sortFromDropdown` cases for each dropdown value and an unknown value.
-- [ ] **Step 4:** `npx vitest run src/hooks/libraryTypes.test.ts src/theme src/lib/tagFilter.test.ts`. Expected: PASS.
-- [ ] **Step 5:** Commit.
+- [ ] **Step 3:** `npx vitest run src/hooks/libraryTypes.test.ts src/theme`. Expected: PASS.
+- [ ] **Step 4:** Commit.
 
 ---
 
 ### Task 8: Small hooks
 
-**Files:** Create `src/hooks/useSelection.test.ts`, `useKeyboardShortcuts.test.ts`, `useThumbPump.test.ts`, `useLibraryEffects.test.ts`.
+**Files:** Create `src/hooks/useSelection.test.ts`, `useKeyboardShortcuts.test.ts`, `useThumbPump.test.ts`.
+
+These hooks only run today because `App.test.tsx` and `useLibrary.test.tsx` mount them (19%, 23%, and 56% of lines). Test them directly.
 
 - [ ] **Step 1: `useSelection`** (use `renderHook` and `act`; `prefetchRef = { current: vi.fn() }`):
   - `replace` selects one id, and `selectedFile` is that row.
@@ -287,57 +307,52 @@ Today `coverage.include` lists 11 files, so `npm run test:unit` reports high num
   - When `renderMeshStill` rejects, `api.markThumbUnavailable(id)` is called.
   - Bumping `thumbGeneration.current` (unmount, or rerender with a new `thumbNonce`) while a render is in flight calls `api.releaseRenderingThumb(id)`, and the PNG is not saved.
   - After 10 `done` jobs, `refreshListsRef.current` is called. When the queue empties (`null`), it is called once more.
-- [ ] **Step 4: `useLibraryEffects`:** read the 38-line file and test its single effect: what triggers it and what it calls.
-- [ ] **Step 5:** `npx vitest run src/hooks`. Expected: PASS.
-- [ ] **Step 6:** Commit.
+- [ ] **Step 4:** `npx vitest run src/hooks`. Expected: PASS.
+- [ ] **Step 5:** Commit.
 
 ---
 
 ### Task 9: `useLibrary` core behavior
 
-**Files:** Create `src/hooks/useLibrary.test.ts`.
+**Files:** Modify `src/hooks/useLibrary.test.tsx` (added by the merge; reuse its `api` mock, `wrapper`, and `mockCatalog` helpers).
 
-Read `src/hooks/useLibrary.ts` first. Mock `../api` with every method the hook calls on mount (`bootstrap`, `listFiles`, `listCreators`, `listTagCounts`, `listTypeCounts`, ...), resolving to empty results. Mock any `@tauri-apps/*` imports.
+Already covered by the merge: the passive refresh skip (flaky, fixed in Step 1), the `runDiskOp` busy guard, the tree reload after an import, and Open containing folder clearing filters.
 
-- [ ] **Step 1: `refreshLists` dedupe.** Two calls with the same arguments while the first is in flight make one `api.listFiles` call and share its promise. A `"passive"` call with the key already loaded makes no call.
-- [ ] **Step 2: Stale results are dropped.** Start refresh A (with `listFiles` held by a deferred promise), then start refresh B with a different query. Resolve B, then A. `files` equals B's rows.
-- [ ] **Step 3: Truncation.** When `listFiles` returns `limit + 1` rows, `files` has `limit` rows and `listTruncated` is `true`. Use the limit from `librarySearchLimit`.
-- [ ] **Step 4: `runDiskOp`.**
-  - While one op is running, a second sets the error `"Another library change is already running."` and does not call its `run`.
+- [ ] **Step 1: Fix the flaky test.** In "skips a passive refresh when the list key is unchanged" (line 107), the count is taken as soon as `ready` is true, but the mount-time `refreshLists` may still be in flight or not yet started. Before reading `calls`, wait for the initial refresh to settle: `await waitFor(() => expect(api.listFiles).toHaveBeenCalled())`, then flush pending work with `await act(async () => {})`. Run `npx vitest run src/hooks/useLibrary.test.tsx` 10 times in a row (for example `1..10 | % { npx vitest run src/hooks/useLibrary.test.tsx }`). Expected: 10 passes.
+- [ ] **Step 2: In-flight dedupe.** Two non-passive calls with the same arguments while the first is in flight (hold `listFiles` with a deferred promise) make one `api.listFiles` call and share its promise.
+- [ ] **Step 3: Stale results are dropped.** Start refresh A (with `listFiles` held by a deferred promise), then start refresh B with a different query. Resolve B, then A. `files` equals B's rows.
+- [ ] **Step 4: Truncation.** When `listFiles` returns `limit + 1` rows, `files` has `limit` rows and `listTruncated` is `true`. Use the limit from `librarySearchLimit`.
+- [ ] **Step 5: `runDiskOp` timing and errors.**
   - An op that finishes before 300 ms shows no disk dialog and no toast.
   - An op that runs longer than 300 ms (fake timers) shows the dialog with the title, then a success toast. If it returns `{ cancelled: true }`, the toast is the cancelled message.
   - When `run` rejects, the error is set, the dialog is closed, and `refreshLists` still runs.
-  - `tree: true` calls `api.bootstrap` again after the op.
-- [ ] **Step 5: `goHistory`.** Back and forward move between visited folders, and skip a folder id that no longer exists in `folders`.
-- [ ] **Step 6:** `npx vitest run src/hooks/useLibrary.test.ts`. Expected: PASS.
-- [ ] **Step 7:** Commit.
+- [ ] **Step 6: `goHistory`.** Back and forward move between visited folders, and skip a folder id that no longer exists in `folders`.
+- [ ] **Step 7:** `npx vitest run src/hooks/useLibrary.test.tsx`. Expected: PASS. Target: `useLibrary.ts` above 85% lines (72% now).
+- [ ] **Step 8:** Commit.
 
 ---
 
-### Task 10: `useSessionEffects` and `useFileDrag`
+### Task 10: Remaining `useSessionEffects` effects
 
-**Files:** Create `src/hooks/useSessionEffects.test.ts` and `src/hooks/useFileDrag.test.ts`.
+**Files:** Modify `src/hooks/useSessionEffects.test.ts` (added by the merge; reuse its setup).
 
-- [ ] **Step 1: `useSessionEffects`.** Read the file. It has 12 `useEffect` blocks (lines 92, 104, 209, 215, 234, 285, 293, 299, 308, 323, 338, 357). Write one focused test per effect that has observable behavior, at minimum:
-  - The file menu closes on Escape and on a pointer-down outside it (effect at line 338).
+Already covered by the merge: `actions.current.setTheme` / `showAbout` wiring, `ready` after a bootstrap error, and Escape closing the file menu. `useSessionEffects.ts` is at 53% lines / 31% branches.
+
+- [ ] **Step 1:** Run `npx vitest run --coverage --coverage.include=src/hooks/useSessionEffects.ts --coverage.reporter=html` and open `coverage/index.html` to see which of the 12 `useEffect` blocks (lines 92, 104, 209, 215, 234, 285, 293, 299, 308, 323, 338, 357) are still unexecuted.
+- [ ] **Step 2:** Add one focused test per remaining effect with observable behavior, at minimum:
+  - The file menu closes on a pointer-down outside it (effect at line 338; Escape is already tested).
   - The creator / folder-tag file counts call `api.countFilesForScope` / `api.addTagsUnderFolder(id, [])` for folder targets, use `fileIds.length` for file targets, and reset to `null` when the target clears (effects around lines 308 and 323).
   - The resize effect (line 299) updates its state on `window` `resize`.
   - The restore flow (line 104, `runRestore`): the success path and the error path.
   Skip effects that only call `debugLog`.
-- [ ] **Step 2: `useFileDrag`.** Read the file. Test it through a small harness component that spreads `onPointerDown` onto a container holding `[data-file-id]` tiles. Mock `../api` (`prepareDragPaths`, `startFileDrag`):
-  - A pointer-down then pointer-up without moving starts no drag.
-  - Moving past the drag threshold calls `api.prepareDragPaths(ids, iconPath)` with the selected ids, then `api.startFileDrag`.
-  - Pointer capture is released on pointer-up.
-  - A native `dragstart` on the grid is prevented (`blockDrag`).
-  - Skipped paths from `prepareDragPaths` reach the failure state that `DragFailureDialog` reads.
-- [ ] **Step 3:** `npx vitest run src/hooks`. Expected: PASS.
+- [ ] **Step 3:** `npx vitest run src/hooks/useSessionEffects.test.ts`. Expected: PASS. Target: above 75% lines and 60% branches.
 - [ ] **Step 4:** Commit.
 
 ---
 
 ### Task 11: Small components
 
-**Files:** Create one `*.test.tsx` next to each component, matching the existing convention: `MenuBar`, `UpdateBanner`, `dialogs/DeleteFolderDialog`, `dialogs/DiskProgressDialog`, `dialogs/DragFailureDialog`, `dialogs/ErrorDialog`, `dialogs/ImportProgressDialog`, `dialogs/MissingFilesDialog`, `dialogs/NamePromptDialog`, `dialogs/Toast`. Add `TagChips` cases to `TagFilter.test.tsx`.
+**Files:** Create one `*.test.tsx` next to each component, matching the existing convention: `UpdateBanner`, `dialogs/DeleteFolderDialog`, `dialogs/DiskProgressDialog`, `dialogs/DragFailureDialog`, `dialogs/ErrorDialog`, `dialogs/ImportProgressDialog`, `dialogs/MissingFilesDialog`, `dialogs/NamePromptDialog`, `dialogs/Toast`. All are at 0% executed lines; `App.test.tsx` mounts the shell without opening them.
 
 For each one, build a minimal `LibraryModel` stub, as in `CreatorDialog.test.tsx` (`{ ... } as unknown as LibraryModel`), and assert:
 
@@ -346,7 +361,6 @@ For each one, build a minimal `LibraryModel` stub, as in `CreatorDialog.test.tsx
 - [ ] Each button calls the right setter or `api` method. Confirm buttons call through, and Cancel clears the target.
 - [ ] `NamePromptDialog`: Enter submits, a blank name keeps the submit button disabled (if it is), and Escape or Cancel closes it.
 - [ ] `DiskProgressDialog`: the Cancel button appears only when `cancellable`, and it calls `api.cancelDiskOp`.
-- [ ] `MenuBar`: each menu item calls the matching `Actions` callback.
 - [ ] Run `npx vitest run src/components`. Expected: PASS. Commit.
 
 ---
@@ -367,20 +381,20 @@ The static graph flags 44 `api.*` wrappers as untested. Testing each wrapper bod
 
 ### Task 13: Partially covered components
 
-**Files:** Modify `src/components/Viewer.test.tsx`, `Sidebar.test.tsx`, `TagFilter.test.tsx`, `FileGrid.test.tsx`.
+**Files:** Modify `src/components/Sidebar.test.tsx` and `src/components/Viewer.test.tsx`. (`FileGrid` at 87.5% and `TagFilter` at 92% were raised by the merge and are dropped from this task.)
 
-- [ ] **Step 1:** Run `npx vitest run --coverage --coverage.reporter=html` and open `coverage/index.html`. For each of the four files, list the uncovered branches.
-- [ ] **Step 2:** Add tests for the uncovered branches that are user-visible: empty and error states, keyboard handling, context-menu entry points, and `Viewer`'s `TextPreview` path. Skip branches that need WebGL.
-- [ ] **Step 3:** Target at least 70% lines for `Sidebar`, `TagFilter`, and `FileGrid`, and 50% for `Viewer`. Note any branch you deliberately skip, and why, in the commit message.
+- [ ] **Step 1:** Run `npx vitest run --coverage --coverage.reporter=html` and open `coverage/index.html`. For `Sidebar.tsx` (42% lines / 20% branches) and `Viewer.tsx` (24% / 37%), list the uncovered branches.
+- [ ] **Step 2:** Add tests for the uncovered branches that are user-visible: empty and error states, keyboard handling, folder context-menu entry points, drag-over and drop targets in `Sidebar`, and `Viewer`'s `TextPreview` path. Skip branches that need WebGL.
+- [ ] **Step 3:** Target at least 70% lines for `Sidebar` and 50% for `Viewer`. Note any branch you deliberately skip, and why, in the commit message.
 - [ ] **Step 4:** Commit.
 
 ---
 
 ### Task 14: Re-run and record
 
-- [ ] **Step 1:** Run `node .cursor/skills/graph-coverage/scripts/graph-coverage.mjs --summary --out "$env:TEMP\graph-coverage.json"`. Read `metrics.nodeCoverage`, `metrics.edgeCoverage`, and the `metrics.untested` entries with `reachedFromTest: false`.
+- [ ] **Step 1:** From the repo root, run `node "$env:USERPROFILE\.cursor\skills\graph-coverage\scripts\graph-coverage.mjs" --summary --out "$env:TEMP\graph-coverage.json"` (or the repo copy, `node .cursor/skills/graph-coverage/scripts/graph-coverage.mjs`, which gives the same result). Read `metrics.nodeCoverage`, `metrics.edgeCoverage`, and the `metrics.untested` entries with `reachedFromTest: false`.
 - [ ] **Step 2:** Run `npm run test:unit` (now covering all of `src/` after Task 1) and `cargo test` (from `src-tauri`).
-- [ ] **Step 3:** Add an "After" table under "Baseline" in this plan, with the same rows plus the Vitest line and branch percentages. Expected direction: direct node coverage well above 41.8%, Vitest lines well above 44%, and no remaining unreached Rust symbols outside the Out of scope list.
+- [ ] **Step 3:** Add an "After" column to both Baseline tables. Expected direction: direct node coverage well above 48.9%, unreached symbols well below 114, Vitest lines well above 62.8%, and no remaining unreached Rust symbols outside the Out of scope list.
 
 ---
 
@@ -388,7 +402,7 @@ The static graph flags 44 `api.*` wrappers as untested. Testing each wrapper bod
 
 - **`drag_win.rs`** (17 COM `IDataObject`/`IDropSource` methods) and **`drag_session.rs`**. These need an OLE STA thread and a real drag, and they are covered by the manual drag checks.
 - **Tauri command wrappers that only lock the DB and delegate** (`commands/settings.rs` setters, `list_tags`, `bootstrap`, `cancel_import`, `cancel_disk_op`, `rescan_*`, `export_library_backup`, `restore_library_backup`, `reveal_*`, `open_in_default_app`, `drag_icon_path`, `debug_log`). Their logic is tested at the DB, backup, and rescan layer. Task 12 catches name drift on the TypeScript side.
-- **`App.tsx` / `AppShell`** (127 lines, the highest-connectivity node). A useful test would mock nearly every API and plugin. Cover it through the hooks it composes (Tasks 8 to 10). An end-to-end harness would be a separate project.
+- **Deeper `App.tsx` / `AppShell` tests** (9.4% lines). The merge added `App.test.tsx` for the setup screen and the main chrome. Going further would mean mocking nearly every API and plugin, so cover it through the hooks it composes (Tasks 8 to 10). An end-to-end harness would be a separate project.
 - **WebGL and Worker rendering** (`renderThumb.ts`, `meshParseClient.ts`, `meshParse.worker.ts`), pending the decision above.
 - **`debugLog.ts` `installDebugProbes`.** This is diagnostic wiring with no user-facing behavior.
 - **Coverage thresholds in CI**, pending the decision above.

@@ -29,14 +29,19 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: (...args: unknown[]) => open(...args),
 }));
 
+const countFilesForScope = vi.fn();
+const addTagsUnderFolder = vi.fn();
+const restoreLibraryBackup = vi.fn();
+
 vi.mock("../api", () => ({
   api: {
     bootstrap: (...args: unknown[]) => bootstrap(...args),
     setTheme: (...args: unknown[]) => setThemeApi(...args),
     dragIconPath: (...args: unknown[]) => dragIconPath(...args),
     clearThumbnailCache: vi.fn(),
-    countFilesForScope: vi.fn(),
-    addTagsUnderFolder: vi.fn(),
+    countFilesForScope: (...args: unknown[]) => countFilesForScope(...args),
+    addTagsUnderFolder: (...args: unknown[]) => addTagsUnderFolder(...args),
+    restoreLibraryBackup: (...args: unknown[]) => restoreLibraryBackup(...args),
   },
 }));
 
@@ -51,6 +56,10 @@ afterEach(() => {
   getVersion.mockReset();
   open.mockReset();
   dragIconPath.mockReset();
+  countFilesForScope.mockReset();
+  addTagsUnderFolder.mockReset();
+  restoreLibraryBackup.mockReset();
+  document.body.innerHTML = "";
   vi.restoreAllMocks();
 });
 
@@ -228,5 +237,151 @@ describe("useSessionEffects", () => {
     });
     expect(setFileMenu).toHaveBeenCalledWith(null);
     rerender({ ...state, fileMenu: null });
+  });
+
+  it("closes the file menu on an outside pointer down", async () => {
+    bootstrap.mockResolvedValue({
+      settings: {
+        libraryRoot: null,
+        theme: "dark",
+        gridSize: "large",
+        sidebarWidth: 240,
+        inspectorWidth: 320,
+        previewHeight: 240,
+        thumbRetry: 0,
+        inspectorPinned: true,
+        sidebarPinned: true,
+        searchScope: "library",
+        detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      },
+      folders: [],
+      missingCount: 0,
+    });
+    const setFileMenu = vi.fn();
+    const menu = document.createElement("div");
+    menu.className = "file-context-menu";
+    document.body.append(menu);
+    const state = sessionBag({
+      fileMenu: { x: 0, y: 0, fileId: 2 },
+      setFileMenu,
+    });
+    renderHook(() => useSessionEffects(state as Parameters<typeof useSessionEffects>[0]));
+    await waitFor(() => expect(bootstrap).toHaveBeenCalled());
+    act(() => {
+      document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    });
+    expect(setFileMenu).toHaveBeenCalledWith(null);
+  });
+
+  it("loads creator and folder-tag file counts", async () => {
+    bootstrap.mockResolvedValue({
+      settings: {
+        libraryRoot: "/lib",
+        theme: "dark",
+        gridSize: "large",
+        sidebarWidth: 240,
+        inspectorWidth: 320,
+        previewHeight: 240,
+        thumbRetry: 0,
+        inspectorPinned: true,
+        sidebarPinned: true,
+        searchScope: "library",
+        detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      },
+      folders: [],
+      missingCount: 0,
+    });
+    countFilesForScope.mockResolvedValue(12);
+    addTagsUnderFolder.mockResolvedValue(4);
+    const setCreatorFileCount = vi.fn();
+    const setFolderTagFileCount = vi.fn();
+    const state = sessionBag({
+      ready: true,
+      creatorTarget: { folderId: 5, name: "Minis" },
+      setCreatorFileCount,
+      folderTagTarget: { folderId: 6, name: "Terrain" },
+      setFolderTagFileCount,
+    });
+    const { rerender } = renderHook(
+      (props) => useSessionEffects(props as Parameters<typeof useSessionEffects>[0]),
+      { initialProps: state },
+    );
+    await waitFor(() => expect(countFilesForScope).toHaveBeenCalledWith(5, true));
+    await waitFor(() => expect(addTagsUnderFolder).toHaveBeenCalledWith(6, []));
+    expect(setCreatorFileCount).toHaveBeenCalledWith(12);
+    expect(setFolderTagFileCount).toHaveBeenCalledWith(4);
+    rerender({
+      ...state,
+      creatorTarget: { folderId: null, name: "2 files", fileIds: [1, 2] },
+      folderTagTarget: { folderId: null, name: "tag", fileIds: [9] },
+    });
+    expect(setCreatorFileCount).toHaveBeenCalledWith(2);
+    expect(setFolderTagFileCount).toHaveBeenCalledWith(1);
+    rerender({ ...state, creatorTarget: null, folderTagTarget: null });
+    expect(setCreatorFileCount).toHaveBeenCalledWith(null);
+    expect(setFolderTagFileCount).toHaveBeenCalledWith(null);
+  });
+
+  it("clamps pane widths on window resize", async () => {
+    bootstrap.mockResolvedValue({
+      settings: {
+        libraryRoot: null,
+        theme: "dark",
+        gridSize: "large",
+        sidebarWidth: 240,
+        inspectorWidth: 320,
+        previewHeight: 240,
+        thumbRetry: 0,
+        inspectorPinned: true,
+        sidebarPinned: true,
+        searchScope: "library",
+        detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      },
+      folders: [],
+      missingCount: 0,
+    });
+    const setSidebarWidth = vi.fn();
+    const setInspectorWidth = vi.fn();
+    const state = sessionBag({ setSidebarWidth, setInspectorWidth });
+    renderHook(() => useSessionEffects(state as Parameters<typeof useSessionEffects>[0]));
+    await waitFor(() => expect(bootstrap).toHaveBeenCalled());
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(setSidebarWidth).toHaveBeenCalled();
+    expect(setInspectorWidth).toHaveBeenCalled();
+  });
+
+  it("restores a library backup into a provided destination", async () => {
+    bootstrap.mockResolvedValue({
+      settings: {
+        libraryRoot: "/lib",
+        theme: "dark",
+        gridSize: "large",
+        sidebarWidth: 240,
+        inspectorWidth: 320,
+        previewHeight: 240,
+        thumbRetry: 0,
+        inspectorPinned: true,
+        sidebarPinned: true,
+        searchScope: "library",
+        detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      },
+      folders: [],
+      missingCount: 0,
+    });
+    open.mockResolvedValueOnce("/backup/dir");
+    restoreLibraryBackup.mockResolvedValue({ cancelled: false });
+    const runDiskOp = vi.fn(async (opts: { run: () => Promise<{ cancelled: boolean }> }) => {
+      await opts.run();
+    });
+    const state = sessionBag({ runDiskOp });
+    renderHook(() => useSessionEffects(state as Parameters<typeof useSessionEffects>[0]));
+    await waitFor(() => expect(bootstrap).toHaveBeenCalled());
+    act(() => {
+      state.actions.current.restoreLibrary("/dest/lib");
+    });
+    await waitFor(() => expect(runDiskOp).toHaveBeenCalled());
+    expect(restoreLibraryBackup).toHaveBeenCalledWith("/backup/dir", "/dest/lib");
   });
 });

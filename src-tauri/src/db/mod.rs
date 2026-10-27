@@ -93,6 +93,44 @@ include!("rows.rs");
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::Connection;
+
+    #[test]
+    fn migrate_upgrades_an_old_schema_and_is_idempotent() {
+        let dir = std::env::temp_dir().join(format!("filelib-migrate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("library.db");
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE folders (id INTEGER PRIMARY KEY, parent_id INTEGER, name TEXT NOT NULL, relpath TEXT NOT NULL, sort_order INTEGER NOT NULL);
+                 CREATE TABLE files (id INTEGER PRIMARY KEY, original_name TEXT NOT NULL, stored_relpath TEXT NOT NULL, ext TEXT NOT NULL, size_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL, folder_id INTEGER, creator TEXT, tags_text TEXT NOT NULL DEFAULT '', missing INTEGER NOT NULL DEFAULT 0, thumb_status TEXT NOT NULL DEFAULT 'none', added_at INTEGER NOT NULL DEFAULT 0, modified_at INTEGER NOT NULL DEFAULT 0);
+                 PRAGMA user_version = 1;",
+            )
+            .unwrap();
+        }
+        let db = open(&dir).unwrap();
+        let has_attempts: bool = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('files') WHERE name = 'thumb_attempts'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .map(|n| n > 0)
+            .unwrap();
+        assert!(has_attempts);
+        let version: i32 = db
+            .conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert!(version >= 4);
+        drop(db);
+        let _db2 = open(&dir).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     include!("tests_listing.rs");
     include!("tests_thumbs.rs");
     include!("tests_tags.rs");
@@ -103,4 +141,5 @@ mod tests {
     include!("tests_stats.rs");
     include!("tests_library_move.rs");
     include!("tests_support.rs");
+    include!("tests_setup.rs");
 }

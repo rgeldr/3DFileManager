@@ -482,4 +482,16 @@ mod tests {
         assert!(extract_thumbnail_png(&step).unwrap().is_none());
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn png_from_bytes_accepts_a_png_and_rejects_garbage() {
+        let img = image::RgbaImage::from_pixel(2, 2, image::Rgba([1, 2, 3, 255]));
+        let mut bytes = Vec::new();
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        assert!(png_from_bytes(&bytes).is_some());
+        assert!(png_from_bytes(b"").is_none());
+        assert!(png_from_bytes(b"GIF89a").is_none());
+    }
 }
