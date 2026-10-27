@@ -61,7 +61,7 @@ function bag(overrides: Record<string, unknown> = {}) {
   const dragPrepCache = { current: null as null | { key: string; paths: string[]; skipped: string[]; reports: never[] } };
   const dragIconRef = { current: "/icon.png" as string | null };
   const setDragFailure = vi.fn();
-  const runDiskOp = vi.fn(async () => undefined);
+  const runDiskOp = vi.fn(async (_op: { title: string; run: () => Promise<unknown> }) => undefined);
   const showToast = vi.fn();
   return {
     dragRef,

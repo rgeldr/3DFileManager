@@ -46,12 +46,14 @@ impl ImportBatch {
 }
 
 #[cfg(test)]
-pub(crate) static FORCE_COPY: AtomicBool = AtomicBool::new(false);
+thread_local! {
+    pub(crate) static FORCE_COPY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
 
 fn force_copy_enabled() -> bool {
     #[cfg(test)]
     {
-        FORCE_COPY.load(Ordering::SeqCst)
+        FORCE_COPY.get()
     }
     #[cfg(not(test))]
     {

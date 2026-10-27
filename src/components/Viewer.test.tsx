@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FileRow } from "../types";
 import { ThemeProvider } from "../theme/ThemeProvider";
 import { Viewer } from "./Viewer";
@@ -9,11 +9,21 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
 
+const textPreview = vi.fn((fileId: number) => Promise.resolve(fileId === 7 ? "Hello\nworld" : " \n\t "));
+
 vi.mock("../api", () => ({
   api: {
-    textPreview: (fileId: number) => Promise.resolve(fileId === 7 ? "Hello\nworld" : " \n\t "),
+    textPreview: (fileId: number) => textPreview(fileId),
   },
 }));
+
+afterEach(() => {
+  cleanup();
+  textPreview.mockReset();
+  textPreview.mockImplementation((fileId: number) =>
+    Promise.resolve(fileId === 7 ? "Hello\nworld" : " \n\t "),
+  );
+});
 
 function file(overrides: Partial<FileRow>): FileRow {
   return {
@@ -81,6 +91,16 @@ describe("Viewer text preview", () => {
       </ThemeProvider>,
     );
     expect(screen.getByText("Preview unavailable")).toBeTruthy();
+  });
+
+  it("shows file info when text preview fails", async () => {
+    textPreview.mockRejectedValueOnce(new Error("read failed"));
+    render(
+      <ThemeProvider>
+        <Viewer file={file({ id: 11, originalName: "broken.txt" })} />
+      </ThemeProvider>,
+    );
+    expect(await screen.findByText("Text file")).toBeTruthy();
   });
 
   it("shows file info when the preview has no printable text", async () => {

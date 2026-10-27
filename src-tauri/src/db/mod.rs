@@ -93,6 +93,40 @@ include!("rows.rs");
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::Connection;
+
+    #[test]
+    fn migrate_upgrades_an_old_schema_and_is_idempotent() {
+        let dir = std::env::temp_dir().join(format!("filelib-migrate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("library.db");
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(SCHEMA_BODY).unwrap();
+            conn.pragma_update(None, "user_version", 1).unwrap();
+        }
+        let db = open(&dir).unwrap();
+        let has_attempts: bool = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('files') WHERE name = 'thumb_attempts'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .map(|n| n > 0)
+            .unwrap();
+        assert!(has_attempts);
+        let version: i32 = db
+            .conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert!(version >= 4);
+        drop(db);
+        let _db2 = open(&dir).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     include!("tests_listing.rs");
     include!("tests_thumbs.rs");
     include!("tests_tags.rs");
@@ -103,4 +137,5 @@ mod tests {
     include!("tests_stats.rs");
     include!("tests_library_move.rs");
     include!("tests_support.rs");
+    include!("tests_setup.rs");
 }

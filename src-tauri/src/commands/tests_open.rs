@@ -1,4 +1,65 @@
     #[test]
+    fn contained_library_dir_stays_inside_the_root() {
+        let dir = std::env::temp_dir().join(format!("filelib-open-dir-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let root = dir.join("library");
+        fs::create_dir_all(root.join("Models")).unwrap();
+        fs::write(root.join("Models").join("guide.pdf"), b"%PDF-1.4\n").unwrap();
+        fs::create_dir_all(dir.join("outside")).unwrap();
+
+        let opened_root = contained_library_dir(&root, "").unwrap();
+        assert!(opened_root.is_dir());
+        let canonical_root = root.canonicalize().unwrap();
+        assert_eq!(opened_root, canonical_root);
+
+        let models = contained_library_dir(&root, "Models").unwrap();
+        assert!(models.is_dir());
+        assert!(models.ends_with("Models"));
+
+        assert!(contained_library_dir(&root, "../outside").unwrap_err().contains("outside"));
+        assert!(contained_library_dir(&root, "Models/../../outside").unwrap_err().contains("outside"));
+        let abs_outside = dir.join("outside").canonicalize().unwrap();
+        assert!(contained_library_dir(&root, &abs_outside.to_string_lossy()).unwrap_err().contains("outside"));
+        assert!(contained_library_dir(&root, "Models/missing").unwrap_err().contains("missing"));
+        assert!(contained_library_dir(&root, "Models/guide.pdf").is_err());
+        assert!(contained_library_dir(&root, "Models\0evil").is_err());
+
+        #[cfg(unix)]
+        {
+            let secret = dir.join("secret_dir");
+            fs::create_dir_all(&secret).unwrap();
+            std::os::unix::fs::symlink(&secret, root.join("Models").join("linkdir")).unwrap();
+            assert!(contained_library_dir(&root, "Models/linkdir").is_err());
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn catalog_file_path_rejects_a_row_outside_the_library() {
+        let dir = std::env::temp_dir().join(format!("filelib-catalog-path-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        fs::write(root.join("keep.stl"), b"keep").unwrap();
+        let keep = db
+            .insert_file("keep.stl", "keep.stl", "stl", 4, "sha-keep", 1, None, None)
+            .unwrap();
+        let outside = db
+            .insert_file("secret.stl", "../secret.stl", "stl", 6, "sha-secret", 1, None, None)
+            .unwrap();
+        let path = catalog_file_path(&db, keep).unwrap();
+        assert!(path.is_file());
+        assert!(path.ends_with("keep.stl"));
+        assert!(catalog_file_path(&db, outside).is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn contained_library_file_stays_inside_the_root() {
         let dir = std::env::temp_dir().join(format!("filelib-open-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);

@@ -6,7 +6,7 @@
         let models = boot.folders.iter().find(|f| f.name == "Models").unwrap().id;
         let src = incoming.join("part.stl");
         fs::write(&src, b"solid x\nendsolid x\n").unwrap();
-        FORCE_COPY.store(true, Ordering::SeqCst);
+        FORCE_COPY.set(true);
         let summary = import_paths(
             &mut db,
             &[src.to_string_lossy().to_string()],
@@ -15,7 +15,7 @@
             |_| {},
         )
         .unwrap();
-        FORCE_COPY.store(false, Ordering::SeqCst);
+        FORCE_COPY.set(false);
         assert_eq!(summary.imported_count, 1);
         assert_eq!(summary.recycle_paths.len(), 1);
         let rows = db
@@ -98,11 +98,11 @@
         struct ResetForceCopy;
         impl Drop for ResetForceCopy {
             fn drop(&mut self) {
-                FORCE_COPY.store(false, Ordering::SeqCst);
+                FORCE_COPY.set(false);
             }
         }
         let _reset = ResetForceCopy;
-        FORCE_COPY.store(true, Ordering::SeqCst);
+        FORCE_COPY.set(true);
 
         let guide_bytes = b"%PDF-1.4\nguide\n%%EOF\n";
         let guide = incoming.join("Assembly Guide.PDF");
@@ -217,11 +217,11 @@
         struct ResetForceCopy;
         impl Drop for ResetForceCopy {
             fn drop(&mut self) {
-                FORCE_COPY.store(false, Ordering::SeqCst);
+                FORCE_COPY.set(false);
             }
         }
         let _reset = ResetForceCopy;
-        FORCE_COPY.store(true, Ordering::SeqCst);
+        FORCE_COPY.set(true);
 
         let note_bytes = b"Line one\nLine two\n";
         let note = incoming.join("Read Me.TXT");

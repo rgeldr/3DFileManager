@@ -48,6 +48,71 @@ describe("folder tree menu", () => {
     expect(onRescan).toHaveBeenCalledWith(3);
   });
 
+  it("browses the library root when its label is clicked", () => {
+    const onBrowse = vi.fn();
+    render(
+      <Sidebar
+        folders={[toys]}
+        libraryName="3D Print Library"
+        browseKey="folder:3"
+        dropTarget={null}
+        expandHint={null}
+        onBrowse={onBrowse}
+        onNew={() => undefined}
+        onRename={() => undefined}
+        onDelete={() => undefined}
+        onNewInFolder={() => undefined}
+        onRenameFolder={() => undefined}
+        onDeleteFolder={() => undefined}
+        onTagFolder={() => undefined}
+        onSetCreator={() => undefined}
+        onReveal={() => undefined}
+        onRescan={() => undefined}
+        onMoveFolder={() => undefined}
+        pinned
+        onPinnedChange={() => undefined}
+      />,
+    );
+    fireEvent.click(screen.getByText("3D Print Library"));
+    expect(onBrowse).toHaveBeenCalledWith("root");
+  });
+
+  it("highlights an external drop target on a folder row", () => {
+    const { container } = render(
+      <Sidebar
+        folders={[toys]}
+        libraryName="Library"
+        browseKey="root"
+        dropTarget="3"
+        expandHint={null}
+        onBrowse={() => undefined}
+        onNew={() => undefined}
+        onRename={() => undefined}
+        onDelete={() => undefined}
+        onNewInFolder={() => undefined}
+        onRenameFolder={() => undefined}
+        onDeleteFolder={() => undefined}
+        onTagFolder={() => undefined}
+        onSetCreator={() => undefined}
+        onReveal={() => undefined}
+        onRescan={() => undefined}
+        onMoveFolder={() => undefined}
+        pinned
+        onPinnedChange={() => undefined}
+      />,
+    );
+    expect(container.querySelector(".folder-row.drop")).toBeTruthy();
+  });
+
+  it("moves focus with arrow keys in the tree", () => {
+    renderSidebar();
+    const toysRow = screen.getByText("Toys").closest("[data-tree-key]") as HTMLElement;
+    toysRow.focus();
+    fireEvent.keyDown(toysRow, { key: "ArrowUp" });
+    const rootRow = screen.getByText("3D Print Library").closest("[data-tree-key]") as HTMLElement;
+    expect(document.activeElement).toBe(rootRow);
+  });
+
   it("collapses to the pin control", () => {
     const { onPinnedChange } = renderSidebar(true);
     expect(screen.getByText("Toys")).toBeTruthy();

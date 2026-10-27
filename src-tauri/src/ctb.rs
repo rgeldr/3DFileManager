@@ -98,6 +98,25 @@ mod tests {
     }
 
     #[test]
+    fn decode_rle15_handles_empty_and_short_data() {
+        assert!(decode_rle15(&[], 2, 2).is_none());
+        let img = decode_rle15(&[0x00, 0xF8], 2, 2).expect("partial image");
+        assert_eq!(img.get_pixel(0, 0).0, [0xF8, 0, 0, 255]);
+        assert_eq!(img.get_pixel(1, 1).0, [0, 0, 0, 255]);
+    }
+
+    #[test]
+    fn decode_rle15_decodes_a_single_run() {
+        let mut data = Vec::new();
+        for _ in 0..4 {
+            data.extend_from_slice(&0xF800u16.to_le_bytes());
+        }
+        let img = decode_rle15(&data, 2, 2).expect("image");
+        assert_eq!(img.get_pixel(0, 0).0, [0xF8, 0, 0, 255]);
+        assert_eq!(img.get_pixel(1, 1).0, [0xF8, 0, 0, 255]);
+    }
+
+    #[test]
     fn synthetic_header_extracts_one_rgb565_pixel() {
         let mut bytes = vec![0u8; 90];
         bytes[0..4].copy_from_slice(&MAGIC_CTB.to_le_bytes());

@@ -237,6 +237,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn unique_file_path_numbers_collisions() {
+        let dir = std::env::temp_dir().join(format!("filelib-unique-file-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let first = unique_file_path(&dir, "a.stl");
+        assert_eq!(first, dir.join("a.stl"));
+        std::fs::write(&first, b"x").unwrap();
+        let second = unique_file_path(&dir, "a.stl");
+        assert_ne!(second, first);
+        assert!(second.to_string_lossy().ends_with(".stl"));
+        std::fs::write(&second, b"y").unwrap();
+        let third = unique_file_path(&dir, "a.stl");
+        assert_ne!(third, first);
+        assert_ne!(third, second);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unique_dir_name_numbers_collisions() {
+        let dir = std::env::temp_dir().join(format!("filelib-unique-dir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let first = unique_dir_name(&dir, "Terrain");
+        assert_eq!(first, "Terrain");
+        std::fs::create_dir_all(dir.join(&first)).unwrap();
+        let second = unique_dir_name(&dir, "Terrain");
+        assert_ne!(second, first);
+        assert!(second.contains("Terrain"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn replaces_illegal_chars_and_reserved_names() {
         assert_eq!(sanitize_component("a:b*c"), "a_b_c");
         assert_eq!(sanitize_component("CON"), "_CON");

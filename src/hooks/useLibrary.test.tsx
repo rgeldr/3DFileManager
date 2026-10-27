@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { LIBRARY_SEARCH_LIMIT } from "../lib/tagFilter";
 import { ThemeProvider } from "../theme/ThemeProvider";
 import { useLibrary } from "./useLibrary";
 
@@ -26,7 +27,7 @@ const api = {
   restoreLibraryBackup: vi.fn(),
   rescanLibrary: vi.fn(),
   rescanFolder: vi.fn(),
-  prepareDragPaths: vi.fn(),
+  prepareDragPaths: vi.fn(async () => ({ paths: [], skipped: [], reports: [] })),
   countFilesForScope: vi.fn(),
   addTagsUnderFolder: vi.fn(),
 };
@@ -37,7 +38,7 @@ vi.mock("../api", () => ({
     {
       get(_target, prop: string) {
         return (...args: unknown[]) => {
-          const fn = (api as Record<string, ReturnType<typeof vi.fn>>)[prop];
+          const fn = (api as Record<string, (...args: unknown[]) => unknown>)[prop];
           if (!fn) return Promise.resolve(undefined);
           return fn(...args);
         };
@@ -99,6 +100,7 @@ function mockCatalog() {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   for (const value of Object.values(api)) value.mockReset();
   vi.restoreAllMocks();
 });
@@ -109,6 +111,10 @@ describe("useLibrary", () => {
     mockCatalog();
     const { result } = renderHook(() => useLibrary(), { wrapper });
     await waitFor(() => expect(result.current.ready).toBe(true));
+    await waitFor(() => expect(api.listFiles).toHaveBeenCalled());
+    await act(async () => {
+      await Promise.resolve();
+    });
     const calls = api.listFiles.mock.calls.length;
     await act(async () => {
       await result.current.refreshLists(undefined, undefined, undefined, undefined, "passive");
@@ -233,5 +239,236 @@ describe("useLibrary", () => {
     expect(result.current.selectedTypeIds).toEqual([]);
     expect(result.current.browse).toEqual({ type: "folder", id: 2 });
     expect(result.current.selected).toEqual([5]);
+  });
+
+  it("dedupes in-flight refreshLists calls with the same key", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await waitFor(() => expect(api.listFiles).toHaveBeenCalled());
+    let resolve!: (rows: unknown[]) => void;
+    api.listFiles.mockImplementation(
+      () =>
+        new Promise((res) => {
+          resolve = res;
+        }),
+    );
+    const start = api.listFiles.mock.calls.length;
+    let second!: Promise<void>;
+    await act(async () => {
+      void result.current.refreshLists();
+      second = result.current.refreshLists();
+    });
+    resolve([]);
+    await act(async () => {
+      await second;
+    });
+    expect(api.listFiles.mock.calls.length).toBe(start + 1);
+  });
+
+  it("drops stale refreshLists results", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    const row = (id: number, name: string) => ({
+      id,
+      originalName: name,
+      sortName: name,
+      storedRelpath: `${name}.stl`,
+      ext: "stl",
+      sizeBytes: 1,
+      sha256: "x",
+      folderId: null,
+      creator: "",
+      notes: "",
+      sourceArchive: null,
+      importedAt: 1,
+      mtime: 1,
+      thumbStatus: "ok",
+      missing: false,
+      tags: [],
+      absolutePath: `/library/${name}.stl`,
+      thumbPath: null,
+    });
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    let resolveA!: (rows: unknown[]) => void;
+    let resolveB!: (rows: unknown[]) => void;
+    api.listFiles
+      .mockImplementationOnce(
+        () =>
+          new Promise((res) => {
+            resolveA = res;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((res) => {
+            resolveB = res;
+          }),
+      );
+    await act(async () => {
+      void result.current.refreshLists();
+      void result.current.refreshLists(undefined, "needle");
+    });
+    resolveB([row(2, "new")]);
+    await waitFor(() => expect(result.current.files[0]?.id).toBe(2));
+    resolveA([row(1, "old")]);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.files[0]?.id).toBe(2);
+  });
+
+  it("navigates folder history with Alt+ArrowLeft", async () => {
+    const folders = [
+      { id: 2, parentId: null, name: "A", relpath: "A", sortOrder: 0 },
+      { id: 3, parentId: null, name: "B", relpath: "B", sortOrder: 1 },
+    ];
+    api.bootstrap.mockResolvedValue({ settings, folders, missingCount: 0 });
+    mockCatalog();
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => {
+      result.current.setBrowse({ type: "folder", id: 2 });
+      result.current.setBrowse({ type: "folder", id: 3 });
+    });
+    expect(result.current.browse).toEqual({ type: "folder", id: 3 });
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", altKey: true }));
+    });
+    expect(result.current.browse).toEqual({ type: "folder", id: 2 });
+  });
+
+  it("truncates library-wide search results", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    api.listCreators.mockResolvedValue([]);
+    api.listTagCounts.mockResolvedValue([]);
+    api.listTypeCounts.mockResolvedValue([]);
+    const row = (id: number) => ({
+      id,
+      originalName: `f${id}`,
+      sortName: `f${id}`,
+      storedRelpath: `f${id}.stl`,
+      ext: "stl",
+      sizeBytes: 1,
+      sha256: "x",
+      folderId: null,
+      creator: "",
+      notes: "",
+      sourceArchive: null,
+      importedAt: 1,
+      mtime: 1,
+      thumbStatus: "ok",
+      missing: false,
+      tags: [],
+      absolutePath: `/library/f${id}.stl`,
+      thumbPath: null,
+    });
+    api.listFiles.mockResolvedValue(Array.from({ length: LIBRARY_SEARCH_LIMIT + 1 }, (_, i) => row(i + 1)));
+    api.listCreators.mockResolvedValue([]);
+    api.listTagCounts.mockResolvedValue([]);
+    api.listTypeCounts.mockResolvedValue([]);
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => {
+      result.current.setQuery("needle");
+    });
+    await waitFor(() => expect(result.current.files.length).toBe(LIBRARY_SEARCH_LIMIT));
+    expect(result.current.listTruncated).toBe(true);
+  });
+
+  it("skips missing folders when navigating history back", async () => {
+    const folders = [
+      { id: 2, parentId: null, name: "A", relpath: "A", sortOrder: 0 },
+      { id: 3, parentId: null, name: "B", relpath: "B", sortOrder: 1 },
+    ];
+    api.bootstrap.mockResolvedValue({ settings, folders, missingCount: 0 });
+    mockCatalog();
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => {
+      result.current.setBrowse({ type: "folder", id: 2 });
+      result.current.setBrowse({ type: "folder", id: 3 });
+      result.current.setBrowse({ type: "folder", id: 99 });
+    });
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", altKey: true }));
+    });
+    expect(result.current.browse).toEqual({ type: "folder", id: 3 });
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", altKey: true }));
+    });
+    expect(result.current.browse).toEqual({ type: "folder", id: 2 });
+  });
+
+  it("finishes a fast disk op without showing a dialog or toast", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await act(async () => {
+      await result.current.runDiskOp({
+        title: "Quick",
+        cancellable: false,
+        success: "Done",
+        cancelled: "Nope",
+        run: async () => ({ cancelled: false }),
+      });
+    });
+    expect(result.current.diskDialog).toBeNull();
+    expect(result.current.toast).toBeNull();
+  });
+
+  it("shows disk progress and toasts for slow operations", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    vi.useFakeTimers();
+    let release!: () => void;
+    const gate = new Promise<{ cancelled: boolean }>((resolve) => {
+      release = () => resolve({ cancelled: true });
+    });
+    await act(async () => {
+      void result.current.runDiskOp({
+        title: "Slow job",
+        cancellable: true,
+        success: "Finished",
+        cancelled: "Stopped",
+        run: () => gate,
+      });
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(result.current.diskDialog?.title).toBe("Slow job");
+    await act(async () => {
+      release();
+      await Promise.resolve();
+    });
+    expect(result.current.diskDialog).toBeNull();
+    expect(result.current.toast).toBe("Stopped");
+    vi.useRealTimers();
+  });
+
+  it("records errors from runDiskOp and still refreshes", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    const callsBefore = api.listFiles.mock.calls.length;
+    await act(async () => {
+      await result.current.runDiskOp({
+        title: "Fail",
+        cancellable: false,
+        success: "ok",
+        cancelled: "no",
+        run: async () => {
+          throw new Error("disk blew up");
+        },
+      });
+    });
+    expect(result.current.error).toMatch(/disk blew up/);
+    expect(result.current.diskDialog).toBeNull();
+    expect(api.listFiles.mock.calls.length).toBeGreaterThan(callsBefore);
   });
 });

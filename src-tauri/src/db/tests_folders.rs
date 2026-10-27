@@ -98,3 +98,56 @@
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn rename_folder_with_moves_the_directory_and_rewrites_paths() {
+        use std::sync::atomic::AtomicBool;
+        let dir = std::env::temp_dir().join(format!("filelib-rename-folder-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = open(&dir).unwrap();
+        let root = dir.join("library");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        let minis = db.create_folder(None, "Minis", 0).unwrap();
+        std::fs::write(root.join("Minis").join("a.stl"), b"solid").unwrap();
+        let file_id = db
+            .insert_file("a.stl", "Minis/a.stl", "stl", 5, "sha-a", 1, Some(minis.id), None)
+            .unwrap();
+        let cancelled = db.rename_folder_with(minis.id, "Terrain", &AtomicBool::new(false), |_| {}).unwrap();
+        assert!(!cancelled);
+        assert!(root.join("Terrain").join("a.stl").is_file());
+        assert!(!root.join("Minis").exists());
+        assert_eq!(db.folder_relpath(minis.id).unwrap(), "Terrain");
+        let row = db
+            .list_files(FolderFilter::Id(minis.id), "", "", "", "name", "asc")
+            .unwrap();
+        assert_eq!(row[0].id, file_id);
+        assert!(row[0].stored_relpath.starts_with("Terrain/"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rename_folder_with_picks_a_unique_name_on_collision() {
+        use std::sync::atomic::AtomicBool;
+        let dir = std::env::temp_dir().join(format!("filelib-rename-collision-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = open(&dir).unwrap();
+        let root = dir.join("library");
+        std::fs::create_dir_all(&root.join("Terrain")).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        let minis = db.create_folder(None, "Minis", 0).unwrap();
+        std::fs::create_dir_all(root.join("Minis")).unwrap();
+        let cancelled = db.rename_folder_with(minis.id, "Terrain", &AtomicBool::new(false), |_| {}).unwrap();
+        assert!(!cancelled);
+        let rel = db.folder_relpath(minis.id).unwrap();
+        assert!(rel.starts_with("Terrain"));
+        assert_ne!(rel, "Terrain");
+        assert!(root.join(&rel).is_dir());
+        let _ = std::fs::remove_dir_all(&dir);
+    }

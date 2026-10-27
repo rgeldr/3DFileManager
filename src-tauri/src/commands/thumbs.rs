@@ -133,22 +133,26 @@ async fn next_thumbnail(app: AppHandle) -> Result<Option<ThumbJob>, String> {
     .await
 }
 
+fn store_rendered_thumb(db: &AppDb, id: i64, png: &[u8]) -> Result<(), String> {
+    let loc = db.file_location(id)?;
+    if loc.sha256.is_empty() {
+        db.set_thumb_status(id, "unhashed")?;
+        return Ok(());
+    }
+    let Some(png) = preview::png_from_bytes(png) else {
+        db.set_thumb_status(id, "unavailable")?;
+        return Ok(());
+    };
+    let _ = publish_thumb(db, id, &loc.sha256, &png, |_| {})?;
+    Ok(())
+}
+
 #[tauri::command]
 async fn save_rendered_thumb(app: AppHandle, id: i64, png: Vec<u8>) -> Result<(), String> {
     let thumbs = app.state::<AppState>().thumbs.clone();
     off_ui("save_rendered_thumb", move || {
         let db = thumbs.lock().map_err(|e| e.to_string())?;
-        let loc = db.file_location(id)?;
-        if loc.sha256.is_empty() {
-            db.set_thumb_status(id, "unhashed")?;
-            return Ok(());
-        }
-        let Some(png) = preview::png_from_bytes(&png) else {
-            db.set_thumb_status(id, "unavailable")?;
-            return Ok(());
-        };
-        let _ = publish_thumb(&db, id, &loc.sha256, &png, |_| {})?;
-        Ok(())
+        store_rendered_thumb(&db, id, &png)
     })
     .await
 }
