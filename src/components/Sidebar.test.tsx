@@ -113,6 +113,56 @@ describe("folder tree menu", () => {
     expect(document.activeElement).toBe(rootRow);
   });
 
+  it("uses the grid folder icon and keeps the expand arrow in its own column", () => {
+    const { container } = render(
+      <Sidebar
+        folders={[
+          toys,
+          { id: 8, parentId: 3, name: "Mini", relpath: "Toys/Mini", sortOrder: 0 },
+        ]}
+        libraryName="3D Print Library"
+        browseKey="root"
+        dropTarget={null}
+        expandHint={null}
+        onBrowse={() => undefined}
+        onNew={() => undefined}
+        onRename={() => undefined}
+        onDelete={() => undefined}
+        onNewInFolder={() => undefined}
+        onRenameFolder={() => undefined}
+        onDeleteFolder={() => undefined}
+        onTagFolder={() => undefined}
+        onSetCreator={() => undefined}
+        onReveal={() => undefined}
+        onRescan={() => undefined}
+        onMoveFolder={() => undefined}
+        pinned
+        onPinnedChange={() => undefined}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Expand Toys" }));
+    const rows = container.querySelectorAll(".folder-row");
+    expect(rows.length).toBe(3);
+    for (const row of rows) {
+      const icon = row.querySelector(":scope > svg.folder-icon");
+      expect(icon?.getAttribute("width")).toBe("16");
+      expect(icon?.querySelector("path")?.getAttribute("d")).toBe(
+        "M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z",
+      );
+      const lead = icon?.previousElementSibling;
+      expect(
+        lead?.classList.contains("tree-twist") || lead?.classList.contains("tree-twist-spacer"),
+      ).toBe(true);
+    }
+    const root = screen.getByText("3D Print Library").closest(".folder-row");
+    const parent = screen.getByText("Toys").closest(".folder-row");
+    const leaf = screen.getByText("Mini").closest(".folder-row");
+    expect(root?.querySelector(":scope > .tree-twist")).toBeTruthy();
+    expect(parent?.querySelector(":scope > .tree-twist")).toBeTruthy();
+    expect(leaf?.querySelector(":scope > .tree-twist")).toBeNull();
+    expect(leaf?.querySelector(":scope > .tree-twist-spacer")).toBeTruthy();
+  });
+
   it("collapses to the pin control", () => {
     const { onPinnedChange } = renderSidebar(true);
     expect(screen.getByText("Toys")).toBeTruthy();

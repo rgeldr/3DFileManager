@@ -12,4 +12,5 @@ export { MissingFilesDialog } from "./MissingFilesDialog";
 export { DiskProgressDialog } from "./DiskProgressDialog";
 export { Toast } from "./Toast";
 export { FileContextMenu } from "./FileContextMenu";
+export { FolderContextMenu } from "./FolderContextMenu";
 export { ErrorDialog } from "./ErrorDialog";

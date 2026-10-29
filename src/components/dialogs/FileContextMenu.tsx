@@ -5,7 +5,7 @@ import { api } from "../../api";
 export function FileContextMenu({ app }: { app: LibraryModel }) {
   const {
     fileMenu, setFileMenu, setError, selected, files, settings, setExternalProgramsOpen,
-    setCreatorTarget, setCreatorValue, setFolderTagTarget, setFolderTagInput, openRenameFile, openContainingFolder,
+    setCreatorTarget, setCreatorValue, setFolderTagTarget, setFolderTagInput, openRenameFile,
   } = app;
   const programs = settings?.externalPrograms ?? [];
   const selectionTarget = (fileId: number) => {
@@ -21,17 +21,6 @@ export function FileContextMenu({ app }: { app: LibraryModel }) {
       {fileMenu
         ? createPortal(
             <div className="file-context-menu" style={{ left: fileMenu.x, top: fileMenu.y }} role="menu">
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  const fileId = fileMenu.fileId;
-                  setFileMenu(null);
-                  void api.openInDefaultApp(fileId).catch((err) => setError(String(err)));
-                }}
-              >
-                Open
-              </button>
               <div
                 className="menu-branch"
                 onMouseEnter={(event) => {
@@ -85,17 +74,6 @@ export function FileContextMenu({ app }: { app: LibraryModel }) {
                 }}
               >
                 Show in Explorer
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  const fileId = fileMenu.fileId;
-                  setFileMenu(null);
-                  openContainingFolder(fileId);
-                }}
-              >
-                Open containing folder
               </button>
               <button
                 type="button"

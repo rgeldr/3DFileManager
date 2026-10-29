@@ -37,6 +37,12 @@
   transform: rotate(90deg);
 }
 
+.folder-row > .folder-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+}
+
 .folder-label {
   flex: 1;
   min-width: 0;

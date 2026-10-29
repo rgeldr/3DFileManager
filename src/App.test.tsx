@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LibraryModel } from "./hooks/useLibrary";
 import type { Settings } from "./types";
@@ -49,7 +49,16 @@ vi.mock("./components/Sidebar", () => ({
 }));
 
 vi.mock("./components/FileGrid", () => ({
-  FileGrid: () => <div data-testid="file-grid" />,
+  FileGrid: ({
+    onFolderContextMenu,
+  }: {
+    onFolderContextMenu?: (event: { clientX: number; clientY: number }, folderId: number) => void;
+  }) => (
+    <div
+      data-testid="file-grid"
+      onContextMenu={(event) => onFolderContextMenu?.(event, 4)}
+    />
+  ),
 }));
 
 vi.mock("./components/Inspector", () => ({
@@ -86,6 +95,8 @@ vi.mock("./components/dialogs", () => ({
   DragFailureDialog: () => null,
   ErrorDialog: () => null,
   FileContextMenu: () => null,
+  FolderContextMenu: ({ menu }: { menu: { folderId: number } | null }) =>
+    menu ? <div role="menu">folder {menu.folderId}</div> : null,
   FolderTagDialog: () => null,
   ImportProgressDialog: () => null,
   ImportSummaryDialog: () => null,
@@ -214,5 +225,18 @@ describe("AppShell", () => {
     expect(screen.getByTestId("sidebar")).toBeTruthy();
     expect(screen.getByTestId("file-grid")).toBeTruthy();
     expect(screen.getByTestId("inspector")).toBeTruthy();
+  });
+
+  it("opens the existing folder menu when a grid folder is right-clicked", () => {
+    render(
+      <AppShell
+        app={libraryModel({
+          settings: { ...baseSettings, libraryRoot: "/library" },
+        })}
+      />,
+    );
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.contextMenu(screen.getByTestId("file-grid"));
+    expect(screen.getByRole("menu").textContent).toBe("folder 4");
   });
 });
