@@ -156,6 +156,7 @@ export function FileGrid({
   onOpenFolder,
   onSort,
   onContextMenu,
+  onFolderContextMenu,
 }: {
   files: FileRow[];
   folders: FolderRow[];
@@ -175,6 +176,7 @@ export function FileGrid({
   onOpenFolder?: (id: number) => void;
   onSort?: (field: SortField) => void;
   onContextMenu?: (event: React.MouseEvent, file: FileRow) => void;
+  onFolderContextMenu?: (event: React.MouseEvent, folderId: number) => void;
 }) {
   const [scrollRoot, setScrollRoot] = useState<HTMLElement | null>(null);
   const [frame, setFrame] = useState({ width: 0, height: 0, scrollTop: 0 });
@@ -383,6 +385,11 @@ export function FileGrid({
     onOpenFolder?.(id);
   };
 
+  const folderContext = (id: number) => (event: React.MouseEvent) => {
+    event.preventDefault();
+    onFolderContextMenu?.(event, id);
+  };
+
   if (items.length === 0) {
     return (
       <div className="empty">
@@ -411,6 +418,7 @@ export function FileGrid({
                     isFolder
                     dataFolderId={item.folder.id}
                     onDoubleClick={folderDoubleClick(item.folder.id)}
+                    onContextMenu={folderContext(item.folder.id)}
                   />
                 );
               }
@@ -461,6 +469,7 @@ export function FileGrid({
                     key={`folder-${item.folder.id}`}
                     folder={item.folder}
                     onDoubleClick={folderDoubleClick(item.folder.id)}
+                    onContextMenu={folderContext(item.folder.id)}
                   />
                 );
               }
@@ -504,6 +513,7 @@ export function FileGrid({
                   draggable={false}
                   onDragStart={(event) => event.preventDefault()}
                   onDoubleClick={folderDoubleClick(folder.id)}
+                  onContextMenu={folderContext(folder.id)}
                 >
                   <div className="thumb">
                     <FolderIcon />

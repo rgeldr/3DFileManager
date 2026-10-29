@@ -329,6 +329,69 @@ describe("FileGrid", () => {
     scroller.remove();
   });
 
+  it("opens the app folder menu on right-click and still opens the folder on double-click", () => {
+    const onFolderContextMenu = vi.fn();
+    const onOpenFolder = vi.fn();
+    const onContextMenu = vi.fn();
+    const folder = { id: 4, name: "Clock", parentId: null };
+    for (const viewMode of ["large", "list", "details"] as const) {
+      const scroller = document.createElement("div");
+      sizeScroller(scroller, 0);
+      document.body.appendChild(scroller);
+      const view = render(
+        <FileGrid
+          {...gridBase({
+            view: viewMode,
+            folders: [folder],
+            scrollRootRef: { current: scroller },
+            onFolderContextMenu,
+            onOpenFolder,
+            onContextMenu,
+          })}
+        />,
+        { container: scroller },
+      );
+      const row = view.container.querySelector("[data-folder-id='4']") as HTMLElement;
+      fireEvent.contextMenu(row);
+      expect(onFolderContextMenu).toHaveBeenCalledTimes(1);
+      expect(onFolderContextMenu.mock.calls[0][0].defaultPrevented).toBe(true);
+      expect(onFolderContextMenu.mock.calls[0][1]).toBe(4);
+      expect(onContextMenu).not.toHaveBeenCalled();
+      fireEvent.doubleClick(row);
+      expect(onOpenFolder).toHaveBeenCalledWith(4);
+      onFolderContextMenu.mockClear();
+      onOpenFolder.mockClear();
+      onContextMenu.mockClear();
+      view.unmount();
+      scroller.remove();
+    }
+  });
+
+  it("opens a file on double-click without using the context menu", () => {
+    const scroller = document.createElement("div");
+    sizeScroller(scroller, 0);
+    document.body.appendChild(scroller);
+    const onOpen = vi.fn();
+    const onContextMenu = vi.fn();
+    const view = render(
+      <FileGrid
+        {...gridBase({
+          files: [file({ id: 9, sortName: "darth" })],
+          scrollRootRef: { current: scroller },
+          onOpen,
+          onContextMenu,
+        })}
+      />,
+      { container: scroller },
+    );
+    const tile = view.container.querySelector("[data-file-id='9']") as HTMLElement;
+    fireEvent.doubleClick(tile);
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: 9 }));
+    expect(onContextMenu).not.toHaveBeenCalled();
+    view.unmount();
+    scroller.remove();
+  });
+
   it("renders five aligned columns in details header and rows", () => {
     const files = [
       file({

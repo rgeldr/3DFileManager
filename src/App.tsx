@@ -1,4 +1,4 @@
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import { useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "./api";
 import { Breadcrumb } from "./components/Breadcrumb";
@@ -19,6 +19,7 @@ import {
   DragFailureDialog,
   ErrorDialog,
   FileContextMenu,
+  FolderContextMenu,
   FolderTagDialog,
   ImportProgressDialog,
   ImportSummaryDialog,
@@ -115,6 +116,7 @@ export function AppShell({ app }: { app: LibraryModel }) {
     dropTarget,
     onPointerDown
   } = app;
+  const [gridFolderMenu, setGridFolderMenu] = useState<{ x: number; y: number; folderId: number } | null>(null);
   const thumbQueue = useThumbQueueCount(ready && Boolean(settings?.libraryRoot));
   const subfolders = centerSubfolders({
     folders,
@@ -229,6 +231,43 @@ export function AppShell({ app }: { app: LibraryModel }) {
     );
   }
 
+  const onRevealFolder = (folderId: number | null) => {
+    void api.revealFolder(folderId).catch((err) => setError(String(err)));
+  };
+  const onRescanFolder = (folderId: number | null) => {
+    const name = folderId == null
+      ? libraryName
+      : folders.find((item) => item.id === folderId)?.name ?? "folder";
+    void runDiskOp({
+      title: `Rescanning "${name}"...`,
+      cancellable: true,
+      success: "Rescan finished",
+      cancelled: "Rescan cancelled",
+      run: () => (folderId == null ? api.rescanLibrary() : api.rescanFolder(folderId)),
+      after: async () => {
+        await refreshLists();
+      },
+      tree: true,
+    });
+  };
+  const onTagFolder = (folderId: number | null) => {
+    const name =
+      folderId === null
+        ? libraryName
+        : folders.find((item) => item.id === folderId)?.name ?? "Folder";
+    setFolderTagInput("");
+    setFolderTagTarget({ folderId, name });
+  };
+  const onSetFolderCreator = (folderId: number | null) => {
+    const name =
+      folderId === null
+        ? libraryName
+        : folders.find((item) => item.id === folderId)?.name ?? "Folder";
+    setCreatorValue("");
+    setIncludeSubfolders(true);
+    setCreatorTarget({ folderId, name });
+  };
+
   return (
     <div
       className="app"
@@ -273,42 +312,10 @@ export function AppShell({ app }: { app: LibraryModel }) {
           setSettings((current) => (current ? { ...current, sidebarPinned: next } : current));
           void api.setSidebarPinned(next).catch((err) => setError(String(err)));
         }}
-        onReveal={(folderId) => {
-          void api.revealFolder(folderId).catch((err) => setError(String(err)));
-        }}
-        onRescan={(folderId) => {
-          const name = folderId == null
-            ? libraryName
-            : folders.find((item) => item.id === folderId)?.name ?? "folder";
-          void runDiskOp({
-            title: `Rescanning "${name}"...`,
-            cancellable: true,
-            success: "Rescan finished",
-            cancelled: "Rescan cancelled",
-            run: () => (folderId == null ? api.rescanLibrary() : api.rescanFolder(folderId)),
-            after: async () => {
-              await refreshLists();
-            },
-            tree: true,
-          });
-        }}
-        onTagFolder={(folderId) => {
-          const name =
-            folderId === null
-              ? libraryName
-              : folders.find((item) => item.id === folderId)?.name ?? "Folder";
-          setFolderTagInput("");
-          setFolderTagTarget({ folderId, name });
-        }}
-        onSetCreator={(folderId) => {
-          const name =
-            folderId === null
-              ? libraryName
-              : folders.find((item) => item.id === folderId)?.name ?? "Folder";
-          setCreatorValue("");
-          setIncludeSubfolders(true);
-          setCreatorTarget({ folderId, name });
-        }}
+        onReveal={onRevealFolder}
+        onRescan={onRescanFolder}
+        onTagFolder={onTagFolder}
+        onSetCreator={onSetFolderCreator}
         onMoveFolder={(id, parentId) => {
           const name = folders.find((item) => item.id === id)?.name ?? "folder";
           const expandKey = parentId == null ? "root" : `folder:${parentId}`;
@@ -476,7 +483,12 @@ export function AppShell({ app }: { app: LibraryModel }) {
               }}
               onContextMenu={(event, file) => {
                 if (!selected.includes(file.id)) onSelect(file.id, "replace");
+                setGridFolderMenu(null);
                 setFileMenu({ x: event.clientX, y: event.clientY, fileId: file.id });
+              }}
+              onFolderContextMenu={(event, folderId) => {
+                setFileMenu(null);
+                setGridFolderMenu({ x: event.clientX, y: event.clientY, folderId });
               }}
             />
           </div>
@@ -589,6 +601,17 @@ export function AppShell({ app }: { app: LibraryModel }) {
       <DiskProgressDialog app={app} />
       <Toast app={app} />
       <FileContextMenu app={app} />
+      <FolderContextMenu
+        menu={gridFolderMenu}
+        onClose={() => setGridFolderMenu(null)}
+        onNewInFolder={openNewFolderPrompt}
+        onRenameFolder={openRenameFolderPrompt}
+        onDeleteFolder={openDeleteFolderConfirm}
+        onTagFolder={onTagFolder}
+        onSetCreator={onSetFolderCreator}
+        onReveal={onRevealFolder}
+        onRescan={onRescanFolder}
+      />
       <ErrorDialog app={app} />
     </div>
   );

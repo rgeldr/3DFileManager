@@ -32,7 +32,6 @@ function app(selected: number[], fileId: number, programs: ExternalProgram[] = [
     setFolderTagTarget: vi.fn(),
     setFolderTagInput: vi.fn(),
     openRenameFile: vi.fn(),
-    openContainingFolder: vi.fn(),
     setExternalProgramsOpen: vi.fn(),
     setError: vi.fn(),
   };
@@ -87,15 +86,20 @@ describe("File context menu", () => {
     });
   });
 
-  it("opens the clicked file's folder under Show in Explorer", () => {
-    const { model, calls } = app([1, 2], 2);
+  it("keeps Show in Explorer and drops Open and Open containing folder", () => {
+    const { model } = app([1, 2], 2);
     render(<FileContextMenu app={model} />);
     const items = screen.getAllByRole("menuitem").map((item) => item.textContent);
-    const show = items.indexOf("Show in Explorer");
-    expect(items[show + 1]).toBe("Open containing folder");
-    fireEvent.click(screen.getByRole("menuitem", { name: "Open containing folder" }));
-    expect(calls.setFileMenu).toHaveBeenCalledWith(null);
-    expect(calls.openContainingFolder).toHaveBeenCalledWith(2);
+    expect(items).toEqual([
+      "Open in…",
+      "Configure programs…",
+      "Show in Explorer",
+      "Rename",
+      "Set Creator…",
+      "Add tags…",
+    ]);
+    expect(screen.queryByRole("menuitem", { name: "Open" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Open containing folder" })).toBeNull();
   });
 
   it("renames the clicked file", () => {
@@ -110,7 +114,7 @@ describe("File context menu", () => {
     const { model, calls } = app([1, 2], 1);
     render(<FileContextMenu app={model} />);
     const items = screen.getAllByRole("menuitem").map((item) => item.textContent);
-    expect(items.indexOf("Open") + 1).toBe(items.indexOf("Open in…"));
+    expect(items[0]).toBe("Open in…");
     fireEvent.click(screen.getByRole("menuitem", { name: "Configure programs…" }));
     expect(calls.setFileMenu).toHaveBeenCalledWith(null);
     expect(calls.setExternalProgramsOpen).toHaveBeenCalledWith(true);
@@ -153,7 +157,7 @@ describe("File context menu", () => {
     const { model, calls } = app([1, 2], 2, [orca, bambu, prusa]);
     render(<FileContextMenu app={model} />);
     const items = screen.getAllByRole("menuitem").map((item) => item.textContent);
-    expect(items.slice(0, 5)).toEqual(["Open", "Open in…", "OrcaSlicer", "Bambu Studio", "PrusaSlicer"]);
+    expect(items.slice(0, 4)).toEqual(["Open in…", "OrcaSlicer", "Bambu Studio", "PrusaSlicer"]);
     fireEvent.click(screen.getByRole("menuitem", { name: "PrusaSlicer" }));
     expect(openInProgram).toHaveBeenCalledTimes(1);
     expect(openInProgram).toHaveBeenCalledWith(2, "prusa");

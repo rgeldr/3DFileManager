@@ -194,9 +194,11 @@ export function DetailsRow({
 export function DetailsFolderRow({
   folder,
   onDoubleClick,
+  onContextMenu,
 }: {
   folder: FolderRow;
   onDoubleClick?: (event: React.MouseEvent) => void;
+  onContextMenu?: (event: React.MouseEvent) => void;
 }) {
   return (
     <button
@@ -207,6 +209,7 @@ export function DetailsFolderRow({
       draggable={false}
       onDragStart={(event) => event.preventDefault()}
       onDoubleClick={onDoubleClick}
+      onContextMenu={onContextMenu}
     >
       <span className="details-col-name">
         <FolderIcon size={16} />

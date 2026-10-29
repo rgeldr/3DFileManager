@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import type { FolderRow } from "../types";
+import { FolderContextMenu } from "./dialogs/FolderContextMenu";
+import { FolderIcon } from "./FileGridRows";
 import { PinIcon } from "./Inspector";
 
 type FolderContextMenu = { x: number; y: number; folderId: number | null };
@@ -150,28 +151,6 @@ export function Sidebar({
     }, 500);
     return () => window.clearTimeout(timer);
   }, [effectiveDropTarget, hasChildren]);
-
-  useEffect(() => {
-    if (!contextMenu) return;
-    const close = () => setContextMenu(null);
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
-    };
-    const onPointer = (event: PointerEvent) => {
-      const menu = document.querySelector(".folder-context-menu");
-      if (menu?.contains(event.target as Node)) return;
-      close();
-    };
-    const scrollEl = scrollRef.current;
-    window.addEventListener("pointerdown", onPointer);
-    window.addEventListener("keydown", onKey);
-    scrollEl?.addEventListener("scroll", close, { passive: true });
-    return () => {
-      window.removeEventListener("pointerdown", onPointer);
-      window.removeEventListener("keydown", onKey);
-      scrollEl?.removeEventListener("scroll", close);
-    };
-  }, [contextMenu]);
 
   useEffect(() => {
     const onMove = (event: PointerEvent) => {
@@ -347,6 +326,7 @@ export function Sidebar({
             onContextMenu={(event) => openFolderContextMenu(event, browse, folder.id)}
           >
             {kids ? twist(key, open, folder.name) : twistSpacer()}
+            <FolderIcon size={16} />
             <span
               className="folder-label"
               title={folder.name}
@@ -405,6 +385,7 @@ export function Sidebar({
           onContextMenu={(event) => openFolderContextMenu(event, ROOT_KEY, null)}
         >
           {rootKids ? twist(ROOT_KEY, expanded.has(ROOT_KEY), libraryName) : twistSpacer()}
+          <FolderIcon size={16} />
           <span
             className="folder-label"
             title={libraryName}
@@ -415,91 +396,17 @@ export function Sidebar({
         </div>
         {expanded.has(ROOT_KEY) ? renderLevel(null, 1, ROOT_KEY) : null}
       </div>
-      {contextMenu
-        ? createPortal(
-            <div
-              className="folder-context-menu"
-              style={{ left: contextMenu.x, top: contextMenu.y }}
-              role="menu"
-            >
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  onNewInFolder(contextMenu.folderId);
-                  setContextMenu(null);
-                }}
-              >
-                New folder
-              </button>
-              {contextMenu.folderId !== null ? (
-                <>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      onRenameFolder(contextMenu.folderId!);
-                      setContextMenu(null);
-                    }}
-                  >
-                    Rename
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      onDeleteFolder(contextMenu.folderId!);
-                      setContextMenu(null);
-                    }}
-                  >
-                    Delete
-                  </button>
-                </>
-              ) : null}
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  onTagFolder(contextMenu.folderId);
-                  setContextMenu(null);
-                }}
-              >
-                Tag contents…
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  onSetCreator(contextMenu.folderId);
-                  setContextMenu(null);
-                }}
-              >
-                Set Creator…
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  onReveal(contextMenu.folderId);
-                  setContextMenu(null);
-                }}
-              >
-                Show in Explorer
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  onRescan(contextMenu.folderId);
-                  setContextMenu(null);
-                }}
-              >
-                Rescan
-              </button>
-            </div>,
-            document.body,
-          )
-        : null}
+      <FolderContextMenu
+        menu={contextMenu}
+        onClose={() => setContextMenu(null)}
+        onNewInFolder={onNewInFolder}
+        onRenameFolder={onRenameFolder}
+        onDeleteFolder={onDeleteFolder}
+        onTagFolder={onTagFolder}
+        onSetCreator={onSetCreator}
+        onReveal={onReveal}
+        onRescan={onRescan}
+      />
     </aside>
   );
 }
