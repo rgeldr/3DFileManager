@@ -4,9 +4,34 @@ import { fileURLToPath } from "node:url";
 import * as THREE from "three";
 import { ThreeMFLoader } from "three/addons/loaders/3MFLoader.js";
 import { strToU8, zipSync } from "three/examples/jsm/libs/fflate.module.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PREVIEW_MESH_HEX } from "./previewLights";
-import { applyPreviewMaterials, paintColorState, prepareLoadedPreview } from "./previewMaterials";
+import {
+  alreadyColored,
+  applyBambuFilamentColors,
+  applyPreviewMaterials,
+  channelUsable,
+  childMetadata,
+  colorFromMaterial,
+  disposeMaterial,
+  ensureNormals,
+  extruderOf,
+  fallbackLinear,
+  filamentColor,
+  linearHex,
+  materialsFor,
+  normalsAreZero,
+  paintColorState,
+  paintMesh,
+  parseXml,
+  positiveInt,
+  prepareLoadedPreview,
+  readExtruders,
+  readFilaments,
+  readPaintRecords,
+  triangleCount,
+  usableVertexColors,
+} from "./previewMaterials";
 
 const RELS = `<?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
@@ -245,5 +270,150 @@ describe("3MF preview colors", () => {
     for (const file of ["components/Viewer.tsx", "workers/meshParse.worker.ts", "lib/renderThumb.ts"]) {
       expect(readFileSync(join(root, file), "utf8")).toContain("prepareLoadedPreview");
     }
+  });
+});
+
+describe("preview material helpers", () => {
+  it("accepts a finite color above black and ignores a zero normal", () => {
+    expect(channelUsable(0, 0, 0)).toBe(false);
+    expect(channelUsable(0.02, 0, 0)).toBe(false);
+    expect(channelUsable(0.03, 0, 0)).toBe(true);
+    expect(channelUsable(Number.NaN, 1, 1)).toBe(false);
+    const zero = new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3);
+    const up = new THREE.BufferAttribute(new Float32Array([0, 1, 0]), 3);
+    expect(normalsAreZero(zero)).toBe(true);
+    expect(normalsAreZero(up)).toBe(false);
+  });
+
+  it("reads usable vertex colors and named material colors", () => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3));
+    expect(usableVertexColors(geometry)).toBe(false);
+    geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array([0, 0, 0, 0, 0, 0, 0, 0, 0]), 3));
+    expect(usableVertexColors(geometry)).toBe(false);
+    geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array([1, 0, 0, 0, 0, 0, 0, 0, 0]), 3));
+    expect(usableVertexColors(geometry)).toBe(true);
+    geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array([1, 0, 0]), 3));
+    expect(usableVertexColors(geometry)).toBe(false);
+
+    expect(colorFromMaterial(undefined)).toBeNull();
+    expect(colorFromMaterial(new THREE.MeshBasicMaterial({ color: "#ffffff" }))).toBeNull();
+    expect(colorFromMaterial(new THREE.MeshBasicMaterial({ color: "#000000", name: "ink" }))).toBeNull();
+    expect(colorFromMaterial(new THREE.MeshPhongMaterial({ color: "#ff0000", name: "red" }))?.getHexString()).toBe("ff0000");
+  });
+
+  it("parses filament metadata and linear colors", () => {
+    const red = new THREE.Color("#ff0000");
+    expect(linearHex("#ff0000")).toEqual([red.r, red.g, red.b]);
+    expect(linearHex("#000000")).toBeNull();
+    expect(linearHex("red")).toBeNull();
+    const grey = new THREE.Color(PREVIEW_MESH_HEX);
+    expect(fallbackLinear(PREVIEW_MESH_HEX)).toEqual([grey.r, grey.g, grey.b]);
+    expect(positiveInt(null)).toBeNull();
+    expect(positiveInt("0")).toBeNull();
+    expect(positiveInt("1.5")).toBeNull();
+    expect(positiveInt("2")).toBe(2);
+    expect(parseXml("<root></not-root>")).toBeNull();
+    const doc = parseXml(
+      `<object id="9"><metadata key="extruder" value="2"/><part id="1"><metadata key="extruder" value="3"/></part></object>`,
+    );
+    const object = doc?.querySelector("object");
+    expect(object).toBeTruthy();
+    expect(childMetadata(object!, "extruder")).toBe("2");
+    expect(childMetadata(object!, "missing")).toBeNull();
+    expect(extruderOf(object!)).toBe(3);
+    const many = parseXml(`<object id="4"><metadata key="extruder" value="2"/><part/><part/></object>`);
+    expect(extruderOf(many!.querySelector("object")!)).toBe(2);
+  });
+
+  it("reads Bambu filaments, extruders, and paint records", () => {
+    const entries = {
+      "3D/3dmodel.model": strToU8(BAMBU),
+      "Metadata/project_settings.config": strToU8(PROJECT_SETTINGS),
+      "Metadata/model_settings.config": strToU8(MODEL_SETTINGS),
+    };
+    expect(readFilaments({})).toEqual([]);
+    expect(readFilaments({ "Metadata/project_settings.config": strToU8("{") })).toEqual([]);
+    expect(readFilaments(entries)).toEqual(["#E23D28", "#2F6BFF", "#000000"]);
+    expect(readExtruders({}).size).toBe(0);
+    expect(readExtruders(entries).get("1")).toBe(1);
+    expect(filamentColor(["#E23D28", "#2F6BFF"], 1, null)).toEqual(linearHex("#E23D28"));
+    expect(filamentColor(["#E23D28", "#2F6BFF"], 0, 2)).toEqual(linearHex("#2F6BFF"));
+    expect(filamentColor(["#E23D28"], 0, null)).toBeNull();
+    expect(filamentColor(["#000000"], 1, null)).toBeNull();
+    const records = readPaintRecords(entries, readFilaments(entries), readExtruders(entries), fallbackLinear(PREVIEW_MESH_HEX));
+    expect(records.map((record) => record.name)).toEqual(["Skeleton"]);
+    expect(records[0].colors[0]).toEqual(linearHex("#E23D28"));
+    expect(records[0].colors[1]).toEqual(linearHex("#2F6BFF"));
+    expect(records[0].colors[2]).toEqual(linearHex("#E23D28"));
+  });
+
+  it("paints a mesh from triangle colors and builds preview materials", () => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(18), 3));
+    geometry.setIndex(new THREE.BufferAttribute(new Uint16Array([0, 1, 2, 3, 4, 5]), 1));
+    expect(triangleCount(geometry)).toBe(2);
+    const plain = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
+    expect(alreadyColored(plain)).toBe(false);
+    const red = linearHex("#ff0000")!;
+    const green = linearHex("#00ff00")!;
+    paintMesh(plain, [red, red]);
+    expect((plain.material as THREE.MeshStandardMaterial).color.r).toBeCloseTo(red[0]);
+    expect(plain.geometry.getAttribute("color")).toBeFalsy();
+
+    const varied = new THREE.Mesh(
+      new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(18), 3)),
+      new THREE.MeshStandardMaterial(),
+    );
+    paintMesh(varied, [red, green]);
+    expect(varied.geometry.getAttribute("color").count).toBe(6);
+    expect(varied.geometry.getIndex()).toBeNull();
+    expect(alreadyColored(varied)).toBe(true);
+
+    const colored = new THREE.BufferGeometry();
+    colored.setAttribute("position", new THREE.BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3));
+    colored.setAttribute("color", new THREE.BufferAttribute(new Float32Array([1, 0, 0, 0, 0, 0, 0, 0, 0]), 3));
+    expect(ensureNormals(colored)).toBe(true);
+    const vertexMesh = new THREE.Mesh(colored, new THREE.MeshBasicMaterial());
+    const vertexMaterial = materialsFor(vertexMesh, [], PREVIEW_MESH_HEX) as THREE.MeshStandardMaterial;
+    expect(vertexMaterial.vertexColors).toBe(true);
+
+    const grouped = new THREE.BufferGeometry();
+    grouped.setAttribute("position", new THREE.BufferAttribute(new Float32Array(18), 3));
+    grouped.addGroup(0, 3, 0);
+    grouped.addGroup(3, 3, 1);
+    const sources = [
+      new THREE.MeshPhongMaterial({ color: "#ff0000", name: "red" }),
+      new THREE.MeshPhongMaterial({ color: "#0000ff", name: "blue" }),
+    ];
+    const made = materialsFor(new THREE.Mesh(grouped, sources), sources, PREVIEW_MESH_HEX) as THREE.MeshStandardMaterial[];
+    expect(made.map((material) => material.color.getHexString())).toEqual(["ff0000", "0000ff"]);
+
+    const map = new THREE.Texture();
+    const mapDispose = vi.spyOn(map, "dispose");
+    const material = new THREE.MeshStandardMaterial({ map });
+    const materialDispose = vi.spyOn(material, "dispose");
+    disposeMaterial(material);
+    expect(mapDispose).toHaveBeenCalledOnce();
+    expect(materialDispose).toHaveBeenCalledOnce();
+  });
+
+  it("applyBambuFilamentColors copies paint onto an uncolored mesh with the same triangle count", () => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(27), 3));
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
+    mesh.name = "Skeleton";
+    const root = new THREE.Group();
+    root.add(mesh);
+    const buffer = zip3mf({
+      "3D/3dmodel.model": BAMBU,
+      "Metadata/project_settings.config": PROJECT_SETTINGS,
+      "Metadata/model_settings.config": MODEL_SETTINGS,
+    });
+    applyBambuFilamentColors(root, buffer, PREVIEW_MESH_HEX);
+    expect(mesh.geometry.getAttribute("color").count).toBe(9);
+    expect(triangleHexes(mesh)).toEqual(["e23d28", "2f6bff", "e23d28"]);
+    applyBambuFilamentColors(root, new ArrayBuffer(4), PREVIEW_MESH_HEX);
+    expect(mesh.geometry.getAttribute("color").count).toBe(9);
   });
 });

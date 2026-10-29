@@ -5,7 +5,7 @@ import type { LibraryModel } from "../../hooks/useLibrary";
 import type { LibraryStats } from "../../types";
 import { Modal } from "./Modal";
 
-function formatAboutSize(bytes: number): string {
+export function formatAboutSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const units = ["KB", "MB", "GB", "TB"];
   let value = bytes / 1024;

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRef, useRef } from "react";
-import { FilterPopover } from "./FilterPopover";
+import { FilterPopover, roundBox, sameBox } from "./FilterPopover";
 import { TagFilter } from "./TagFilter";
 import { TypeFilter } from "./TypeFilter";
 import { mergeTypeCounts } from "../lib/typeFilter";
@@ -34,6 +34,16 @@ function rect(values: Partial<DOMRect>): DOMRect {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+
+describe("roundBox and sameBox", () => {
+  it("rounds placement and treats equal boxes as the same", () => {
+    const rounded = roundBox({ top: 1.2, left: 2.6, width: 3.4, maxHeight: 4.5 });
+    expect(rounded).toEqual({ top: 1, left: 3, width: 3, maxHeight: 5 });
+    expect(sameBox(null, rounded)).toBe(false);
+    expect(sameBox(rounded, rounded)).toBe(true);
+    expect(sameBox(rounded, { ...rounded, maxHeight: rounded.maxHeight + 1 })).toBe(false);
+  });
 });
 
 describe("FilterPopover", () => {

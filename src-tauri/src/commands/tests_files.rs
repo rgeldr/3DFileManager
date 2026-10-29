@@ -58,3 +58,60 @@
         assert!(items[0].path.ends_with("keep.stl"));
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn list_args_default_to_any_tag_match_and_ascending_sort() {
+        assert_eq!(default_tag_match(), "any");
+        assert_eq!(default_sort_direction(), "asc");
+        let omitted: ListFilesArgs = serde_json::from_str(
+            r#"{"folder":"root","query":"q","creator":"c","tag":"t","sort":"name"}"#,
+        )
+        .unwrap();
+        assert_eq!(omitted.tag_match, default_tag_match());
+        assert_eq!(omitted.sort_direction, default_sort_direction());
+        assert!(omitted.tag_ids.is_empty());
+        assert!(omitted.exts.is_empty());
+        assert_eq!(omitted.offset, 0);
+        assert!(omitted.limit.is_none());
+        let given: ListFilesArgs = serde_json::from_str(
+            r#"{"folder":"all","query":"","creator":"","tag":"","sort":"name","tagMatch":"all","sortDirection":"desc","offset":3,"limit":10}"#,
+        )
+        .unwrap();
+        assert_eq!(given.tag_match, "all");
+        assert_eq!(given.sort_direction, "desc");
+        assert_eq!(given.offset, 3);
+        assert_eq!(given.limit, Some(10));
+    }
+
+    fn folder_filter_err(folder: &str, folder_id: Option<i64>) -> String {
+        match folder_filter(folder, folder_id) {
+            Err(err) => err,
+            Ok(_) => panic!("folder filter {folder} was accepted"),
+        }
+    }
+
+    #[test]
+    fn folder_filter_maps_known_scopes_and_rejects_a_missing_id() {
+        assert!(matches!(folder_filter("all", None).unwrap(), FolderFilter::All));
+        assert!(matches!(folder_filter("root", Some(4)).unwrap(), FolderFilter::Root));
+        assert!(matches!(folder_filter("id", Some(7)).unwrap(), FolderFilter::Id(7)));
+        assert!(matches!(
+            folder_filter("subtree", Some(9)).unwrap(),
+            FolderFilter::Subtree(9)
+        ));
+        assert_eq!(folder_filter_err("id", None), "Missing folder id");
+        assert_eq!(folder_filter_err("subtree", None), "Missing folder id");
+        assert_eq!(folder_filter_err("nope", Some(1)), "Unknown folder filter.");
+        assert_eq!(folder_filter_err("All", None), "Unknown folder filter.");
+    }
+
+    #[test]
+    fn tag_match_mode_accepts_any_and_all_ignoring_case() {
+        assert_eq!(tag_match_mode("any").unwrap(), db::TagMatch::Any);
+        assert_eq!(tag_match_mode("").unwrap(), db::TagMatch::Any);
+        assert_eq!(tag_match_mode("ANY").unwrap(), db::TagMatch::Any);
+        assert_eq!(tag_match_mode("all").unwrap(), db::TagMatch::All);
+        assert_eq!(tag_match_mode("All").unwrap(), db::TagMatch::All);
+        assert_eq!(tag_match_mode("none").unwrap_err(), "Unknown tag match.");
+        assert_eq!(tag_match_mode(" any").unwrap_err(), "Unknown tag match.");
+    }

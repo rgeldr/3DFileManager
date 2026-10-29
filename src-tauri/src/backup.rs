@@ -406,4 +406,164 @@ mod tests {
         assert!(dir_is_empty(&dest).unwrap());
         let _ = fs::remove_dir_all(base);
     }
+
+    #[test]
+    fn manifest_and_sqlite_path_literal_round_trip() {
+        let manifest = BackupManifest::new();
+        assert_eq!(manifest.format, BACKUP_FORMAT);
+        assert_eq!(manifest.version, BACKUP_VERSION);
+        assert_eq!(
+            manifest.excludes,
+            vec!["thumbs".to_string(), "debug.log".to_string(), "tmp-import".to_string()]
+        );
+        let built = BackupManifest {
+            format: "other".into(),
+            version: 9,
+            excludes: vec!["thumbs".into()],
+        };
+        assert_eq!(built.format, "other");
+        assert_eq!(built.version, 9);
+        assert_eq!(built.excludes, vec!["thumbs".to_string()]);
+        assert_eq!(
+            sqlite_path_literal(Path::new(r"C:\O'Brien\lib.db")),
+            "C:/O''Brien/lib.db"
+        );
+
+        let dir = std::env::temp_dir().join(format!("filelib-manifest-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let missing = load_manifest(&dir).unwrap_err();
+        assert!(missing.contains("manifest.json"), "{missing}");
+        fs::write(dir.join(MANIFEST_NAME), b"{}").unwrap();
+        let invalid = load_manifest(&dir).unwrap_err();
+        assert!(invalid.contains("invalid"), "{invalid}");
+        fs::write(
+            dir.join(MANIFEST_NAME),
+            serde_json::to_string(&manifest).unwrap(),
+        )
+        .unwrap();
+        let loaded = load_manifest(&dir).unwrap();
+        assert_eq!(loaded.format, manifest.format);
+        assert_eq!(loaded.version, manifest.version);
+        assert_eq!(loaded.excludes, manifest.excludes);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn vacuum_into_copies_a_readable_catalog() {
+        let (base, db, _) = scratch("vacuum");
+        db.insert_file("kept.stl", "kept.stl", "stl", 3, "sha-kept", 1, None, None)
+            .unwrap();
+        let dest = base.join("O'Brien").join("copy.db");
+        vacuum_into(&db.conn, &dest).unwrap();
+        assert!(dest.is_file());
+        let copied = Connection::open(&dest).unwrap();
+        let name: String = copied
+            .query_row("SELECT original_name FROM files", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(name, "kept.stl");
+        let still: String = db
+            .conn
+            .query_row("SELECT original_name FROM files", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(still, "kept.stl");
+        drop(copied);
+        drop(db);
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn replace_with_memory_db_drops_the_file_connection() {
+        let (base, mut db, _) = scratch("memory");
+        db.insert_file("kept.stl", "kept.stl", "stl", 3, "sha-kept", 1, None, None)
+            .unwrap();
+        db.conn
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .unwrap();
+        let data = base.join("data");
+        replace_with_memory_db(&mut db, &data).unwrap();
+        let file: String = db
+            .conn
+            .query_row(
+                "SELECT file FROM pragma_database_list WHERE name = 'main'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(file.is_empty(), "{file}");
+        assert!(db
+            .conn
+            .query_row::<i64, _, _>("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+            .is_err());
+        let check = Connection::open(data.join(DB_NAME)).unwrap();
+        let name: String = check
+            .query_row("SELECT original_name FROM files", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(name, "kept.stl");
+        drop(check);
+        drop(db);
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn swap_live_catalog_replaces_the_open_database_and_settings() {
+        let (base, mut db, library) = scratch("swap");
+        db.insert_file("live-only.stl", "live-only.stl", "stl", 2, "live-sha", 1, None, None)
+            .unwrap();
+        db.conn
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .unwrap();
+        let staged_src = base.join("staged-src");
+        fs::create_dir_all(&staged_src).unwrap();
+        {
+            let staged = db::open(&staged_src).unwrap();
+            staged
+                .insert_file(
+                    "from-staged.stl",
+                    "from-staged.stl",
+                    "stl",
+                    4,
+                    "staged-sha",
+                    1,
+                    None,
+                    None,
+                )
+                .unwrap();
+            staged
+                .conn
+                .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+                .unwrap();
+        }
+        let data = base.join("data");
+        let staged_db = data.join("library.db.restore");
+        fs::copy(staged_src.join(DB_NAME), &staged_db).unwrap();
+        let mut thumbs = db::open(&data).unwrap();
+        let mut settings = db.settings();
+        settings.theme = "light".into();
+        settings.library_root = Some(library.to_string_lossy().to_string());
+        swap_live_catalog(&mut db, &mut thumbs, &data, &staged_db, &settings).unwrap();
+        assert!(!staged_db.exists());
+        let names: Vec<String> = db
+            .conn
+            .prepare("SELECT original_name FROM files ORDER BY original_name")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(names, vec!["from-staged.stl".to_string()]);
+        assert_eq!(db.settings().theme, "light");
+        assert_eq!(
+            db.settings().library_root.as_deref(),
+            Some(library.to_string_lossy().as_ref())
+        );
+        let thumb_count: i64 = thumbs
+            .conn
+            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(thumb_count, 1);
+        drop(thumbs);
+        drop(db);
+        let _ = fs::remove_dir_all(base);
+    }
 }

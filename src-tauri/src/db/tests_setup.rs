@@ -78,3 +78,65 @@
         assert!(!db.file_row_exists(gone).unwrap());
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn column_exists_reads_table_info() {
+        let (dir, db) = scratch_db("column-exists");
+        assert!(super::column_exists(&db.conn, "files", "sha256").unwrap());
+        assert!(super::column_exists(&db.conn, "tags", "auto_color").unwrap());
+        assert!(super::column_exists(&db.conn, "tags", "custom_color").unwrap());
+        assert!(!super::column_exists(&db.conn, "files", "not_a_column").unwrap());
+        assert!(!super::column_exists(&db.conn, "no_such_table", "id").unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn seed_default_folders_inserts_three_folders_once() {
+        let (dir, db) = scratch_db("seed-defaults");
+        db.seed_default_folders().unwrap();
+        let folders = db.list_folders().unwrap();
+        assert_eq!(folders.len(), 3);
+        assert_eq!(folders[0].name, "FDM Prints");
+        assert_eq!(folders[0].relpath, "FDM Prints");
+        assert_eq!(folders[0].sort_order, 0);
+        assert_eq!(folders[0].parent_id, None);
+        assert_eq!(folders[1].name, "Models");
+        assert_eq!(folders[1].sort_order, 1);
+        assert_eq!(folders[2].name, "Wargaming Terrain");
+        assert_eq!(folders[2].sort_order, 2);
+        let root = db.library_root().unwrap();
+        assert!(root.join("FDM Prints").is_dir());
+        assert!(root.join("Models").is_dir());
+        assert!(root.join("Wargaming Terrain").is_dir());
+        db.seed_default_folders().unwrap();
+        assert_eq!(db.list_folders().unwrap().len(), 3);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let (dir, db) = scratch_db("seed-skip");
+        db.create_folder(None, "Custom", 4).unwrap();
+        db.seed_default_folders().unwrap();
+        let only = db.list_folders().unwrap();
+        assert_eq!(only.len(), 1);
+        assert_eq!(only[0].name, "Custom");
+        assert_eq!(only[0].sort_order, 4);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bootstrap_struct_reports_settings_and_missing_count() {
+        let (dir, db) = scratch_db("bootstrap-struct");
+        let folder = db.create_folder(None, "Minis", 0).unwrap();
+        let id = db
+            .insert_file("gone.stl", "Minis/gone.stl", "stl", 1, "sha-boot", 1, Some(folder.id), None)
+            .unwrap();
+        db.mark_missing(id, true).unwrap();
+        let boot: Bootstrap = db.bootstrap().unwrap();
+        assert_eq!(boot.missing_count, 1);
+        assert_eq!(boot.folders.len(), 1);
+        assert_eq!(boot.folders[0].id, folder.id);
+        assert_eq!(boot.folders[0].name, "Minis");
+        assert_eq!(boot.folders[0].relpath, "Minis");
+        let root = boot.settings.library_root.expect("library root");
+        assert!(root.contains("library"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }

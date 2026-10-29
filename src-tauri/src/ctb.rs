@@ -132,4 +132,26 @@ mod tests {
         let img = image::load_from_memory(&png).unwrap();
         assert_eq!((img.width(), img.height()), (1, 1));
     }
+
+    #[test]
+    fn decode_preview_reads_one_rgb565_pixel_and_rejects_a_bad_header() {
+        let mut bytes = vec![0u8; 18];
+        bytes[0..4].copy_from_slice(&1u32.to_le_bytes());
+        bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
+        bytes[8..12].copy_from_slice(&16u32.to_le_bytes());
+        bytes[12..16].copy_from_slice(&2u32.to_le_bytes());
+        bytes[16..18].copy_from_slice(&0xF800u16.to_le_bytes());
+        let img = decode_preview(&bytes, 0).unwrap();
+        assert_eq!(img.dimensions(), (1, 1));
+        assert_eq!(img.get_pixel(0, 0).0, [0xF8, 0, 0, 255]);
+        assert!(decode_preview(&bytes, 10).is_none());
+        bytes[0..4].copy_from_slice(&0u32.to_le_bytes());
+        assert!(decode_preview(&bytes, 0).is_none());
+        bytes[0..4].copy_from_slice(&1u32.to_le_bytes());
+        bytes[4..8].copy_from_slice(&5000u32.to_le_bytes());
+        assert!(decode_preview(&bytes, 0).is_none());
+        bytes[4..8].copy_from_slice(&1u32.to_le_bytes());
+        bytes[12..16].copy_from_slice(&100u32.to_le_bytes());
+        assert!(decode_preview(&bytes, 0).is_none());
+    }
 }

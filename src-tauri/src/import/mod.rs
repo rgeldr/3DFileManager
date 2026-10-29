@@ -86,4 +86,5 @@ mod flow_tests {
     include!("flow_tests_plan.rs");
     include!("flow_tests_cleanup.rs");
     include!("flow_tests_store.rs");
+    include!("flow_tests_coverage.rs");
 }

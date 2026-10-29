@@ -17,6 +17,18 @@ afterEach(() => cleanup());
 
 describe("AppErrorBoundary", () => {
   it("logs the component stack and recovers without leaving a blank page", () => {
+    const error = new Error("filter exploded");
+    expect(AppErrorBoundary.getDerivedStateFromError(error)).toEqual({ error });
+    const boundary = new AppErrorBoundary({ children: null });
+    boundary.componentDidCatch(error, { componentStack: "\n    at Boom" });
+    expect(debugLog).toHaveBeenCalledWith(
+      "react-error",
+      expect.objectContaining({
+        message: "filter exploded",
+        componentStack: expect.stringContaining("Boom"),
+      }),
+    );
+
     const { rerender } = render(
       <AppErrorBoundary>
         <Boom crash />

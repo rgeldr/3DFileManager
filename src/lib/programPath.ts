@@ -1,9 +1,9 @@
-function windowsStyle(path: string): boolean {
+export function windowsStyle(path: string): boolean {
   if (path.startsWith("\\\\") || path.startsWith("//")) return true;
   return /^[A-Za-z]:/.test(path);
 }
 
-function collapseBackslashes(path: string): string {
+export function collapseBackslashes(path: string): string {
   return path.replace(/\\+/g, "\\");
 }
 

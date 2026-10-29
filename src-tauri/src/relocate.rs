@@ -310,4 +310,158 @@ mod tests {
         assert!(!to.exists());
         let _ = fs::remove_dir_all(base);
     }
+
+    #[test]
+    fn crosses_devices_matches_exdev_and_the_windows_codes() {
+        let cross = std::io::Error::new(std::io::ErrorKind::CrossesDevices, "cross");
+        assert!(crosses_devices(&cross));
+        assert!(crosses_devices(&std::io::Error::from_raw_os_error(17)));
+        assert!(crosses_devices(&std::io::Error::from_raw_os_error(18)));
+        let missing = std::io::Error::new(std::io::ErrorKind::NotFound, "missing");
+        assert!(!crosses_devices(&missing));
+    }
+
+    #[test]
+    fn copy_tree_and_move_file_report_disk_progress() {
+        let (base, from) = scratch();
+        let copied = base.join("copied");
+        let cancel = AtomicBool::new(false);
+        let mut names = Vec::new();
+        let cancelled = copy_tree(&from, &copied, &cancel, &mut |progress: DiskProgress| {
+            names.push((progress.name.clone(), progress.total, progress.bytes_total, progress.cancellable));
+        })
+        .unwrap();
+        assert!(!cancelled);
+        assert_eq!(names[0].0, "Counting files");
+        assert!(names[0].3);
+        assert_eq!(fs::read(copied.join("a.stl")).unwrap(), b"aaa");
+        assert_eq!(fs::read(copied.join("nested").join("b.stl")).unwrap(), b"bbbb");
+        assert_eq!(fs::read(from.join("a.stl")).unwrap(), b"aaa");
+        let stopped = AtomicBool::new(true);
+        let partial = base.join("partial");
+        assert!(copy_tree(&from, &partial, &stopped, &mut |_: DiskProgress| {}).unwrap());
+        assert!(!partial.exists());
+        assert!(from.join("nested").join("b.stl").is_file());
+
+        let one = base.join("one.stl");
+        let one_dest = base.join("one-copy.stl");
+        fs::write(&one, b"xyz").unwrap();
+        let mut bytes_done = 0u64;
+        let mut copied_progress = None;
+        let file_cancelled = copy_file(
+            &one,
+            &one_dest,
+            &cancel,
+            &mut bytes_done,
+            3,
+            0,
+            1,
+            "one.stl",
+            &mut |progress: DiskProgress| {
+                copied_progress = Some((
+                    progress.current,
+                    progress.total,
+                    progress.name,
+                    progress.bytes_done,
+                    progress.bytes_total,
+                    progress.cancellable,
+                ));
+            },
+        )
+        .unwrap();
+        assert!(!file_cancelled);
+        assert_eq!(bytes_done, 3);
+        assert_eq!(fs::read(&one_dest).unwrap(), b"xyz");
+        let early = AtomicBool::new(true);
+        let removed = base.join("removed.stl");
+        let mut untouched = 0u64;
+        assert!(copy_file(
+            &one,
+            &removed,
+            &early,
+            &mut untouched,
+            3,
+            0,
+            1,
+            "one.stl",
+            &mut |_: DiskProgress| {},
+        )
+        .unwrap());
+        assert!(!removed.exists());
+        assert_eq!(untouched, 0);
+        let err = copy_file(
+            Path::new("/tmp/filelib-no-such-copy-src"),
+            &base.join("nope.stl"),
+            &cancel,
+            &mut untouched,
+            0,
+            0,
+            1,
+            "nope.stl",
+            &mut |_: DiskProgress| {},
+        )
+        .unwrap_err();
+        assert!(!err.is_empty());
+
+        let moved = base.join("nested-out").join("a.stl");
+        let mut moved_bytes = 0u64;
+        let mut move_progress = None;
+        let move_cancelled = move_file(
+            &from.join("a.stl"),
+            &moved,
+            &cancel,
+            &mut moved_bytes,
+            3,
+            0,
+            1,
+            |progress: DiskProgress| {
+                move_progress = Some((
+                    progress.current,
+                    progress.total,
+                    progress.name,
+                    progress.bytes_done,
+                    progress.bytes_total,
+                    progress.cancellable,
+                ));
+            },
+        )
+        .unwrap();
+        assert!(!move_cancelled);
+        assert!(!from.join("a.stl").exists());
+        assert_eq!(fs::read(&moved).unwrap(), b"aaa");
+        assert_eq!(moved_bytes, 3);
+        assert_eq!(
+            move_progress,
+            Some((0, 1, "a.stl".to_string(), 3, 3, true))
+        );
+        let stay = from.join("nested").join("b.stl");
+        let mut held = 5u64;
+        assert!(move_file(
+            &stay,
+            &base.join("should-not-move.stl"),
+            &early,
+            &mut held,
+            4,
+            1,
+            2,
+            |_: DiskProgress| {},
+        )
+        .unwrap());
+        assert_eq!(fs::read(&stay).unwrap(), b"bbbb");
+        assert_eq!(held, 5);
+        assert!(!move_file(
+            &base.join("missing-source.stl"),
+            &base.join("missing-dest.stl"),
+            &cancel,
+            &mut held,
+            0,
+            0,
+            1,
+            |_: DiskProgress| {},
+        )
+        .unwrap());
+        assert!(!base.join("missing-dest.stl").exists());
+        let _ = copied_progress;
+        let _ = fs::remove_dir_all(base);
+    }
 }

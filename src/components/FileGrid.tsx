@@ -52,11 +52,11 @@ type MarqueeDrag = {
 
 type MarqueeBand = { left: number; top: number; width: number; height: number };
 
-function isGridSize(view: ViewMode): view is GridSize {
+export function isGridSize(view: ViewMode): view is GridSize {
   return view !== "list" && view !== "details";
 }
 
-function paddingOf(node: HTMLElement) {
+export function paddingOf(node: HTMLElement) {
   const style = getComputedStyle(node);
   return {
     left: parseFloat(style.paddingLeft) || 0,
@@ -64,7 +64,7 @@ function paddingOf(node: HTMLElement) {
   };
 }
 
-function fileIdAt(items: GridItem[], index: number): number | null {
+export function fileIdAt(items: GridItem[], index: number): number | null {
   const item = items[index];
   return item?.kind === "file" ? item.file.id : null;
 }

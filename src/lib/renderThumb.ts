@@ -8,7 +8,7 @@ import type { PackedMesh } from "../workers/meshParse.worker";
 
 export const MESH_BYTE_LIMIT = 150 * 1024 * 1024;
 
-function cssVar(name: string): string {
+export function cssVar(name: string): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   if (!value) {
     throw new Error(`Missing theme token ${name}`);
@@ -16,7 +16,7 @@ function cssVar(name: string): string {
   return value;
 }
 
-function fitCamera(camera: THREE.PerspectiveCamera, object: THREE.Object3D) {
+export function fitCamera(camera: THREE.PerspectiveCamera, object: THREE.Object3D) {
   const box = new THREE.Box3().setFromObject(object);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
@@ -34,7 +34,7 @@ function fitCamera(camera: THREE.PerspectiveCamera, object: THREE.Object3D) {
 let sharedRenderer: THREE.WebGLRenderer | null = null;
 let renderQueue: Promise<void> = Promise.resolve();
 
-function enqueueRender<T>(work: () => Promise<T>): Promise<T> {
+export function enqueueRender<T>(work: () => Promise<T>): Promise<T> {
   const run = renderQueue.then(work, work);
   renderQueue = run.then(
     () => undefined,
@@ -43,7 +43,7 @@ function enqueueRender<T>(work: () => Promise<T>): Promise<T> {
   return run;
 }
 
-function rendererForThumbs(): THREE.WebGLRenderer {
+export function rendererForThumbs(): THREE.WebGLRenderer {
   if (sharedRenderer && !sharedRenderer.getContext().isContextLost()) return sharedRenderer;
   discardMainRenderer();
   sharedRenderer = new THREE.WebGLRenderer({
@@ -55,7 +55,7 @@ function rendererForThumbs(): THREE.WebGLRenderer {
   return sharedRenderer;
 }
 
-function discardMainRenderer() {
+export function discardMainRenderer() {
   if (!sharedRenderer) return;
   const gl = sharedRenderer.getContext() as WebGLRenderingContext & { forceContextLoss?: () => void };
   sharedRenderer.dispose();
@@ -63,7 +63,7 @@ function discardMainRenderer() {
   sharedRenderer = null;
 }
 
-function groupFromPackedMeshes(meshes: PackedMesh[], material: THREE.Material): THREE.Group {
+export function groupFromPackedMeshes(meshes: PackedMesh[], material: THREE.Material): THREE.Group {
   const root = new THREE.Group();
   for (const mesh of meshes) {
     const geometry = new THREE.BufferGeometry();
@@ -84,7 +84,7 @@ function groupFromPackedMeshes(meshes: PackedMesh[], material: THREE.Material): 
   return root;
 }
 
-function disposeMeshTree(object: THREE.Object3D, shared: THREE.Material | null) {
+export function disposeMeshTree(object: THREE.Object3D, shared: THREE.Material | null) {
   object.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;
     child.geometry?.dispose();
@@ -95,11 +95,11 @@ function disposeMeshTree(object: THREE.Object3D, shared: THREE.Material | null) 
   });
 }
 
-function webglUnavailable(err: unknown): boolean {
+export function webglUnavailable(err: unknown): boolean {
   return String(err).toLowerCase().includes("webgl-unavailable");
 }
 
-async function renderMeshStillInner(url: string, ext: string): Promise<Uint8Array> {
+export async function renderMeshStillInner(url: string, ext: string): Promise<Uint8Array> {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error("Could not read the file for a thumbnail.");
@@ -138,7 +138,7 @@ async function renderMeshStillInner(url: string, ext: string): Promise<Uint8Arra
   }
 }
 
-async function renderOnMainThread(buffer: ArrayBuffer, ext: string): Promise<Uint8Array> {
+export async function renderOnMainThread(buffer: ArrayBuffer, ext: string): Promise<Uint8Array> {
   await new Promise((resolve) => setTimeout(resolve, 0));
   const renderer = rendererForThumbs();
   const scene = new THREE.Scene();

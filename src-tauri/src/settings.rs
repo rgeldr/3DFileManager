@@ -280,4 +280,12 @@ mod tests {
         assert!(check_preview_height(119).is_err());
         assert!(check_preview_height(4001).is_err());
     }
+
+    #[test]
+    fn column_in_range_accepts_the_bounds_and_names_the_column() {
+        column_in_range("Name", 120, 120, 800).unwrap();
+        column_in_range("Name", 800, 120, 800).unwrap();
+        let err = column_in_range("Size", 63, 64, 280).unwrap_err();
+        assert_eq!(err, "Size width must be between 64 and 280.");
+    }
 }

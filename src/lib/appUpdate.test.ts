@@ -1,3 +1,4 @@
+import type { Update } from "@tauri-apps/plugin-updater";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const check = vi.fn();
@@ -11,7 +12,7 @@ vi.mock("@tauri-apps/plugin-process", () => ({
   relaunch: () => relaunch(),
 }));
 
-import { checkForAppUpdate, installPendingUpdate } from "./appUpdate";
+import { checkErrorMessage, checkForAppUpdate, installPendingUpdate, remember } from "./appUpdate";
 
 function release(version: string, currentVersion = "26.10.9") {
   return {
@@ -25,6 +26,32 @@ function release(version: string, currentVersion = "26.10.9") {
 beforeEach(() => {
   check.mockReset();
   relaunch.mockReset();
+});
+
+describe("remember and checkErrorMessage", () => {
+  it("remember closes the update it replaces and keeps the same one", async () => {
+    await remember(null);
+    const first = release("26.12.1");
+    const second = release("26.12.2");
+    await remember(first as unknown as Update);
+    expect(first.close).not.toHaveBeenCalled();
+    await remember(second as unknown as Update);
+    expect(first.close).toHaveBeenCalledOnce();
+    await remember(second as unknown as Update);
+    expect(second.close).not.toHaveBeenCalled();
+    await remember(null);
+    expect(second.close).toHaveBeenCalledOnce();
+  });
+
+  it("checkErrorMessage distinguishes a connection failure from other errors", () => {
+    expect(checkErrorMessage(new Error("error sending request: connection refused"))).toBe(
+      "Could not check for updates. Check your connection and try again.",
+    );
+    expect(checkErrorMessage("timed out")).toBe(
+      "Could not check for updates. Check your connection and try again.",
+    );
+    expect(checkErrorMessage("signature mismatch")).toBe("Could not check for updates. signature mismatch");
+  });
 });
 
 describe("app update check", () => {

@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { FileRow } from "../types";
-import { FileGrid, LazyThumb } from "./FileGrid";
+import { FileGrid, LazyThumb, fileIdAt, isGridSize, paddingOf } from "./FileGrid";
 
 vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string) => `asset://localhost/${path}`,
@@ -652,5 +652,34 @@ describe("FileGrid", () => {
     expect(nameHandle.getAttribute("aria-valuenow")).toBe("500");
     view.unmount();
     scroller.remove();
+  });
+});
+
+describe("grid index helpers", () => {
+  it("isGridSize accepts tile sizes and rejects the row views", () => {
+    expect(isGridSize("medium")).toBe(true);
+    expect(isGridSize("large")).toBe(true);
+    expect(isGridSize("extraLarge")).toBe(true);
+    expect(isGridSize("list")).toBe(false);
+    expect(isGridSize("details")).toBe(false);
+  });
+
+  it("paddingOf reads padding from computed style", () => {
+    const node = document.createElement("div");
+    node.style.paddingLeft = "12px";
+    node.style.paddingTop = "8px";
+    document.body.append(node);
+    expect(paddingOf(node)).toEqual({ left: 12, top: 8 });
+    node.remove();
+  });
+
+  it("fileIdAt returns a file id and skips folders", () => {
+    const items = [
+      { kind: "folder" as const, folder: { id: 4, parentId: null, name: "Toys", relpath: "Toys", sortOrder: 0 } },
+      { kind: "file" as const, file: file({ id: 9 }) },
+    ];
+    expect(fileIdAt(items, 0)).toBeNull();
+    expect(fileIdAt(items, 1)).toBe(9);
+    expect(fileIdAt(items, 3)).toBeNull();
   });
 });

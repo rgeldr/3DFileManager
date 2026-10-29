@@ -270,3 +270,132 @@
         assert!(!matches!(ext.as_str(), "txt" | "md" | "scad"));
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn drag_source_for_id_uses_the_catalog_name_and_stays_inside_the_library() {
+        let dir = std::env::temp_dir().join(format!("filelib-drag-one-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        fs::write(root.join("Hero.stl"), b"solid").unwrap();
+        fs::write(dir.join("secret.stl"), b"secret").unwrap();
+        let id = db
+            .insert_file("Hero.STL", "Hero.stl", "stl", 5, "sha-hero", 1, None, None)
+            .unwrap();
+        let outside = db
+            .insert_file("secret.stl", "../secret.stl", "stl", 6, "sha-secret", 1, None, None)
+            .unwrap();
+        let source = drag_source_for_id(&db, id).unwrap();
+        assert!(source.path.ends_with("Hero.stl"));
+        assert!(!source.path.contains("secret"));
+        assert_eq!(source.file_name, "Hero.STL");
+        assert_eq!(source.ext, "stl");
+        assert!(drag_source_for_id(&db, outside).unwrap_err().contains("outside"));
+        fs::remove_file(root.join("Hero.stl")).unwrap();
+        assert!(drag_source_for_id(&db, id).unwrap_err().contains("missing"));
+        assert!(drag_source_for_id(&db, 999_999).unwrap_err().contains("not found"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn catalog_text_preview_reads_notes_and_skips_other_extensions() {
+        let dir = std::env::temp_dir().join(format!("filelib-catalog-text-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        fs::write(root.join("notes.md"), b"# Title\n").unwrap();
+        fs::write(root.join("widget.scad"), b"cube(1);").unwrap();
+        fs::write(root.join("readme.TXT"), b"Hello\0there").unwrap();
+        fs::write(root.join("part.step"), b"ISO-10303-21;").unwrap();
+        fs::write(dir.join("secret.txt"), b"secret").unwrap();
+        let md = db
+            .insert_file("notes.md", "notes.md", "md", 8, "sha-md", 1, None, None)
+            .unwrap();
+        let scad = db
+            .insert_file("widget.scad", "widget.scad", "scad", 8, "sha-scad", 1, None, None)
+            .unwrap();
+        let txt = db
+            .insert_file("readme.TXT", "readme.TXT", "txt", 11, "sha-txt", 1, None, None)
+            .unwrap();
+        let step = db
+            .insert_file("part.step", "part.step", "step", 13, "sha-step", 1, None, None)
+            .unwrap();
+        let outside = db
+            .insert_file("secret.txt", "../secret.txt", "txt", 6, "sha-secret", 1, None, None)
+            .unwrap();
+        let missing = db
+            .insert_file("gone.txt", "gone.txt", "txt", 1, "sha-gone", 1, None, None)
+            .unwrap();
+        assert_eq!(catalog_text_preview(&db, md).unwrap(), "# Title\n");
+        assert_eq!(catalog_text_preview(&db, scad).unwrap(), "cube(1);");
+        assert_eq!(catalog_text_preview(&db, txt).unwrap(), "Hellothere");
+        assert_eq!(catalog_text_preview(&db, step).unwrap(), "");
+        assert!(catalog_text_preview(&db, outside).unwrap_err().contains("outside"));
+        assert!(catalog_text_preview(&db, missing).unwrap_err().contains("missing"));
+        assert!(catalog_text_preview(&db, 999_999).unwrap_err().contains("not found"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        prev: Option<std::ffi::OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &std::path::Path) -> Self {
+            let prev = std::env::var_os(key);
+            std::env::set_var(key, value);
+            Self { key, prev }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(prev) = self.prev.take() {
+                std::env::set_var(self.key, prev);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    #[test]
+    fn write_debug_log_appends_under_the_data_dir_and_keeps_the_tail() {
+        let root = std::env::temp_dir().join(format!("filelib-debuglog-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        // data_dir() follows XDG_DATA_HOME, so the log can land in a temp folder.
+        let _env = EnvVarGuard::set("XDG_DATA_HOME", &root);
+        let log_dir = data_dir();
+        assert_eq!(log_dir, root.join("3D File Library"));
+        let path = PathBuf::from(write_debug_log("alpha".into()).unwrap());
+        assert_eq!(path, log_dir.join("debug.log"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "alpha\n");
+        write_debug_log("beta".into()).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "alpha\nbeta\n");
+
+        fs::write(&path, vec![b'C'; 1_048_576]).unwrap();
+        write_debug_log("edge".into()).unwrap();
+        let exact = fs::read(&path).unwrap();
+        assert_eq!(exact.len(), 1_048_576 + "edge\n".len());
+        assert_eq!(exact[0], b'C');
+        assert!(exact.ends_with(b"edge\n"));
+
+        let mut big = vec![b'B'; 1_048_577];
+        big[0] = b'A';
+        fs::write(&path, &big).unwrap();
+        write_debug_log("tail".into()).unwrap();
+        let trimmed = fs::read(&path).unwrap();
+        assert_eq!(trimmed.len(), 512_000 + "tail\n".len());
+        assert!(trimmed[..512_000].iter().all(|byte| *byte == b'B'));
+        assert!(trimmed.ends_with(b"tail\n"));
+        let _ = fs::remove_dir_all(&root);
+    }

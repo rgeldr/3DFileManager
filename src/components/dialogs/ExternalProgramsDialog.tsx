@@ -6,7 +6,7 @@ import { normalizeProgramPath, sameProgramPath } from "../../lib/programPath";
 import type { ExternalProgram, ProgramSuggestion } from "../../types";
 import { Modal } from "./Modal";
 
-async function pickExecutable(): Promise<string | null> {
+export async function pickExecutable(): Promise<string | null> {
   const picked = await open({
     multiple: false,
     directory: false,
@@ -15,7 +15,7 @@ async function pickExecutable(): Promise<string | null> {
   return typeof picked === "string" ? picked : null;
 }
 
-function suggestionTaken(suggestion: ProgramSuggestion, programs: ExternalProgram[]): boolean {
+export function suggestionTaken(suggestion: ProgramSuggestion, programs: ExternalProgram[]): boolean {
   const detected = suggestion.path;
   if (detected) return programs.some((program) => sameProgramPath(program.path, detected));
   return programs.some((program) => program.name.toLowerCase() === suggestion.name.toLowerCase());

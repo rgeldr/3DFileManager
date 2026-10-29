@@ -15,7 +15,7 @@ let worker: Worker | null = null;
 let nextId = 0;
 const pending = new Map<number, { resolve: (reply: WorkerReply & { ok: true }) => void; reject: (err: Error) => void }>();
 
-function workerInstance(): Worker {
+export function workerInstance(): Worker {
   if (!worker) {
     worker = new Worker(new URL("../workers/meshParse.worker.ts", import.meta.url), { type: "module" });
     worker.onmessage = (event: MessageEvent<WorkerReply>) => {
@@ -36,7 +36,7 @@ function workerInstance(): Worker {
   return worker;
 }
 
-function post(message: { id: number; [key: string]: unknown }, transfer: Transferable[]): Promise<WorkerReply & { ok: true }> {
+export function post(message: { id: number; [key: string]: unknown }, transfer: Transferable[]): Promise<WorkerReply & { ok: true }> {
   return new Promise((resolve, reject) => {
     pending.set(message.id, { resolve, reject });
     workerInstance().postMessage(message, transfer);

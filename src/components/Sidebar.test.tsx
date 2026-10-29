@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FolderRow } from "../types";
-import { Sidebar } from "./Sidebar";
+import { Sidebar, folderKey, isFolderUnderAncestor } from "./Sidebar";
 
 afterEach(cleanup);
 
@@ -36,6 +36,22 @@ function renderSidebar(pinned = true) {
   );
   return { onReveal, onRescan, onPinnedChange };
 }
+
+describe("folder ancestry", () => {
+  const folders: FolderRow[] = [
+    { id: 1, parentId: null, name: "Toys", relpath: "Toys", sortOrder: 0 },
+    { id: 2, parentId: 1, name: "Animals", relpath: "Toys/Animals", sortOrder: 0 },
+    { id: 3, parentId: 2, name: "Wolves", relpath: "Toys/Animals/Wolves", sortOrder: 0 },
+  ];
+
+  it("folderKey and isFolderUnderAncestor follow parent links", () => {
+    expect(folderKey(3)).toBe("folder:3");
+    expect(isFolderUnderAncestor(folders, 1, 3)).toBe(true);
+    expect(isFolderUnderAncestor(folders, 1, 1)).toBe(true);
+    expect(isFolderUnderAncestor(folders, 3, 1)).toBe(false);
+    expect(isFolderUnderAncestor(folders, 1, null)).toBe(false);
+  });
+});
 
 describe("folder tree menu", () => {
   it("shows the folder in Explorer and rescans that folder", () => {

@@ -16,24 +16,24 @@ const IMAGE = new Set(["png", "jpg", "jpeg"]);
 const TEXT_PREVIEW = new Set(["txt", "md", "scad"]);
 const LIMIT = 150 * 1024 * 1024;
 
-function isMeshPreview(file: FileRow | null): file is FileRow {
+export function isMeshPreview(file: FileRow | null): file is FileRow {
   return !!file && MESH.has(file.ext) && file.sizeBytes <= LIMIT;
 }
 
-function previewImage(file: FileRow): string | null {
+export function previewImage(file: FileRow): string | null {
   if (IMAGE.has(file.ext)) return convertFileSrc(file.absolutePath);
   if (file.thumbPath) return convertFileSrc(file.thumbPath);
   return null;
 }
 
-function staticMessage(file: FileRow): string {
+export function staticMessage(file: FileRow): string {
   if (file.ext === "pdf") return "PDF document";
   if (IMAGE.has(file.ext) || file.thumbPath) return "";
   if (!MESH.has(file.ext)) return "Preview unavailable";
   return "File is too large to preview";
 }
 
-function disposeMaterial(material: THREE.Material) {
+export function disposeMaterial(material: THREE.Material) {
   const textured = material as THREE.MeshStandardMaterial;
   textured.map?.dispose();
   textured.normalMap?.dispose();
@@ -44,7 +44,7 @@ function disposeMaterial(material: THREE.Material) {
   material.dispose();
 }
 
-function assignSharedMaterial(root: THREE.Object3D, material: THREE.Material) {
+export function assignSharedMaterial(root: THREE.Object3D, material: THREE.Material) {
   const previous = new Set<THREE.Material>();
   root.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;
@@ -58,7 +58,7 @@ function assignSharedMaterial(root: THREE.Object3D, material: THREE.Material) {
   }
 }
 
-function releaseScene(root: THREE.Object3D, shared: THREE.Material) {
+export function releaseScene(root: THREE.Object3D, shared: THREE.Material) {
   root.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;
     child.geometry?.dispose();
@@ -71,7 +71,7 @@ function releaseScene(root: THREE.Object3D, shared: THREE.Material) {
   root.clear();
 }
 
-function cssVar(name: string): string {
+export function cssVar(name: string): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   if (!value) throw new Error(`Missing theme token ${name}`);
   return value;
@@ -79,7 +79,7 @@ function cssVar(name: string): string {
 
 type MeshPhase = "loading" | "ready" | "error";
 
-function TextPreview({ fileId }: { fileId: number }) {
+export function TextPreview({ fileId }: { fileId: number }) {
   const [text, setText] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;

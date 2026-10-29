@@ -10,7 +10,7 @@ export type UpdateCheck =
 
 let pending: Update | null = null;
 
-async function remember(update: Update | null) {
+export async function remember(update: Update | null) {
   if (pending && pending !== update) {
     await pending.close().catch(() => undefined);
   }

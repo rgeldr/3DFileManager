@@ -26,7 +26,7 @@ export function debugLog(message: string, extra?: Record<string, unknown>): void
   void flush();
 }
 
-async function flush(): Promise<void> {
+export async function flush(): Promise<void> {
   if (flushing) return;
   flushing = true;
   try {

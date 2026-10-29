@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { normalizeProgramPath, sameProgramPath } from "./programPath";
+import { collapseBackslashes, normalizeProgramPath, sameProgramPath, windowsStyle } from "./programPath";
+
+describe("windowsStyle and collapseBackslashes", () => {
+  it("recognizes drive and UNC paths and collapses repeated backslashes", () => {
+    expect(windowsStyle("C:/Tools/app.exe")).toBe(true);
+    expect(windowsStyle("d:\\Tools\\app.exe")).toBe(true);
+    expect(windowsStyle("\\\\server\\share\\app.exe")).toBe(true);
+    expect(windowsStyle("//server/share/app.exe")).toBe(true);
+    expect(windowsStyle("/usr/bin/orca")).toBe(false);
+    expect(collapseBackslashes("C:\\\\Tools\\\\app.exe")).toBe("C:\\Tools\\app.exe");
+    expect(collapseBackslashes("/usr/bin/orca")).toBe("/usr/bin/orca");
+  });
+});
 
 describe("program paths", () => {
   it("rewrites mixed separators on drive and UNC paths", () => {

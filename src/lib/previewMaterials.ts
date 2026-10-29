@@ -46,11 +46,11 @@ export function paintColorState(paint: string): number | null {
   return node();
 }
 
-function channelUsable(r: number, g: number, b: number): boolean {
+export function channelUsable(r: number, g: number, b: number): boolean {
   return Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b) && Math.max(r, g, b) > BLACK_MAX;
 }
 
-function usableVertexColors(geometry: THREE.BufferGeometry): boolean {
+export function usableVertexColors(geometry: THREE.BufferGeometry): boolean {
   const color = geometry.getAttribute("color");
   const position = geometry.getAttribute("position");
   if (!color || !position || color.count !== position.count || color.itemSize < 3) return false;
@@ -60,7 +60,7 @@ function usableVertexColors(geometry: THREE.BufferGeometry): boolean {
   return false;
 }
 
-function normalsAreZero(attr: THREE.BufferAttribute | THREE.InterleavedBufferAttribute): boolean {
+export function normalsAreZero(attr: THREE.BufferAttribute | THREE.InterleavedBufferAttribute): boolean {
   const values = attr.array;
   for (let i = 0; i < values.length; i += 1) {
     if (values[i] !== 0) return false;
@@ -68,7 +68,7 @@ function normalsAreZero(attr: THREE.BufferAttribute | THREE.InterleavedBufferAtt
   return true;
 }
 
-function colorFromMaterial(material: THREE.Material | undefined): THREE.Color | null {
+export function colorFromMaterial(material: THREE.Material | undefined): THREE.Color | null {
   if (!material || !("color" in material)) return null;
   const color = (material as { color?: unknown }).color;
   if (!(color instanceof THREE.Color) || !channelUsable(color.r, color.g, color.b)) return null;
@@ -77,7 +77,7 @@ function colorFromMaterial(material: THREE.Material | undefined): THREE.Color | 
   return color;
 }
 
-function disposeMaterial(material: THREE.Material) {
+export function disposeMaterial(material: THREE.Material) {
   const textured = material as THREE.MeshStandardMaterial;
   textured.map?.dispose();
   textured.normalMap?.dispose();
@@ -88,7 +88,7 @@ function disposeMaterial(material: THREE.Material) {
   material.dispose();
 }
 
-function materialsFor(mesh: THREE.Mesh, sources: THREE.Material[], fallbackHex: string): THREE.Material | THREE.Material[] {
+export function materialsFor(mesh: THREE.Mesh, sources: THREE.Material[], fallbackHex: string): THREE.Material | THREE.Material[] {
   const geometry = mesh.geometry;
   const flatShading = !ensureNormals(geometry);
   if (usableVertexColors(geometry)) {
@@ -107,7 +107,7 @@ function materialsFor(mesh: THREE.Mesh, sources: THREE.Material[], fallbackHex: 
   return next;
 }
 
-function ensureNormals(geometry: THREE.BufferGeometry): boolean {
+export function ensureNormals(geometry: THREE.BufferGeometry): boolean {
   const existing = geometry.getAttribute("normal");
   if (!existing || normalsAreZero(existing)) geometry.computeVertexNormals();
   const normal = geometry.getAttribute("normal");
@@ -134,14 +134,14 @@ export function applyPreviewMaterials(root: THREE.Object3D, fallbackHex: string)
   }
 }
 
-function parseXml(text: string): Document | null {
+export function parseXml(text: string): Document | null {
   if (typeof DOMParser === "undefined") return null;
   const doc = new DOMParser().parseFromString(text, "application/xml");
   if (doc.querySelector("parsererror")) return null;
   return doc;
 }
 
-function linearHex(hex: string): Rgb | null {
+export function linearHex(hex: string): Rgb | null {
   const match = hex.trim().match(/^#([0-9a-fA-F]{6})/);
   if (!match) return null;
   const color = new THREE.Color(`#${match[1]}`);
@@ -149,12 +149,12 @@ function linearHex(hex: string): Rgb | null {
   return [color.r, color.g, color.b];
 }
 
-function fallbackLinear(hex: string): Rgb {
+export function fallbackLinear(hex: string): Rgb {
   const color = new THREE.Color(hex);
   return [color.r, color.g, color.b];
 }
 
-function childMetadata(element: Element, key: string): string | null {
+export function childMetadata(element: Element, key: string): string | null {
   for (const child of element.children) {
     if (child.tagName.toLowerCase() !== "metadata") continue;
     if (child.getAttribute("key") === key) return child.getAttribute("value");
@@ -162,21 +162,21 @@ function childMetadata(element: Element, key: string): string | null {
   return null;
 }
 
-function positiveInt(value: string | null): number | null {
+export function positiveInt(value: string | null): number | null {
   if (!value) return null;
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1) return null;
   return parsed;
 }
 
-function extruderOf(object: Element): number | null {
+export function extruderOf(object: Element): number | null {
   const own = positiveInt(childMetadata(object, "extruder"));
   const parts = [...object.children].filter((child) => child.tagName.toLowerCase() === "part");
   if (parts.length === 1) return positiveInt(childMetadata(parts[0], "extruder")) ?? own;
   return own;
 }
 
-function readFilaments(entries: Record<string, Uint8Array>): string[] {
+export function readFilaments(entries: Record<string, Uint8Array>): string[] {
   const name = Object.keys(entries).find((key) => key.toLowerCase().endsWith("project_settings.config"));
   if (!name) return [];
   try {
@@ -188,7 +188,7 @@ function readFilaments(entries: Record<string, Uint8Array>): string[] {
   }
 }
 
-function readExtruders(entries: Record<string, Uint8Array>): Map<string, number> {
+export function readExtruders(entries: Record<string, Uint8Array>): Map<string, number> {
   const map = new Map<string, number>();
   const name = Object.keys(entries).find((key) => key.toLowerCase().endsWith("model_settings.config"));
   if (!name) return map;
@@ -202,13 +202,13 @@ function readExtruders(entries: Record<string, Uint8Array>): Map<string, number>
   return map;
 }
 
-function filamentColor(filaments: string[], state: number, extruder: number | null): Rgb | null {
+export function filamentColor(filaments: string[], state: number, extruder: number | null): Rgb | null {
   const index = state > 0 ? state - 1 : extruder == null ? -1 : extruder - 1;
   if (index < 0 || index >= filaments.length) return null;
   return linearHex(filaments[index]);
 }
 
-function readPaintRecords(entries: Record<string, Uint8Array>, filaments: string[], extruders: Map<string, number>, grey: Rgb): PaintRecord[] {
+export function readPaintRecords(entries: Record<string, Uint8Array>, filaments: string[], extruders: Map<string, number>, grey: Rgb): PaintRecord[] {
   const records: PaintRecord[] = [];
   for (const [name, bytes] of Object.entries(entries)) {
     if (!name.toLowerCase().endsWith(".model")) continue;
@@ -233,20 +233,20 @@ function readPaintRecords(entries: Record<string, Uint8Array>, filaments: string
   return records;
 }
 
-function triangleCount(geometry: THREE.BufferGeometry): number {
+export function triangleCount(geometry: THREE.BufferGeometry): number {
   const index = geometry.getIndex();
   if (index) return Math.floor(index.count / 3);
   const position = geometry.getAttribute("position");
   return position ? Math.floor(position.count / 3) : 0;
 }
 
-function alreadyColored(mesh: THREE.Mesh): boolean {
+export function alreadyColored(mesh: THREE.Mesh): boolean {
   if (usableVertexColors(mesh.geometry)) return true;
   const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
   return materials.some((material) => colorFromMaterial(material) != null);
 }
 
-function paintMesh(mesh: THREE.Mesh, colors: Rgb[]) {
+export function paintMesh(mesh: THREE.Mesh, colors: Rgb[]) {
   const first = colors[0];
   const uniform = colors.every((color) => color[0] === first[0] && color[1] === first[1] && color[2] === first[2]);
   if (uniform) {
@@ -280,7 +280,7 @@ function paintMesh(mesh: THREE.Mesh, colors: Rgb[]) {
   geometry.deleteAttribute("normal");
 }
 
-function applyBambuFilamentColors(root: THREE.Object3D, buffer: ArrayBuffer, fallbackHex: string) {
+export function applyBambuFilamentColors(root: THREE.Object3D, buffer: ArrayBuffer, fallbackHex: string) {
   let entries: Record<string, Uint8Array>;
   try {
     entries = unzipSync(new Uint8Array(buffer)) as Record<string, Uint8Array>;

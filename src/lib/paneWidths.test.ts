@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { clampInspector, clampSidebar, INSPECTOR_RAIL_WIDTH } from "./paneWidths";
+import { clampInspector, clampRange, clampSidebar, INSPECTOR_RAIL_WIDTH } from "./paneWidths";
+
+describe("clampRange", () => {
+  it("rounds into the min and the smaller of the absolute and window caps", () => {
+    expect(clampRange(100, 180, 640, 0.5, 1600)).toBe(180);
+    expect(clampRange(400.2, 180, 640, 0.5, 1600)).toBe(400);
+    expect(clampRange(900, 180, 640, 0.5, 1600)).toBe(640);
+    expect(clampRange(400, 180, 640, 0.5, 600)).toBe(300);
+    expect(clampSidebar(400, 1600)).toBe(clampRange(400, 180, 640, 0.5, 1600));
+  });
+});
 
 describe("paneWidths", () => {
   it("clamps the sidebar to 180 through half the window, capped at 640", () => {

@@ -22,7 +22,7 @@ export function pushFolder(history: FolderHistory, next: Browse): FolderHistory 
   return { back: [...history.back, history.current], current: next, forward: [] };
 }
 
-function placeExists(place: Browse, exists: (id: number) => boolean): boolean {
+export function placeExists(place: Browse, exists: (id: number) => boolean): boolean {
   return place.type === "root" || exists(place.id);
 }
 

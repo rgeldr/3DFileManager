@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  browseIsFiltered,
   centerSubfolders,
+  defaultSortDirection,
   filterTagOptions,
   gridEmptyMessage,
   libraryListScope,
@@ -12,6 +14,7 @@ import {
   truncatedSearchMessage,
   moveTagHighlight,
   nextSort,
+  sortFromDropdown,
   tagFilterBadge,
   tagFilterKeyAction,
   toggleTagId,
@@ -24,6 +27,26 @@ const tags: TagCount[] = [
   { id: 1, name: "alpha", fileCount: 1 },
   { id: 3, name: "Terrain", fileCount: 0 },
 ];
+
+describe("browseIsFiltered and sortFromDropdown", () => {
+  it("treats letters, a creator, and selected tags or types as filters", () => {
+    expect(browseIsFiltered({ query: "...", creator: "", selectedTagCount: 0, selectedTypeCount: 0 })).toBe(false);
+    expect(browseIsFiltered({ query: "a", creator: "", selectedTagCount: 0, selectedTypeCount: 0 })).toBe(true);
+    expect(browseIsFiltered({ query: "", creator: "Ada", selectedTagCount: 0, selectedTypeCount: 0 })).toBe(true);
+    expect(browseIsFiltered({ query: "", creator: "", selectedTagCount: 2, selectedTypeCount: 0 })).toBe(true);
+    expect(browseIsFiltered({ query: "", creator: "", selectedTagCount: 0, selectedTypeCount: 1 })).toBe(true);
+  });
+
+  it("defaultSortDirection and sortFromDropdown use ascending names and descending dates", () => {
+    expect(defaultSortDirection("name")).toBe("asc");
+    expect(defaultSortDirection("creator")).toBe("asc");
+    expect(defaultSortDirection("size")).toBe("desc");
+    expect(defaultSortDirection("modified")).toBe("desc");
+    expect(defaultSortDirection("date")).toBe("desc");
+    expect(sortFromDropdown("creator")).toEqual({ field: "creator", direction: "asc" });
+    expect(sortFromDropdown("date")).toEqual({ field: "date", direction: "desc" });
+  });
+});
 
 describe("filterTagOptions", () => {
   it("sorts tags A-Z and keeps every tag when the query is blank", () => {

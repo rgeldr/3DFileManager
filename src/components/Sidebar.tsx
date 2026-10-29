@@ -9,11 +9,11 @@ type FolderContextMenu = { x: number; y: number; folderId: number | null };
 const ROOT_KEY = "root";
 const DRAG_THRESHOLD_PX = 5;
 
-function folderKey(id: number) {
+export function folderKey(id: number) {
   return `folder:${id}`;
 }
 
-function isFolderUnderAncestor(folders: FolderRow[], ancestorId: number, folderId: number | null): boolean {
+export function isFolderUnderAncestor(folders: FolderRow[], ancestorId: number, folderId: number | null): boolean {
   let current = folderId;
   while (current != null) {
     if (current === ancestorId) return true;
