@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LibraryModel } from "../../hooks/useLibrary";
 import type { ExternalProgram, ProgramSuggestion } from "../../types";
-import { ExternalProgramsDialog } from "./ExternalProgramsDialog";
+import { ExternalProgramsDialog, pickExecutable, suggestionTaken } from "./ExternalProgramsDialog";
 
 const setExternalPrograms = vi.fn<(programs: ExternalProgram[]) => Promise<void>>();
 const detectExternalPrograms = vi.fn<() => Promise<ProgramSuggestion[]>>();
@@ -47,6 +47,38 @@ function app(programs: ExternalProgram[] = saved) {
   } as unknown as LibraryModel;
   return { model, calls };
 }
+
+describe("pickExecutable", () => {
+  it("returns a chosen exe path and ignores a cancel or a multi-select", async () => {
+    openDialog.mockResolvedValueOnce("D:\\Tools\\orca-slicer.exe");
+    await expect(pickExecutable()).resolves.toBe("D:\\Tools\\orca-slicer.exe");
+    expect(openDialog).toHaveBeenCalledWith({
+      multiple: false,
+      directory: false,
+      filters: [{ name: "Programs", extensions: ["exe"] }],
+    });
+    openDialog.mockResolvedValueOnce(null);
+    await expect(pickExecutable()).resolves.toBeNull();
+    openDialog.mockResolvedValueOnce(["D:\\Tools\\orca-slicer.exe"] as unknown as string);
+    await expect(pickExecutable()).resolves.toBeNull();
+  });
+});
+
+describe("suggestionTaken", () => {
+  it("matches a detected path, or the name when detection found no path", () => {
+    const programs: ExternalProgram[] = [
+      { id: "orca", name: "OrcaSlicer", path: "C:\\Program Files\\OrcaSlicer\\orca-slicer.exe" },
+    ];
+    expect(
+      suggestionTaken({ name: "OrcaSlicer", path: "C:/Program Files/OrcaSlicer/orca-slicer.exe" }, programs),
+    ).toBe(true);
+    expect(suggestionTaken({ name: "PrusaSlicer", path: "C:\\Prusa\\prusa-slicer.exe" }, programs)).toBe(false);
+    expect(
+      suggestionTaken({ name: "Bambu Studio", path: null }, [{ id: "b", name: "bambu studio", path: "" }]),
+    ).toBe(true);
+    expect(suggestionTaken({ name: "Bambu Studio", path: null }, programs)).toBe(false);
+  });
+});
 
 describe("External programs dialog", () => {
   it("adds a detected program and saves the list", async () => {

@@ -31,7 +31,7 @@ export function Breadcrumb({
   );
 }
 
-function crumbKey(crumb: Crumb, index: number): string {
+export function crumbKey(crumb: Crumb, index: number): string {
   if (crumb.kind === "ellipsis") return `ellipsis-${index}`;
   return crumb.place.type === "root" ? "root" : `folder:${crumb.place.id}`;
 }

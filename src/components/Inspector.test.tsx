@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FileRow } from "../types";
 import { ThemeProvider } from "../theme/ThemeProvider";
-import { Inspector } from "./Inspector";
+import { Inspector, PinIcon } from "./Inspector";
 
 vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string) => `asset://localhost/${path}`,
@@ -365,5 +365,15 @@ describe("inspector folder", () => {
     expect(select.selectedOptions[0]?.textContent).toBe(
       "Toys/Articulated Toys/Flexi Animals/Dire Wolf",
     );
+  });
+});
+
+describe("PinIcon", () => {
+  it("fills the pin when the pane is pinned and leaves it open otherwise", () => {
+    const pinned = render(<PinIcon pinned />);
+    expect(pinned.container.querySelector("path")?.getAttribute("fill")).toBe("currentColor");
+    pinned.unmount();
+    const open = render(<PinIcon pinned={false} />);
+    expect(open.container.querySelector("path")?.getAttribute("fill")).toBe("none");
   });
 });

@@ -494,4 +494,98 @@ mod tests {
         assert!(png_from_bytes(b"").is_none());
         assert!(png_from_bytes(b"GIF89a").is_none());
     }
+
+    #[test]
+    fn preview_helpers_fit_images_and_read_archive_thumbnails() {
+        let io_err = thumb_fail(image::ImageError::IoError(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "gone",
+        )));
+        assert!(matches!(io_err, ThumbFail::Io(msg) if msg.contains("gone")));
+        let decode_err = thumb_fail(image::ImageError::Limits(
+            image::error::LimitErrorKind::DimensionError.into(),
+        ));
+        assert!(matches!(decode_err, ThumbFail::Decode(msg) if msg.contains("exceeds")));
+
+        let dir = scratch("helpers");
+        let small = dir.join("tiny.png");
+        let wide = dir.join("wide.png");
+        write_png(&small, 16, 16);
+        write_png(&wide, 300, 100);
+        let small_bytes = fs::read(&small).unwrap();
+        let loaded = load_image_file(&small).unwrap();
+        assert!(loaded.starts_with(&[0x89, b'P', b'N', b'G']));
+        assert_eq!(long_edge(&loaded), (16, 16));
+        let fitted = fit_png(&fs::read(&wide).unwrap()).unwrap();
+        let (width, height) = long_edge(&fitted);
+        assert_eq!(width.max(height), 256);
+        assert!(width <= 256 && height <= 256);
+        assert!(fit_png(b"not-a-png").is_none());
+        let encoded = encode_fit(image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            300,
+            100,
+            image::Rgb([9, 8, 7]),
+        )))
+        .unwrap();
+        assert_eq!(long_edge(&encoded).0.max(long_edge(&encoded).1), 256);
+        assert!(load_image_file(&dir.join("missing.png")).is_err());
+
+        assert_eq!(read_limited(&small, small_bytes.len() as u64).unwrap(), small_bytes);
+        assert!(read_limited(&small, small_bytes.len() as u64 - 1).is_none());
+        assert!(read_limited(&dir.join("missing.bin"), 10).is_none());
+
+        let names = vec![
+            (0usize, "readme.txt".into()),
+            (3, "preview.jpg".into()),
+            (4, "a.png".into()),
+        ];
+        assert_eq!(find_any_image(&names), Some(3));
+        assert_eq!(find_any_image(&[(0, "readme.txt".into())]), None);
+
+        let other = dir.join("other.png");
+        write_png(&other, 4, 4);
+        let archive = dir.join("pack.zip");
+        let file = fs::File::create(&archive).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file("other.png", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(&fs::read(&other).unwrap()).unwrap();
+        zip.start_file("Metadata/thumbnail.png", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(&fs::read(&wide).unwrap()).unwrap();
+        zip.finish().unwrap();
+        let any = zip_preview(&archive, false).unwrap();
+        assert_eq!(long_edge(&any), (4, 4));
+        let preferred = zip_preview(&archive, true).unwrap();
+        assert_eq!(long_edge(&preferred).0.max(long_edge(&preferred).1), 256);
+        assert!(zip_preview(&dir.join("missing.zip"), false).is_none());
+
+        assert_eq!(header_area("thumbnail begin 32x16 100"), 512);
+        assert_eq!(header_area("thumbnail begin"), 1);
+        assert_eq!(header_area("thumbnail begin axb"), 1);
+        let thumb = dir.join("thumb.png");
+        write_png(&thumb, 32, 16);
+        let png = fs::read(&thumb).unwrap();
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+        let gcode = dir.join("print.gcode");
+        fs::write(
+            &gcode,
+            format!("; thumbnail begin 32x16 {}\n; {b64}\n; thumbnail end\n", b64.len()),
+        )
+        .unwrap();
+        let text = read_gcode_text(&gcode).unwrap();
+        assert!(text.contains("thumbnail begin 32x16"));
+        assert!(read_gcode_text(&dir.join("missing.gcode")).is_none());
+        let preview = gcode_preview(&gcode).unwrap();
+        assert_eq!(long_edge(&preview), (32, 16));
+        assert!(gcode_preview(&dir.join("missing.gcode")).is_none());
+
+        let mut encoder = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(b"hello thumbnail").unwrap();
+        let compressed = encoder.finish().unwrap();
+        assert_eq!(inflate_capped(&compressed, 15).unwrap(), b"hello thumbnail");
+        assert!(inflate_capped(&compressed, (MAX_BGCODE_INFLATE as usize) + 1).is_none());
+        assert!(inflate_capped(b"not-deflate", 4).is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

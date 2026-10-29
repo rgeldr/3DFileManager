@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { LibraryModel } from "../../hooks/useLibrary";
-import { AboutDialog } from "./AboutDialog";
+import { AboutDialog, formatAboutSize } from "./AboutDialog";
 
 const stylesDir = join(dirname(fileURLToPath(import.meta.url)), "../../styles");
 
@@ -57,6 +57,15 @@ function updates(overrides: Partial<{
     ...overrides,
   };
 }
+
+describe("formatAboutSize", () => {
+  it("formats bytes with binary units", () => {
+    expect(formatAboutSize(512)).toBe("512 B");
+    expect(formatAboutSize(1536)).toBe("1.5 KB");
+    expect(formatAboutSize(1024 * 1024 * 2.5)).toBe("2.5 MB");
+    expect(formatAboutSize(13_314_398_618)).toBe("12.4 GB");
+  });
+});
 
 describe("About dialog", () => {
   it("loads catalog counts when the dialog opens", async () => {

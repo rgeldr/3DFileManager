@@ -967,6 +967,125 @@ mod tests {
         }
     }
 
+    #[test]
+    fn path_helpers_normalize_windows_paths_and_pick_the_newest_prefixed_install() {
+        assert!(is_exe(r"C:\App\orca-slicer.EXE"));
+        assert!(is_exe("C:/App/orca-slicer.exe"));
+        assert!(!is_exe(r"C:\App\run.bat"));
+        assert!(!is_exe("noext"));
+        assert!(is_absolute_program_path(r"C:\App\a.exe"));
+        assert!(is_absolute_program_path("C:/App/a.exe"));
+        assert!(is_absolute_program_path(r"\\server\share\a.exe"));
+        assert!(!is_absolute_program_path("orca-slicer.exe"));
+        assert!(!is_absolute_program_path(r"Program Files\a.exe"));
+        if cfg!(unix) {
+            assert!(is_absolute_program_path("/usr/bin/orca"));
+        }
+        assert!(windows_style_path(r"C:\App"));
+        assert!(windows_style_path("C:"));
+        assert!(windows_style_path(r"\\server\share"));
+        assert!(windows_style_path("//server/share"));
+        assert!(!windows_style_path("/usr/bin/orca"));
+        assert!(!windows_style_path("relative.exe"));
+        assert_eq!(
+            normalize_windows_separators("C:/Program Files//Orca/orca.exe"),
+            r"C:\Program Files\Orca\orca.exe"
+        );
+        assert_eq!(
+            normalize_windows_separators("//server//share/app.exe"),
+            r"\\server\share\app.exe"
+        );
+        assert_eq!(collapse_backslashes(r"C:\\Program\\orca.exe"), r"C:\Program\orca.exe");
+        assert_eq!(
+            normalize_saved_program_path("C:/Program Files/Orca/orca.exe"),
+            r"C:\Program Files\Orca\orca.exe"
+        );
+        assert_eq!(normalize_saved_program_path("/usr/bin/orca"), "/usr/bin/orca");
+
+        unsafe {
+            std::env::set_var("FILELIB_TEST_ENV_PATH", "/tmp/filelib-prog");
+            std::env::set_var("FILELIB_TEST_ENV_PATH_EMPTY", "");
+        }
+        assert_eq!(
+            env_path("FILELIB_TEST_ENV_PATH").unwrap(),
+            PathBuf::from("/tmp/filelib-prog")
+        );
+        assert!(env_path("FILELIB_TEST_ENV_PATH_EMPTY").is_none());
+        assert!(env_path("FILELIB_TEST_ENV_PATH_MISSING").is_none());
+        unsafe {
+            std::env::remove_var("FILELIB_TEST_ENV_PATH");
+            std::env::remove_var("FILELIB_TEST_ENV_PATH_EMPTY");
+        }
+
+        assert_eq!(version_key("UltiMaker Cura 5.10"), vec![5, 10]);
+        assert_eq!(version_key("Cura 4"), vec![4]);
+        assert!(version_key("OrcaSlicer").is_empty());
+        assert_eq!(cmp_version("Cura 5.2", "Cura 5.10"), Ordering::Less);
+        assert_eq!(cmp_version("Cura 5.10", "Cura 5.2"), Ordering::Greater);
+        assert_eq!(cmp_version("Cura 5", "Cura 5"), Ordering::Equal);
+        assert_eq!(cmp_version("A 1", "B 1"), Ordering::Less);
+
+        let dir = std::env::temp_dir().join(format!("filelib-prefix-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let cura_new = dir.join("UltiMaker Cura 9.0");
+        let cura_510 = dir.join("UltiMaker Cura 5.10");
+        let cura_49 = dir.join("UltiMaker Cura 4.9");
+        fs::create_dir_all(&cura_new).unwrap();
+        fs::create_dir_all(&cura_510).unwrap();
+        fs::create_dir_all(&cura_49).unwrap();
+        fs::write(cura_510.join("UltiMaker-Cura.exe"), b"").unwrap();
+        fs::write(cura_49.join("UltiMaker-Cura.exe"), b"").unwrap();
+        let found = find_prefixed(&dir, &["UltiMaker Cura"], &["UltiMaker-Cura.exe"]).unwrap();
+        assert_eq!(found, cura_510.join("UltiMaker-Cura.exe"));
+        assert!(find_prefixed(&dir, &[], &["UltiMaker-Cura.exe"]).is_none());
+        assert!(find_prefixed(Path::new("/tmp/filelib-no-such-program-root"), &["Cura"], &["Cura.exe"]).is_none());
+
+        let known = KnownProgram {
+            name: "UltiMaker Cura",
+            relative: &[],
+            prefixes: &["UltiMaker Cura"],
+            prefix_exes: &["UltiMaker-Cura.exe"],
+        };
+        assert_eq!(find_known(&known, &[dir.clone()]).unwrap(), found);
+        fs::create_dir_all(dir.join("OrcaSlicer")).unwrap();
+        fs::write(dir.join("OrcaSlicer").join("orca-slicer.exe"), b"").unwrap();
+        let orca = KnownProgram {
+            name: "OrcaSlicer",
+            relative: &["OrcaSlicer/orca-slicer.exe"],
+            prefixes: &[],
+            prefix_exes: &[],
+        };
+        assert_eq!(
+            find_known(&orca, &[dir.clone()]).unwrap(),
+            dir.join("OrcaSlicer").join("orca-slicer.exe")
+        );
+        let missing = KnownProgram {
+            name: "Nope",
+            relative: &["Nope/nope.exe"],
+            prefixes: &[],
+            prefix_exes: &[],
+        };
+        assert!(find_known(&missing, &[dir.clone()]).is_none());
+
+        let roots = InstallRoots {
+            program_files: Some(PathBuf::from(r"C:\Program Files")),
+            program_files_x86: None,
+            local_app_data: Some(PathBuf::from(r"C:\Users\Jason\AppData\Local")),
+        };
+        let bases = search_bases(&roots);
+        assert_eq!(bases.len(), 2);
+        assert_eq!(bases[0], PathBuf::from(r"C:\Program Files"));
+        assert_eq!(bases[1].to_string_lossy(), r"C:\Users\Jason\AppData\Local\Programs");
+        let unix_roots = InstallRoots {
+            program_files: Some(dir.join("pf")),
+            program_files_x86: None,
+            local_app_data: Some(dir.join("local")),
+        };
+        let unix_bases = search_bases(&unix_roots);
+        assert_eq!(unix_bases, vec![dir.join("pf"), dir.join("local").join("Programs")]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[cfg(unix)]
     fn wait_for_file(path: &Path) -> String {
         for _ in 0..50 {

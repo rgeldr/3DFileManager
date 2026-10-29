@@ -5,7 +5,9 @@ import {
   effectiveTagColor,
   rememberTagColor,
   setCustomTagColor,
+  relativeLuminance,
   tagAutoColor,
+  tagChipStyle,
   tagTextColor,
   type StoredTagColor,
 } from "./tagColor";
@@ -27,6 +29,23 @@ function contrast(a: string, b: string): number {
   const [hi, lo] = left > right ? [left, right] : [right, left];
   return (hi + 0.05) / (lo + 0.05);
 }
+
+describe("relativeLuminance and tagChipStyle", () => {
+  it("measures black and white and paints chip text from that contrast", () => {
+    expect(relativeLuminance("#000000")).toBe(0);
+    expect(relativeLuminance("#ffffff")).toBeCloseTo(1, 5);
+    expect(tagChipStyle("#111111")).toEqual({
+      background: "#111111",
+      color: "#ffffff",
+      borderColor: "#111111",
+    });
+    expect(tagChipStyle("#ffffff")).toEqual({
+      background: "#ffffff",
+      color: tagTextColor("#ffffff"),
+      borderColor: "#ffffff",
+    });
+  });
+});
 
 describe("tag colors", () => {
   it("assigns a palette color once and keeps it", () => {

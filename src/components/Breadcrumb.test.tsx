@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FolderRow } from "../types";
 import { folderCrumbs, truncateCrumbs } from "../lib/breadcrumb";
-import { Breadcrumb } from "./Breadcrumb";
+import { Breadcrumb, crumbKey } from "./Breadcrumb";
 
 afterEach(() => cleanup());
 
@@ -62,5 +62,11 @@ describe("breadcrumb", () => {
     fireEvent.click(screen.getByRole("button", { name: "Articulated Toys" }));
     expect(onNavigate).toHaveBeenCalledWith({ type: "folder", id: 2 });
     expect(screen.queryByRole("button", { name: "…" })).toBeNull();
+  });
+
+  it("crumbKey distinguishes the root, folders, and an ellipsis", () => {
+    expect(crumbKey({ kind: "ellipsis" }, 2)).toBe("ellipsis-2");
+    expect(crumbKey({ kind: "place", place: { type: "root" }, label: "3D Print Library" }, 0)).toBe("root");
+    expect(crumbKey({ kind: "place", place: { type: "folder", id: 4 }, label: "Wolves" }, 1)).toBe("folder:4");
   });
 });

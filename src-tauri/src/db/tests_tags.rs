@@ -260,3 +260,123 @@
         assert_eq!(kept, tag_auto_color("FDM"));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn file_ids_for_creator_scope_matches_folder_depth() {
+        let (dir, db) = scratch_db("creator-scope");
+        let parent = db.create_folder(None, "Parent", 0).unwrap();
+        let child = db.create_folder(Some(parent.id), "Child", 0).unwrap();
+        let sibling = db.create_folder(None, "Sibling", 0).unwrap();
+        let root_file = db
+            .insert_file("root.stl", "root.stl", "stl", 1, "sha-root", 1, None, None)
+            .unwrap();
+        let in_parent = db
+            .insert_file("a.stl", "Parent/a.stl", "stl", 1, "sha-a", 1, Some(parent.id), None)
+            .unwrap();
+        let in_child = db
+            .insert_file("b.stl", "Parent/Child/b.stl", "stl", 1, "sha-b", 1, Some(child.id), None)
+            .unwrap();
+        let in_sibling = db
+            .insert_file("c.stl", "Sibling/c.stl", "stl", 1, "sha-c", 1, Some(sibling.id), None)
+            .unwrap();
+        let missing = db
+            .insert_file("d.stl", "Parent/d.stl", "stl", 1, "sha-d", 1, Some(parent.id), None)
+            .unwrap();
+        db.mark_missing(missing, true).unwrap();
+
+        let mut under_parent = db.file_ids_under_folder(Some(parent.id)).unwrap();
+        under_parent.sort();
+        assert_eq!(under_parent, {
+            let mut ids = vec![in_parent, in_child];
+            ids.sort();
+            ids
+        });
+        let mut all = db.file_ids_under_folder(None).unwrap();
+        all.sort();
+        assert_eq!(all, {
+            let mut ids = vec![root_file, in_parent, in_child, in_sibling];
+            ids.sort();
+            ids
+        });
+        assert!(!all.contains(&missing));
+
+        assert_eq!(
+            db.file_ids_for_creator_scope(Some(parent.id), false).unwrap(),
+            vec![in_parent]
+        );
+        let mut nested = db.file_ids_for_creator_scope(Some(parent.id), true).unwrap();
+        nested.sort();
+        assert_eq!(nested, under_parent);
+        assert_eq!(
+            db.file_ids_for_creator_scope(None, false).unwrap(),
+            vec![root_file]
+        );
+        let mut everything = db.file_ids_for_creator_scope(None, true).unwrap();
+        everything.sort();
+        assert_eq!(everything, all);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn normalize_hex_ensure_tag_id_and_tag_string_in_tx() {
+        let (dir, db) = scratch_db("tag-hex");
+        assert_eq!(super::normalize_hex(" #AbC ").unwrap(), "#aabbcc");
+        assert_eq!(super::normalize_hex("AABBCC").unwrap(), "#aabbcc");
+        assert_eq!(super::normalize_hex("#abc123").unwrap(), "#abc123");
+        assert_eq!(super::normalize_hex("abc123").unwrap(), "#abc123");
+        assert_eq!(
+            super::normalize_hex("gg0000").unwrap_err(),
+            "Tag color must be a hex color."
+        );
+        assert_eq!(
+            super::normalize_hex("#abcd").unwrap_err(),
+            "Tag color must be a hex color."
+        );
+        assert_eq!(
+            super::normalize_hex("").unwrap_err(),
+            "Tag color must be a hex color."
+        );
+        assert_eq!(
+            super::normalize_hex("ggg").unwrap_err(),
+            "Tag color must be a hex color."
+        );
+
+        db.conn
+            .execute("INSERT INTO tags (name, auto_color) VALUES ('Legacy', '')", [])
+            .unwrap();
+        let legacy = db.ensure_tag_id("legacy").unwrap();
+        let legacy_color: String = db
+            .conn
+            .query_row(
+                "SELECT auto_color FROM tags WHERE id = ?1",
+                [legacy],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(legacy_color, tag_auto_color("legacy"));
+        assert_eq!(db.ensure_tag_id("LEGACY").unwrap(), legacy);
+
+        let created = db.ensure_tag_id("Terrain").unwrap();
+        assert_eq!(db.ensure_tag_id("terrain").unwrap(), created);
+        assert_ne!(created, legacy);
+        let colors: Vec<TagColorRow> = db.list_tag_colors().unwrap();
+        let terrain = colors.iter().find(|tag| tag.id == created).unwrap();
+        assert_eq!(terrain.name, "Terrain");
+        assert_eq!(terrain.auto_color, tag_auto_color("Terrain"));
+        assert_eq!(terrain.color, terrain.auto_color);
+        assert!(!terrain.custom);
+        let legacy_row = colors.iter().find(|tag| tag.id == legacy).unwrap();
+        assert_eq!(legacy_row.name, "Legacy");
+        assert_eq!(legacy_row.color, tag_auto_color("legacy"));
+        assert!(!legacy_row.custom);
+
+        let file = db
+            .insert_file("a.stl", "a.stl", "stl", 1, "sha-hex", 1, None, None)
+            .unwrap();
+        db.set_tags(file, &["zeta".into(), "alpha".into()]).unwrap();
+        let tx = db.conn.unchecked_transaction().unwrap();
+        assert_eq!(db.tag_string_in_tx(&tx, file).unwrap(), "alpha zeta");
+        assert_eq!(db.tag_string_in_tx(&tx, 404).unwrap(), "");
+        tx.rollback().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }

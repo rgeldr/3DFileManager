@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { POPOVER_GAP, POPOVER_MARGIN, POPOVER_WIDTH, clampPopover, isIgnoredPopoverScroll, type AnchorRect } from "./popoverPosition";
+import { describe, expect, it, vi } from "vitest";
+import { POPOVER_GAP, POPOVER_MARGIN, POPOVER_WIDTH, clampPopover, focusWithoutScroll, isIgnoredPopoverScroll, resetHorizontalScroll, scrollListOption, type AnchorRect } from "./popoverPosition";
 
 function anchor(rect: Pick<AnchorRect, "top" | "right" | "bottom" | "left">): AnchorRect {
   return rect;
@@ -108,5 +108,75 @@ describe("clampPopover", () => {
     expect(box.top).toBe(40 + POPOVER_GAP);
     expect(box.maxHeight).toBe(200 - POPOVER_MARGIN - box.top);
     expectInside(box, 800, 200);
+  });
+});
+
+function box(top: number, bottom: number): DOMRect {
+  return {
+    x: 0,
+    y: top,
+    width: 100,
+    height: bottom - top,
+    top,
+    right: 100,
+    bottom,
+    left: 0,
+    toJSON() {
+      return {};
+    },
+  };
+}
+
+describe("scroll and focus helpers", () => {
+  it("scrollListOption brings the highlight inside the list", () => {
+    const list = document.createElement("div");
+    const option = document.createElement("div");
+    option.className = "is-highlight";
+    list.append(option);
+    document.body.append(list);
+    list.getBoundingClientRect = () => box(0, 40);
+    option.getBoundingClientRect = () => box(-15, 5);
+    list.scrollTop = 50;
+    scrollListOption(list);
+    expect(list.scrollTop).toBe(35);
+
+    option.getBoundingClientRect = () => box(50, 70);
+    scrollListOption(list);
+    expect(list.scrollTop).toBe(65);
+
+    const empty = document.createElement("div");
+    empty.scrollTop = 4;
+    scrollListOption(empty);
+    expect(empty.scrollTop).toBe(4);
+    scrollListOption(null);
+    list.remove();
+  });
+
+  it("resetHorizontalScroll clears scrollLeft on the page shell", () => {
+    const root = document.createElement("div");
+    root.id = "root";
+    let written = -1;
+    Object.defineProperty(root, "scrollLeft", {
+      configurable: true,
+      get: () => 12,
+      set: (value: number) => {
+        written = value;
+      },
+    });
+    document.body.append(root);
+    resetHorizontalScroll();
+    expect(written).toBe(0);
+    root.remove();
+  });
+
+  it("focusWithoutScroll focuses an element without moving the page", () => {
+    const button = document.createElement("button");
+    document.body.append(button);
+    const focus = vi.spyOn(button, "focus");
+    focusWithoutScroll(button);
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    focusWithoutScroll(undefined);
+    expect(focus).toHaveBeenCalledTimes(1);
+    button.remove();
   });
 });

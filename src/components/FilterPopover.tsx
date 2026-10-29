@@ -9,7 +9,7 @@ import {
   type PopoverBox,
 } from "../lib/popoverPosition";
 
-function roundBox(box: PopoverBox): PopoverBox {
+export function roundBox(box: PopoverBox): PopoverBox {
   return {
     top: Math.round(box.top),
     left: Math.round(box.left),
@@ -18,7 +18,7 @@ function roundBox(box: PopoverBox): PopoverBox {
   };
 }
 
-function sameBox(current: PopoverBox | null, next: PopoverBox): boolean {
+export function sameBox(current: PopoverBox | null, next: PopoverBox): boolean {
   return (
     current !== null &&
     current.top === next.top &&

@@ -151,3 +151,152 @@
         assert!(root.join(&rel).is_dir());
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn rewrite_moved_tree_rewrites_nested_catalog_paths() {
+        let (dir, db) = scratch_db("rewrite-tree");
+        let dest = db.create_folder(None, "Dest", 0).unwrap();
+        let source = db.create_folder(None, "Source", 0).unwrap();
+        let nested = db.create_folder(Some(source.id), "Nested", 0).unwrap();
+        let other = db.create_folder(None, "Other", 0).unwrap();
+        let top = db
+            .insert_file("a.stl", "Source/a.stl", "stl", 1, "sha-a", 1, Some(source.id), None)
+            .unwrap();
+        let child = db
+            .insert_file("b.stl", "Source/Nested/b.stl", "stl", 2, "sha-b", 2, Some(nested.id), None)
+            .unwrap();
+        let outside = db
+            .insert_file("c.stl", "Other/c.stl", "stl", 3, "sha-c", 3, Some(other.id), None)
+            .unwrap();
+
+        let mut last = None;
+        db.rewrite_moved_tree(
+            "Source",
+            "Dest/Source",
+            source.id,
+            Some(dest.id),
+            "Renamed",
+            &mut |progress| {
+                assert_eq!(progress.name, "Updating catalog");
+                assert!(!progress.cancellable);
+                assert_eq!(progress.bytes_done, 0);
+                assert_eq!(progress.bytes_total, 0);
+                last = Some((progress.current, progress.total));
+            },
+        )
+        .unwrap();
+        assert_eq!(last, Some((4, 4)));
+
+        let folders = db.list_folders().unwrap();
+        let moved = folders.iter().find(|folder| folder.id == source.id).unwrap();
+        assert_eq!(moved.parent_id, Some(dest.id));
+        assert_eq!(moved.name, "Renamed");
+        assert_eq!(moved.relpath, "Dest/Source");
+        let nested_row = folders.iter().find(|folder| folder.id == nested.id).unwrap();
+        assert_eq!(nested_row.parent_id, Some(source.id));
+        assert_eq!(nested_row.name, "Nested");
+        assert_eq!(nested_row.relpath, "Dest/Source/Nested");
+        assert_eq!(db.file_location(top).unwrap().stored_relpath, "Dest/Source/a.stl");
+        assert_eq!(db.file_location(child).unwrap().stored_relpath, "Dest/Source/Nested/b.stl");
+        assert_eq!(db.file_location(outside).unwrap().stored_relpath, "Other/c.stl");
+        assert_eq!(db.file_location(child).unwrap().folder_id, Some(nested.id));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn relocate_folder_moves_disk_and_undoes_a_catalog_conflict() {
+        let (dir, db) = scratch_db("relocate-folder");
+        let root = db.library_root().unwrap();
+        let alpha = db.create_folder(None, "Alpha", 0).unwrap();
+        let beta = db.create_folder(None, "Beta", 0).unwrap();
+        std::fs::write(root.join("Alpha").join("a.stl"), b"mesh").unwrap();
+        let file_id = db
+            .insert_file("a.stl", "Alpha/a.stl", "stl", 4, "sha-alpha", 1, Some(alpha.id), None)
+            .unwrap();
+
+        let conflict = db
+            .rewrite_moved_tree("Alpha", "Beta", alpha.id, None, "Beta", &mut |_| {})
+            .unwrap_err();
+        assert_eq!(conflict, "UNIQUE constraint failed: folders.relpath");
+        assert_eq!(db.folder_relpath(alpha.id).unwrap(), "Alpha");
+        assert_eq!(db.file_location(file_id).unwrap().stored_relpath, "Alpha/a.stl");
+        assert!(root.join("Alpha/a.stl").is_file());
+
+        std::fs::remove_dir_all(root.join("Beta")).unwrap();
+        let undone = db
+            .relocate_folder(
+                alpha.id,
+                None,
+                "Beta",
+                &root,
+                "Alpha",
+                "Beta",
+                &AtomicBool::new(false),
+                false,
+                |_| {},
+            )
+            .unwrap_err();
+        assert_eq!(undone, "UNIQUE constraint failed: folders.relpath");
+        assert!(root.join("Alpha/a.stl").is_file());
+        assert!(!root.join("Beta").exists());
+        assert_eq!(db.folder_relpath(alpha.id).unwrap(), "Alpha");
+        assert_eq!(db.folder_relpath(beta.id).unwrap(), "Beta");
+        assert_eq!(db.file_location(file_id).unwrap().stored_relpath, "Alpha/a.stl");
+
+        let missing = db
+            .relocate_folder(
+                alpha.id,
+                None,
+                "Ghost",
+                &root,
+                "does-not-exist",
+                "Ghost",
+                &AtomicBool::new(false),
+                false,
+                |_| {},
+            )
+            .unwrap_err();
+        assert!(missing.contains("was not found on disk"));
+        assert!(missing.contains("does-not-exist"));
+        assert_eq!(db.folder_relpath(alpha.id).unwrap(), "Alpha");
+
+        let shelf = db.create_folder(None, "Shelf", 0).unwrap();
+        let moved = db
+            .relocate_folder(
+                alpha.id,
+                Some(shelf.id),
+                "Alpha",
+                &root,
+                "Alpha",
+                "Shelf/Alpha",
+                &AtomicBool::new(false),
+                false,
+                |_| {},
+            )
+            .unwrap();
+        assert!(!moved);
+        assert!(root.join("Shelf/Alpha/a.stl").is_file());
+        assert!(!root.join("Alpha").exists());
+        assert_eq!(db.folder_relpath(alpha.id).unwrap(), "Shelf/Alpha");
+        assert_eq!(db.file_location(file_id).unwrap().stored_relpath, "Shelf/Alpha/a.stl");
+
+        let cancel = AtomicBool::new(true);
+        let cancelled = db
+            .relocate_folder(
+                alpha.id,
+                None,
+                "Alpha",
+                &root,
+                "Shelf/Alpha",
+                "Alpha",
+                &cancel,
+                true,
+                |_| {},
+            )
+            .unwrap();
+        assert!(cancelled);
+        assert!(root.join("Shelf/Alpha/a.stl").is_file());
+        assert!(!root.join("Alpha").exists());
+        assert_eq!(db.folder_relpath(alpha.id).unwrap(), "Shelf/Alpha");
+        let _ = std::fs::remove_dir_all(&dir);
+    }

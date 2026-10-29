@@ -116,4 +116,15 @@ describe("api command contract", () => {
       programId: "orca",
     });
   });
+
+  it("getSettings and listTags call invoke with their command names and no payload", async () => {
+    await api.getSettings();
+    await api.listTags();
+    expect(invokedArgs.filter((call) => call.cmd === "get_settings")).toEqual([
+      { cmd: "get_settings", args: undefined },
+    ]);
+    expect(invokedArgs.filter((call) => call.cmd === "list_tags")).toEqual([
+      { cmd: "list_tags", args: undefined },
+    ]);
+  });
 });

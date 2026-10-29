@@ -382,4 +382,63 @@ mod tests {
         assert!(!db.file_row_exists(outside).unwrap());
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn hash_one_released_stores_a_hash_and_marks_a_missing_file() {
+        let (dir, db) = scratch("hash-released");
+        let root = db.library_root().unwrap();
+        std::fs::write(root.join("a.stl"), b"solid part\n").unwrap();
+        let missing = db
+            .insert_file_with_thumb_status("gone.stl", "gone.stl", "stl", 1, "", 1, None, None, "unhashed")
+            .unwrap();
+        let present = db
+            .insert_file_with_thumb_status("a.stl", "a.stl", "stl", 12, "", 1, None, None, "unhashed")
+            .unwrap();
+        let db = Mutex::new(db);
+        assert!(hash_one_released(&db).unwrap());
+        assert!(hash_one_released(&db).unwrap());
+        assert!(!hash_one_released(&db).unwrap());
+        let db = db.into_inner().unwrap();
+        let missing_status: String = db
+            .conn
+            .query_row("SELECT thumb_status FROM files WHERE id = ?1", [missing], |row| row.get(0))
+            .unwrap();
+        assert_eq!(missing_status, "hash_error");
+        let (sha, status): (String, String) = db
+            .conn
+            .query_row(
+                "SELECT sha256, thumb_status FROM files WHERE id = ?1",
+                [present],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(sha, "54adc84365c976b4905b2f2abd991dc668d58319eccb77436fa61f872d1c37a5");
+        assert_eq!(status, "none");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn drop_if_unmoved_removes_only_the_unmoved_row() {
+        let (dir, db) = scratch("hash-drop");
+        let root = db.library_root().unwrap();
+        std::fs::write(root.join("a.stl"), b"bytes").unwrap();
+        let id = db
+            .insert_file_with_thumb_status("a.stl", "a.stl", "stl", 5, "", 1, None, None, "hashing")
+            .unwrap();
+        drop_if_unmoved(&db, 9_999, "a.stl", "abc").unwrap();
+        assert!(db.file_row_exists(id).unwrap());
+        db.update_path(id, "moved/a.stl", None, 5, 2).unwrap();
+        drop_if_unmoved(&db, id, "a.stl", "abc").unwrap();
+        assert!(db.file_row_exists(id).unwrap());
+        let moved_status: String = db
+            .conn
+            .query_row("SELECT thumb_status FROM files WHERE id = ?1", [id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(moved_status, "unhashed");
+        db.update_path(id, "a.stl", None, 5, 1).unwrap();
+        drop_if_unmoved(&db, id, "a.stl", "abc").unwrap();
+        assert!(!db.file_row_exists(id).unwrap());
+        assert!(root.join("a.stl").is_file());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

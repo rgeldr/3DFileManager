@@ -119,3 +119,276 @@
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[test]
+    fn directory_has_other_name_matches_case_and_skips_the_source() {
+        let dir = std::env::temp_dir().join(format!("filelib-dirname-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let taken = dir.join("Taken.STL");
+        let other = dir.join("other.stl");
+        std::fs::write(&taken, b"taken").unwrap();
+        std::fs::write(&other, b"other").unwrap();
+        std::os::unix::fs::symlink("Taken.STL", dir.join("alias.stl")).unwrap();
+
+        assert!(super::directory_has_other_name(&dir, "taken.stl", &other).unwrap());
+        assert!(!super::directory_has_other_name(&dir, "other.stl", &other).unwrap());
+        assert!(!super::directory_has_other_name(&dir, "nope.stl", &other).unwrap());
+        assert!(!super::directory_has_other_name(&dir, "alias.stl", &taken).unwrap());
+        assert!(!super::directory_has_other_name(&dir, "TAKEN.stl", &taken).unwrap());
+
+        let err = super::directory_has_other_name(&other, "x.stl", &other).unwrap_err();
+        assert_eq!(err, "Not a directory (os error 20)");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn file_mtime_reads_modified_time_or_zero() {
+        let dir = std::env::temp_dir().join(format!("filelib-mtime-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("timed.stl");
+        std::fs::write(&path, b"mesh").unwrap();
+        let expected = std::fs::metadata(&path)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        assert_eq!(super::file_mtime(&path), expected);
+        assert!(expected > 0);
+        assert_eq!(super::file_mtime(&dir.join("missing.stl")), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sha_exists_and_sha_exists_other_ignore_empty_and_missing() {
+        let (dir, db) = scratch_db("sha-exists");
+        assert!(!db.sha_exists("").unwrap());
+        assert!(!db.sha_exists("absent").unwrap());
+        assert!(!db.sha_exists_other("", 1).unwrap());
+        assert!(!db.sha_exists_other("absent", 1).unwrap());
+
+        let kept = db
+            .insert_file("a.stl", "a.stl", "stl", 1, "sha-shared", 1, None, None)
+            .unwrap();
+        let other = db
+            .insert_file("b.stl", "b.stl", "stl", 1, "sha-shared", 1, None, None)
+            .unwrap();
+        let gone = db
+            .insert_file("c.stl", "c.stl", "stl", 1, "sha-gone", 1, None, None)
+            .unwrap();
+        db.mark_missing(gone, true).unwrap();
+
+        assert!(db.sha_exists("sha-shared").unwrap());
+        assert!(!db.sha_exists("sha-gone").unwrap());
+        assert!(db.sha_exists_other("sha-shared", kept).unwrap());
+        assert!(db.sha_exists_other("sha-shared", other).unwrap());
+        assert!(db.sha_exists_other("sha-shared", gone).unwrap());
+        assert!(!db.sha_exists_other("sha-gone", kept).unwrap());
+        db.mark_missing(other, true).unwrap();
+        assert!(db.sha_exists("sha-shared").unwrap());
+        assert!(!db.sha_exists_other("sha-shared", kept).unwrap());
+        assert!(db.sha_exists_other("sha-shared", other).unwrap());
+        assert!(!db.sha_exists_other("", kept).unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unhashed_queue_claim_count_and_reset() {
+        let (dir, db) = scratch_db("unhashed");
+        let missing = db
+            .insert_file_with_thumb_status("gone.stl", "gone.stl", "stl", 1, "", 1, None, None, "unhashed")
+            .unwrap();
+        db.mark_missing(missing, true).unwrap();
+        let first = db
+            .insert_file_with_thumb_status("a.stl", "a.stl", "stl", 1, "", 1, None, None, "unhashed")
+            .unwrap();
+        let second = db
+            .insert_file_with_thumb_status("b.stl", "b.stl", "stl", 1, "", 1, None, None, "unhashed")
+            .unwrap();
+        let hashing = db
+            .insert_file_with_thumb_status("c.stl", "c.stl", "stl", 1, "", 1, None, None, "hashing")
+            .unwrap();
+        let ready = db
+            .insert_file_with_thumb_status("d.stl", "d.stl", "stl", 1, "sha-d", 1, None, None, "ok")
+            .unwrap();
+
+        assert_eq!(db.count_unhashed().unwrap(), 2);
+        let peeked: UnhashedCandidate = db.next_unhashed_file().unwrap().expect("unhashed row");
+        assert_eq!(peeked.id, first);
+        assert_eq!(peeked.stored_relpath, "a.stl");
+        assert_eq!(status_of(&db, first).0, "unhashed");
+
+        let claimed: UnhashedCandidate = db.claim_next_unhashed().unwrap().expect("claimed row");
+        assert_eq!(claimed.id, first);
+        assert_eq!(claimed.stored_relpath, "a.stl");
+        assert_eq!(status_of(&db, first).0, "hashing");
+        assert_eq!(db.count_unhashed().unwrap(), 1);
+        let next: UnhashedCandidate = db.next_unhashed_file().unwrap().expect("second row");
+        assert_eq!(next.id, second);
+
+        db.reset_hashing_to_unhashed().unwrap();
+        assert_eq!(status_of(&db, first).0, "unhashed");
+        assert_eq!(status_of(&db, hashing).0, "unhashed");
+        assert_eq!(status_of(&db, second).0, "unhashed");
+        assert_eq!(status_of(&db, ready).0, "ok");
+        assert_eq!(status_of(&db, missing).0, "unhashed");
+        assert_eq!(db.count_unhashed().unwrap(), 3);
+
+        assert_eq!(db.claim_next_unhashed().unwrap().unwrap().id, first);
+        assert_eq!(db.claim_next_unhashed().unwrap().unwrap().id, second);
+        assert_eq!(db.claim_next_unhashed().unwrap().unwrap().id, hashing);
+        assert!(db.claim_next_unhashed().unwrap().is_none());
+        assert!(db.next_unhashed_file().unwrap().is_none());
+        assert_eq!(db.count_unhashed().unwrap(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn import_batch_begin_commit_and_rollback() {
+        let (dir, mut db) = scratch_db("import-batch");
+        assert_eq!(
+            db.import_batch_commit().unwrap_err(),
+            "cannot commit - no transaction is active"
+        );
+        assert_eq!(
+            db.import_batch_rollback().unwrap_err(),
+            "cannot rollback - no transaction is active"
+        );
+
+        db.import_batch_begin().unwrap();
+        let sync: i64 = db
+            .conn
+            .pragma_query_value(None, "synchronous", |row| row.get(0))
+            .unwrap();
+        assert_eq!(sync, 1);
+        assert_eq!(
+            db.import_batch_begin().unwrap_err(),
+            "Safety level may not be changed inside a transaction"
+        );
+        let rolled = db
+            .insert_file("a.stl", "a.stl", "stl", 3, "sha-batch", 8, None, None)
+            .unwrap();
+        assert!(db.file_row_exists(rolled).unwrap());
+        db.import_batch_rollback().unwrap();
+        assert!(!db.file_row_exists(rolled).unwrap());
+
+        db.import_batch_begin().unwrap();
+        let kept = db
+            .insert_file("b.stl", "b.stl", "stl", 3, "sha-kept", 8, None, None)
+            .unwrap();
+        db.import_batch_commit().unwrap();
+        assert!(db.file_row_exists(kept).unwrap());
+        let sha: String = db
+            .conn
+            .query_row("SELECT sha256 FROM files WHERE id = ?1", [kept], |row| row.get(0))
+            .unwrap();
+        assert_eq!(sha, "sha-kept");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sync_tags_text_rewrites_tag_string() {
+        let (dir, db) = scratch_db("tag-string");
+        let id = db
+            .insert_file("a.stl", "a.stl", "stl", 1, "sha-tags", 1, None, None)
+            .unwrap();
+        db.set_tags(id, &["zeta".into(), "  ".into(), "alpha".into()]).unwrap();
+        assert_eq!(db.tag_string(id).unwrap(), "alpha zeta");
+        let stored: String = db
+            .conn
+            .query_row("SELECT tags_text FROM files WHERE id = ?1", [id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(stored, "alpha zeta");
+        db.conn
+            .execute("UPDATE files SET tags_text = 'stale' WHERE id = ?1", [id])
+            .unwrap();
+        db.sync_tags_text(id).unwrap();
+        let refreshed: String = db
+            .conn
+            .query_row("SELECT tags_text FROM files WHERE id = ?1", [id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(refreshed, "alpha zeta");
+        assert_eq!(db.tag_string(404).unwrap(), "");
+        db.sync_tags_text(404).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn catalog_index_trash_and_remove_catalogued_file() {
+        let (dir, db) = scratch_db("catalog-index");
+        let root = db.library_root().unwrap();
+        let folder = db.create_folder(None, "Models", 0).unwrap();
+        std::fs::write(root.join("Models").join("mesh.stl"), b"mesh").unwrap();
+        let id = db
+            .insert_file(
+                "mesh.stl",
+                "Models/mesh.stl",
+                "stl",
+                4,
+                "sha-mesh",
+                9,
+                Some(folder.id),
+                None,
+            )
+            .unwrap();
+        let shared = db
+            .insert_file("copy.stl", "copy.stl", "stl", 4, "sha-mesh", 9, None, None)
+            .unwrap();
+        let empty = db
+            .insert_file("empty.stl", "empty.stl", "stl", 1, "", 3, None, None)
+            .unwrap();
+        let missing = db
+            .insert_file("gone.stl", "gone.stl", "stl", 2, "sha-gone", 4, None, None)
+            .unwrap();
+        db.mark_missing(missing, true).unwrap();
+        std::fs::write(thumb_path(&db.data_dir, "sha-mesh"), b"png").unwrap();
+        std::fs::write(thumb_path(&db.data_dir, ""), b"dot").unwrap();
+        std::fs::write(thumb_path(&db.data_dir, "sha-gone"), b"keep").unwrap();
+
+        let loc: FileLoc = db.file_location(id).unwrap();
+        assert_eq!(loc.stored_relpath, "Models/mesh.stl");
+        assert_eq!(loc.folder_id, Some(folder.id));
+        assert_eq!(loc.sha256, "sha-mesh");
+        assert_eq!(loc.original_name, "mesh.stl");
+
+        let items: Vec<TrashItem> = db.trash_items(&[id, missing]).unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].id, id);
+        assert_eq!(items[0].path, root.join("Models/mesh.stl"));
+        assert_eq!(items[0].sha256, "sha-mesh");
+        assert_eq!(items[0].name, "mesh.stl");
+        assert_eq!(items[0].bytes, 4);
+        assert_eq!(items[1].id, missing);
+        assert_eq!(items[1].name, "gone.stl");
+        assert_eq!(items[1].sha256, "sha-gone");
+        assert_eq!(items[1].bytes, 0);
+        assert_eq!(items[1].path, root.join("gone.stl"));
+
+        let rows: Vec<IndexRow> = db.all_file_index().unwrap();
+        let indexed = rows.iter().find(|row| row.id == id).unwrap();
+        assert_eq!(indexed.stored_relpath, "Models/mesh.stl");
+        assert_eq!(indexed.sha256, "sha-mesh");
+        assert_eq!(indexed.size_bytes, 4);
+        assert_eq!(indexed.mtime, 9);
+        assert_eq!(indexed.folder_id, Some(folder.id));
+        assert!(!indexed.missing);
+        let gone = rows.iter().find(|row| row.id == missing).unwrap();
+        assert!(gone.missing);
+        assert_eq!(gone.sha256, "sha-gone");
+        assert_eq!(rows.len(), 4);
+
+        db.remove_catalogued_file(shared, "sha-mesh").unwrap();
+        assert!(!db.file_row_exists(shared).unwrap());
+        assert!(thumb_path(&db.data_dir, "sha-mesh").is_file());
+        db.remove_catalogued_file(id, "sha-mesh").unwrap();
+        assert!(!db.file_row_exists(id).unwrap());
+        assert!(!thumb_path(&db.data_dir, "sha-mesh").exists());
+        db.remove_catalogued_file(empty, "").unwrap();
+        assert!(thumb_path(&db.data_dir, "").is_file());
+        assert!(thumb_path(&db.data_dir, "sha-gone").is_file());
+        assert!(db.file_row_exists(missing).unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+

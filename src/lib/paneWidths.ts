@@ -4,7 +4,7 @@ export const INSPECTOR_MIN = 240;
 export const INSPECTOR_MAX = 560;
 export const INSPECTOR_RAIL_WIDTH = 40;
 
-function clampRange(width: number, min: number, absoluteMax: number, windowFraction: number, windowWidth: number): number {
+export function clampRange(width: number, min: number, absoluteMax: number, windowFraction: number, windowWidth: number): number {
   const max = Math.min(absoluteMax, Math.floor(windowWidth * windowFraction));
   const cap = Math.max(min, max);
   return Math.min(cap, Math.max(min, Math.round(width)));

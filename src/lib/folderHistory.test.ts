@@ -5,12 +5,26 @@ import {
   historyButton,
   historyKey,
   moveHistory,
+  placeExists,
   pushFolder,
+  samePlace,
 } from "./folderHistory";
 
 const root = { type: "root" as const };
 const folder = (id: number) => ({ type: "folder" as const, id });
 const all = (id: number) => id > 0;
+
+describe("samePlace and placeExists", () => {
+  it("treats the root as one place and folders by id", () => {
+    expect(samePlace(root, root)).toBe(true);
+    expect(samePlace(root, folder(1))).toBe(false);
+    expect(samePlace(folder(1), folder(1))).toBe(true);
+    expect(samePlace(folder(1), folder(2))).toBe(false);
+    expect(placeExists(root, () => false)).toBe(true);
+    expect(placeExists(folder(4), (id) => id === 4)).toBe(true);
+    expect(placeExists(folder(4), () => false)).toBe(false);
+  });
+});
 
 describe("folder history", () => {
   it("starts at the library root", () => {

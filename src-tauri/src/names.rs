@@ -370,4 +370,26 @@ mod tests {
             assert!(!is_archive(ext));
         }
     }
+
+    #[test]
+    fn windows_file_names_and_thumbnail_queue_follow_the_catalog() {
+        validate_windows_file_name("Hero.stl").unwrap();
+        let reserved = validate_windows_file_name("CON").unwrap_err();
+        assert!(reserved.contains("reserved"), "{reserved}");
+        assert!(validate_windows_file_name("a/b").is_err());
+        assert!(validate_windows_file_name("").is_err());
+        assert!(validate_windows_file_name(&"a".repeat(181)).is_err());
+        assert!(queues_thumbnail("stl"));
+        assert!(queues_thumbnail("png"));
+        assert!(queues_thumbnail("gcode"));
+        assert!(!queues_thumbnail("pdf"));
+        assert!(!queues_thumbnail("step"));
+        let parts: RenameParts = rename_parts("stl", "Gate").unwrap();
+        assert_eq!(parts.file_name, "Gate.stl");
+        assert_eq!(parts.sort_name, "Gate");
+        assert_eq!(parts.ext, "stl");
+        let group: &SupportedType = supported_types().iter().find(|group| group.id == "stl").unwrap();
+        assert_eq!(group.label, "stl");
+        assert_eq!(group.exts, vec!["stl".to_string()]);
+    }
 }

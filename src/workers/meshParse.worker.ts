@@ -24,13 +24,13 @@ interface ParseErr {
   error: string;
 }
 
-function copyAttribute(attr: THREE.BufferAttribute): ArrayBuffer {
+export function copyAttribute(attr: THREE.BufferAttribute): ArrayBuffer {
   const view = attr.array;
   const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
   return bytes.slice().buffer;
 }
 
-function packGeometry(geometry: THREE.BufferGeometry): PackedMesh {
+export function packGeometry(geometry: THREE.BufferGeometry): PackedMesh {
   const position = geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
   if (!position) {
     throw new Error("Mesh has no position attribute.");
@@ -43,7 +43,7 @@ function packGeometry(geometry: THREE.BufferGeometry): PackedMesh {
   return packed;
 }
 
-function collectMeshes(object: THREE.Object3D, out: PackedMesh[]) {
+export function collectMeshes(object: THREE.Object3D, out: PackedMesh[]) {
   object.traverse((child) => {
     if (child instanceof THREE.Mesh && child.geometry) {
       const geometry = child.geometry;
@@ -55,7 +55,7 @@ function collectMeshes(object: THREE.Object3D, out: PackedMesh[]) {
   });
 }
 
-function parseMeshes(ext: string, buffer: ArrayBuffer): PackedMesh[] {
+export function parseMeshes(ext: string, buffer: ArrayBuffer): PackedMesh[] {
   const meshes: PackedMesh[] = [];
   if (ext === "stl") {
     const geometry = new STLLoader().parse(buffer);
@@ -78,7 +78,7 @@ function parseMeshes(ext: string, buffer: ArrayBuffer): PackedMesh[] {
   throw new Error("Not a mesh.");
 }
 
-function fitCamera(camera: THREE.PerspectiveCamera, object: THREE.Object3D) {
+export function fitCamera(camera: THREE.PerspectiveCamera, object: THREE.Object3D) {
   const box = new THREE.Box3().setFromObject(object);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
@@ -93,7 +93,7 @@ function fitCamera(camera: THREE.PerspectiveCamera, object: THREE.Object3D) {
   camera.updateProjectionMatrix();
 }
 
-function parsedObject(ext: string, buffer: ArrayBuffer): THREE.Object3D {
+export function parsedObject(ext: string, buffer: ArrayBuffer): THREE.Object3D {
   if (ext === "stl") {
     const geometry = new STLLoader().parse(buffer);
     geometry.computeVertexNormals();
@@ -112,20 +112,20 @@ function parsedObject(ext: string, buffer: ArrayBuffer): THREE.Object3D {
 let sharedRenderer: THREE.WebGLRenderer | null = null;
 let sharedCanvas: OffscreenCanvas | null = null;
 
-function loseContext(renderer: THREE.WebGLRenderer) {
+export function loseContext(renderer: THREE.WebGLRenderer) {
   const gl = renderer.getContext() as WebGLRenderingContext & { forceContextLoss?: () => void };
   renderer.dispose();
   gl.forceContextLoss?.();
 }
 
-function discardWorkerRenderer() {
+export function discardWorkerRenderer() {
   if (!sharedRenderer) return;
   loseContext(sharedRenderer);
   sharedRenderer = null;
   sharedCanvas = null;
 }
 
-function workerRenderer(): { renderer: THREE.WebGLRenderer; canvas: OffscreenCanvas } {
+export function workerRenderer(): { renderer: THREE.WebGLRenderer; canvas: OffscreenCanvas } {
   if (sharedRenderer && sharedCanvas) {
     const existing = sharedRenderer.getContext();
     if (existing && !existing.isContextLost()) {
@@ -158,7 +158,7 @@ function workerRenderer(): { renderer: THREE.WebGLRenderer; canvas: OffscreenCan
   return { renderer, canvas };
 }
 
-async function renderThumbnail(
+export async function renderThumbnail(
   ext: string,
   buffer: ArrayBuffer,
   colors: { background: string; mesh: string; light: string },

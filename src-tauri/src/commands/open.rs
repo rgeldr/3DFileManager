@@ -61,6 +61,18 @@ fn read_text_preview(path: &std::path::Path) -> Result<String, String> {
     Ok(clean_text_preview(&buf[..n]))
 }
 
+/// Extension gate plus the 4KB read. `text_preview` only adds the app-state lock.
+fn catalog_text_preview(db: &AppDb, file_id: i64) -> Result<String, String> {
+    let loc = db.file_location(file_id)?;
+    let ext = names::extension_of(&loc.stored_relpath);
+    if !matches!(ext.as_str(), "txt" | "md" | "scad") {
+        return Ok(String::new());
+    }
+    let root = db.library_root()?;
+    let path = contained_library_file(&root, &loc.stored_relpath)?;
+    read_text_preview(&path)
+}
+
 fn catalog_file_path(db: &AppDb, file_id: i64) -> Result<PathBuf, String> {
     let loc = db.file_location(file_id)?;
     let root = db.library_root()?;
@@ -302,17 +314,8 @@ async fn reveal_folder(app: AppHandle, folder_id: Option<i64>) -> Result<(), Str
 async fn text_preview(app: AppHandle, file_id: i64) -> Result<String, String> {
     let db = app.state::<AppState>().db.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let path = {
-            let db = db.lock().map_err(|err| err.to_string())?;
-            let loc = db.file_location(file_id)?;
-            let ext = names::extension_of(&loc.stored_relpath);
-            if !matches!(ext.as_str(), "txt" | "md" | "scad") {
-                return Ok(String::new());
-            }
-            let root = db.library_root()?;
-            contained_library_file(&root, &loc.stored_relpath)?
-        };
-        read_text_preview(&path)
+        let db = db.lock().map_err(|err| err.to_string())?;
+        catalog_text_preview(&db, file_id)
     })
     .await
     .map_err(|err| err.to_string())?

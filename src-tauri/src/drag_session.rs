@@ -82,3 +82,48 @@ const FALLBACK_PNG: &[u8] = &[
     0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00,
     0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_drag_records_a_started_copy() {
+        let drag = NativeDrag {
+            result: "started".into(),
+            effect: "copy".into(),
+            finished: false,
+            detail: String::new(),
+        };
+        assert_eq!(drag.result, "started");
+        assert_eq!(drag.effect, "copy");
+        assert!(!drag.finished);
+        assert!(drag.detail.is_empty());
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn drag_image_uses_the_icon_file_or_a_png_fallback() {
+        let dir = std::env::temp_dir().join(format!("filelib-drag-image-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let icon = dir.join("icon.png");
+        std::fs::write(&icon, FALLBACK_PNG).unwrap();
+        match drag_image(&icon.to_string_lossy()) {
+            drag::Image::File(path) => assert_eq!(path, icon),
+            drag::Image::Raw(_) => panic!("expected the icon file"),
+        }
+        match drag_image("") {
+            drag::Image::Raw(bytes) => {
+                assert!(bytes.starts_with(&[0x89, b'P', b'N', b'G']));
+                assert_eq!(bytes, FALLBACK_PNG);
+            }
+            drag::Image::File(path) => panic!("expected the fallback png, got {}", path.display()),
+        }
+        match drag_image("/tmp/filelib-missing-drag-icon.png") {
+            drag::Image::Raw(bytes) => assert_eq!(bytes.len(), FALLBACK_PNG.len()),
+            drag::Image::File(path) => panic!("expected the fallback png, got {}", path.display()),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

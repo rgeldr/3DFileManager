@@ -499,4 +499,116 @@ mod tests {
         }
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn staging_helpers_shorten_names_link_a_copy_and_drop_old_files() {
+        let dir = std::env::temp_dir().join(format!("filelib-drag-helpers-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let hero = dir.join(format!("CoverageHero{}.STL", std::process::id()));
+        fs::write(&hero, b"solid hero").unwrap();
+        assert_eq!(stored_file_name(&hero.to_string_lossy()), hero.file_name().unwrap().to_string_lossy());
+        assert_eq!(display_name(&hero.to_string_lossy()), hero.file_name().unwrap().to_string_lossy());
+        assert_eq!(display_name("/"), "/");
+        assert_eq!(truncate_chars("abcdef", 3), "abc");
+        assert_eq!(truncate_chars("ab", 5), "ab");
+        assert_eq!(truncate_chars("ééé", 2), "éé");
+        assert_eq!(truncate_component("abcdef.stl", 6), "ab.stl");
+        assert_eq!(truncate_component("abcdef.stl", 4), "abcd");
+
+        let stage = dir.join("stage");
+        fs::create_dir_all(&stage).unwrap();
+        assert_eq!(shrink_name(&stage, "short.stl"), "short.stl");
+        assert_eq!(numbered_name(&stage, "model.stl", "stl", 2), "model (2).stl");
+        let first = short_drag_name(&stage, "stl").unwrap();
+        assert!(first.ends_with("drag-1.stl"));
+        fs::write(&first, b"x").unwrap();
+        let second = short_drag_name(&stage, "stl").unwrap();
+        assert!(second.ends_with("drag-2.stl"));
+        let dest = staged_destination(&stage, "model.stl").unwrap();
+        assert!(dest.ends_with("model.stl"));
+        fs::write(&dest, b"1").unwrap();
+        let next = staged_destination(&stage, "model.stl").unwrap();
+        assert!(next.ends_with("model (1).stl"), "{}", next.display());
+
+        let mut deep = dir.join("deep");
+        while deep.to_string_lossy().chars().count() < 230 {
+            deep.push("abcdefghij");
+        }
+        fs::create_dir_all(&deep).unwrap();
+        let long_name = format!("{}.stl", "n".repeat(40));
+        let shrunk = shrink_name(&deep, &long_name);
+        assert!(shrunk.ends_with(".stl"));
+        assert!(shrunk.chars().count() < long_name.chars().count());
+        assert!(deep.join(&shrunk).to_string_lossy().chars().count() <= MAX_LEGACY);
+
+        let mut too_long = dir.join("toolong");
+        while too_long.to_string_lossy().chars().count() <= MAX_LEGACY {
+            too_long.push("abcdefghij");
+        }
+        fs::create_dir_all(&too_long).unwrap();
+        let short_err = short_drag_name(&too_long, "stl").unwrap_err();
+        assert!(short_err.contains("too long"), "{short_err}");
+        let staged_err = staged_destination(&too_long, "model.stl").unwrap_err();
+        assert!(staged_err.contains("too long"), "{staged_err}");
+
+        let src = dir.join("src.stl");
+        fs::write(&src, b"solid").unwrap();
+        let linked = stage.join("linked.stl");
+        link_or_copy(&src, &linked).unwrap();
+        assert_eq!(fs::read(&linked).unwrap(), b"solid");
+        let copied = stage.join("copied.stl");
+        link_or_copy(&src, &copied).unwrap();
+        assert_eq!(fs::read(&copied).unwrap(), b"solid");
+        let missing_link = link_or_copy(Path::new("/tmp/filelib-missing-link-src"), &stage.join("nope.stl")).unwrap_err();
+        assert!(!missing_link.is_empty());
+
+        let staged_root = stage_dir();
+        assert!(staged_root.ends_with("drag"));
+        assert!(staged_root.to_string_lossy().contains("3D File Library"));
+        fs::create_dir_all(&staged_root).unwrap();
+        let old = staged_root.join(format!("old-drag-{}.stl", std::process::id()));
+        fs::write(&old, b"old").unwrap();
+        let file = fs::OpenOptions::new().write(true).open(&old).unwrap();
+        file.set_modified(SystemTime::now() - std::time::Duration::from_secs(48 * 60 * 60))
+            .unwrap();
+        drop(file);
+        cleanup_staged();
+        assert!(!old.exists());
+
+        let missing = prepare_one(&DragSource {
+            path: "/tmp/filelib-does-not-exist-prepare.stl".into(),
+            file_name: "missing.stl".into(),
+            ext: "stl".into(),
+        })
+        .unwrap_err();
+        let report: DragReport = missing;
+        assert_eq!(report.error.as_deref(), Some("File is missing."));
+        assert!(!report.staged);
+        assert!(report.drag_path.is_empty());
+
+        let desired = format!("CoverageHero{}.stl", std::process::id());
+        let (drag_path, prepared_report) = prepare_one(&source(
+            &hero,
+            &format!("CoverageHero{}.STL", std::process::id()),
+            "stl",
+        ))
+        .unwrap();
+        assert!(prepared_report.staged);
+        assert!(drag_path.ends_with(&desired), "{drag_path}");
+        assert_eq!(fs::read(&drag_path).unwrap(), b"solid hero");
+        assert_eq!(fs::read(&hero).unwrap(), b"solid hero");
+        let prepared: PreparedDrag = PreparedDrag {
+            paths: vec![drag_path.clone()],
+            skipped: Vec::new(),
+            reports: vec![prepared_report],
+            icon_bytes: 0,
+        };
+        assert_eq!(prepared.paths, vec![drag_path.clone()]);
+        assert!(prepared.skipped.is_empty());
+        assert_eq!(prepared.reports.len(), 1);
+        assert_eq!(prepared.icon_bytes, 0);
+        let _ = fs::remove_file(&drag_path);
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

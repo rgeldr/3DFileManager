@@ -12,9 +12,19 @@ import {
   rowStride,
   visibleGridWindow,
   visibleRowWindow,
+  rectsIntersect,
   rowHitIndices,
   ROW_PX,
 } from "./gridWindow";
+
+describe("rectsIntersect", () => {
+  it("overlaps on both axes and ignores a shared edge", () => {
+    const tile = { x: 0, y: 0, width: 10, height: 10 };
+    expect(rectsIntersect(tile, { x: 9, y: 9, width: 2, height: 2 })).toBe(true);
+    expect(rectsIntersect(tile, { x: 10, y: 0, width: 2, height: 2 })).toBe(false);
+    expect(rectsIntersect(tile, { x: 0, y: 10, width: 2, height: 2 })).toBe(false);
+  });
+});
 
 describe("visibleGridWindow", () => {
   it("returns an empty window when there are no files", () => {

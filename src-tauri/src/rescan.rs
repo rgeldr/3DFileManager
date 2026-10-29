@@ -380,6 +380,53 @@ mod tests {
         assert!(rows.iter().any(|file| file.original_name == "other.stl" && !file.missing));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn folder_lookup_and_relative_paths_follow_the_library_root() {
+        let summary: RescanSummary = empty_cancelled();
+        assert!(summary.cancelled);
+        assert_eq!(summary.added_folders, 0);
+        assert_eq!(summary.added_files, 0);
+        assert_eq!(summary.relocated, 0);
+        assert_eq!(summary.missing, 0);
+        let built = RescanSummary {
+            added_folders: 2,
+            added_files: 3,
+            relocated: 1,
+            missing: 4,
+            cancelled: false,
+        };
+        assert_eq!(built.added_folders, 2);
+        assert_eq!(built.added_files, 3);
+        assert_eq!(built.relocated, 1);
+        assert_eq!(built.missing, 4);
+        assert!(!built.cancelled);
+
+        let dir = std::env::temp_dir().join(format!("filelib-rescan-rel-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        let toys = db.create_folder(None, "Toys", 0).unwrap();
+        let nested = db.create_folder(Some(toys.id), "Nested", 0).unwrap();
+        assert_eq!(folder_id_for_file(&db, "Toys/a.stl").unwrap(), Some(toys.id));
+        assert_eq!(
+            folder_id_for_file(&db, "Toys/Nested/a.stl").unwrap(),
+            Some(nested.id)
+        );
+        assert_eq!(folder_id_for_file(&db, "a.stl").unwrap(), None);
+        assert_eq!(folder_id_for_file(&db, "Nope/a.stl").unwrap(), None);
+        assert_eq!(
+            rel_string(&root, &root.join("Toys").join("a.stl")).unwrap(),
+            "Toys/a.stl"
+        );
+        let outside = rel_string(&root, &dir.join("outside.stl")).unwrap_err();
+        assert!(!outside.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 fn folder_id_for_file(db: &AppDb, file_rel: &str) -> Result<Option<i64>, String> {
