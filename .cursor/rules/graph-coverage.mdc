@@ -1,0 +1,18 @@
+---
+description: Run graph coverage on changes before a pull request
+alwaysApply: true
+---
+
+Before opening or updating a pull request, any agent working in this repo follows the graph-coverage skill at `.cursor/skills/graph-coverage` on its changes. Read that skill for how to interpret the report; do not duplicate it here.
+
+From the repository root (`TEMP` must be a writable directory; if it is unset, set it to `/tmp` first):
+
+```bash
+node .cursor/skills/graph-coverage/scripts/graph-coverage.mjs --summary --out "$TEMP/graph-coverage.json"
+```
+
+The analysis is static test linkage, not executed coverage.
+
+Include the findings in the pull request description: coverage ratios, untested gaps in new or changed code, and blast radius.
+
+Add unit tests for the gaps it finds in the new and changed code, then run the command again and confirm those gaps are closed.
