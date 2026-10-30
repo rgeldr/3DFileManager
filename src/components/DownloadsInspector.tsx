@@ -12,19 +12,30 @@ export function DownloadsInspector({
   pinned: boolean;
   onPinnedChange: (pinned: boolean) => void;
 }) {
+  const pinButton = (
+    <button
+      type="button"
+      className="inspector-pin"
+      aria-pressed={pinned}
+      aria-label={pinned ? "Unpin details" : "Pin details open"}
+      title={pinned ? "Unpin details" : "Pin details open"}
+      onClick={() => onPinnedChange(!pinned)}
+    >
+      <PinIcon pinned={pinned} />
+    </button>
+  );
+  if (!pinned) {
+    return (
+      <aside className="inspector collapsed" data-pinned="false">
+        <div className="inspector-head">{pinButton}</div>
+      </aside>
+    );
+  }
   return (
-    <aside className={`inspector${pinned ? "" : " collapsed"}`} data-pinned={pinned ? "true" : "false"}>
+    <aside className="inspector" data-pinned="true">
       <div className="inspector-head">
         <h2>Details</h2>
-        <button
-          type="button"
-          className="inspector-pin"
-          aria-pressed={pinned}
-          aria-label={pinned ? "Unpin details" : "Pin details open"}
-          onClick={() => onPinnedChange(!pinned)}
-        >
-          <PinIcon pinned={pinned} />
-        </button>
+        {pinButton}
       </div>
       {row ? (
         <div className="inspector-body downloads-inspector">

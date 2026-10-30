@@ -27,6 +27,18 @@ function renderGrid(selected: string[]) {
 }
 
 describe("DownloadsGrid", () => {
+  it("uses the library details grid so the header lines up and stays inside the pane", () => {
+    renderGrid([]);
+    const grid = document.querySelector(".downloads-grid");
+    expect(grid?.classList.contains("details-virtual")).toBe(true);
+    const columns = grid?.getAttribute("style") ?? "";
+    expect(columns).toContain("--details-columns");
+    expect(columns).toContain("minmax(0px, 1fr)");
+    const header = grid?.querySelector(".details-header");
+    expect(header?.querySelectorAll("[role='columnheader']").length).toBe(6);
+    expect(header?.contains(screen.getByRole("columnheader", { name: /Path/ }))).toBe(true);
+  });
+
   it("replaces on click, toggles with Ctrl, and ranges with Shift in path order", () => {
     const replaced = renderGrid([]);
     fireEvent.click(screen.getByRole("button", { name: /a\.stl/ }));

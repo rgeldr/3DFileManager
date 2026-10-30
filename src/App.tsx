@@ -379,35 +379,41 @@ export function AppShell({ app }: { app: LibraryModel }) {
               setSelected([]);
             }}
           />
-          {onDownloads ? (
-            <button type="button" onClick={() => void refreshDownloads().catch((err) => setError(String(err)))}>
-              Refresh
-            </button>
-          ) : null}
-          <fieldset className="toolbar-filters" disabled={onDownloads}>
-          <LibrarySearch
-            query={query}
-            creator={creator}
-            selectedTagIds={selectedTagIds}
-            selectedTypeIds={selectedTypeIds}
-            tags={tagCounts}
-            types={typeCounts}
-            scope={settings?.searchScope ?? "library"}
-            onScope={(scope: SearchScope) => {
-              setSettings((current) => (current ? { ...current, searchScope: scope } : current));
-              void api.setSearchScope(scope).catch((err) => setError(String(err)));
-            }}
-            onQuery={setQuery}
-            onClear={() => {
-              setQuery("");
-              setCreator("");
-              setSelectedTypeIds([]);
-              setSelectedTagIds([]);
-            }}
-            onSelectedTagIds={setSelectedTagIds}
-            onSelectedTypeIds={setSelectedTypeIds}
-          />
-          <div className="toolbar-controls">
+          <div className="toolbar-leading">
+            {onDownloads ? (
+              <button
+                type="button"
+                className="toolbar-refresh"
+                onClick={() => void refreshDownloads().catch((err) => setError(String(err)))}
+              >
+                Refresh
+              </button>
+            ) : null}
+            <LibrarySearch
+              disabled={onDownloads}
+              query={query}
+              creator={creator}
+              selectedTagIds={selectedTagIds}
+              selectedTypeIds={selectedTypeIds}
+              tags={tagCounts}
+              types={typeCounts}
+              scope={settings?.searchScope ?? "library"}
+              onScope={(scope: SearchScope) => {
+                setSettings((current) => (current ? { ...current, searchScope: scope } : current));
+                void api.setSearchScope(scope).catch((err) => setError(String(err)));
+              }}
+              onQuery={setQuery}
+              onClear={() => {
+                setQuery("");
+                setCreator("");
+                setSelectedTypeIds([]);
+                setSelectedTagIds([]);
+              }}
+              onSelectedTagIds={setSelectedTagIds}
+              onSelectedTypeIds={setSelectedTypeIds}
+            />
+          </div>
+          <fieldset className="toolbar-filters toolbar-controls" disabled={onDownloads}>
             <div className="toolbar-row">
               <TypeFilter
                 types={typeCounts}
@@ -440,7 +446,6 @@ export function AppShell({ app }: { app: LibraryModel }) {
                 <option value="creator">Creator</option>
               </select>
             </div>
-          </div>
           </fieldset>
         </div>
         {onDownloads && downloadsTruncated ? (

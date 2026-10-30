@@ -121,6 +121,16 @@ describe("Clear filters", () => {
   });
 });
 
+describe("Downloads filters", () => {
+  it("disables search, scope, and clear while Downloads is open", () => {
+    renderSearch({ disabled: true, query: "lion" });
+    expect((screen.getByLabelText("Search") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText("Current folder") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText("Entire library") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Clear filters" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
 describe("Search scope", () => {
   it("calls onScope when the folder radio is selected", () => {
     const { onScope } = renderSearch({ scope: "library" });

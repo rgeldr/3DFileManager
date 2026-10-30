@@ -22,5 +22,16 @@ describe("DownloadsInspector", () => {
     expect(screen.getByText(row.absolutePath)).toBeTruthy();
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(screen.getByRole("complementary").className).toBe("inspector");
+  });
+
+  it("collapses to the same pin rail as the library inspector", () => {
+    render(<DownloadsInspector row={row} pinned={false} onPinnedChange={() => undefined} />);
+    const pane = screen.getByRole("complementary");
+    expect(pane.className).toContain("collapsed");
+    expect(pane.getAttribute("data-pinned")).toBe("false");
+    expect(screen.getByRole("button", { name: "Pin details open" })).toBeTruthy();
+    expect(screen.queryByText(row.absolutePath)).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Details" })).toBeNull();
   });
 });

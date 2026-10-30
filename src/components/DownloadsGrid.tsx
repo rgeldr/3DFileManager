@@ -10,7 +10,7 @@ import {
 } from "../lib/downloadsSort";
 import { contextMenuDownloadSelection, downloadSelectMode, selectDownloadPath } from "../lib/downloadsSelection";
 
-const DOWNLOADS_COLUMNS = "240px 200px 96px 176px 176px 128px";
+const DOWNLOADS_COLUMNS = "240px 200px 96px 176px 176px minmax(0px, 1fr)";
 
 export function DownloadsGrid({
   rows,
@@ -48,7 +48,7 @@ export function DownloadsGrid({
   };
 
   return (
-    <div className="downloads-grid details-view" style={{ ["--details-columns" as string]: DOWNLOADS_COLUMNS }}>
+    <div className="downloads-grid details-view details-virtual" style={{ ["--details-columns" as string]: DOWNLOADS_COLUMNS }}>
       <div className="details-header" data-sort-header>
         {header("name", "Name", "details-col-name")}
         {header("path", "Path", "details-col-path")}

@@ -162,6 +162,7 @@ export function FilterChips({
   selectedTypeIds,
   onSelectedTagIds,
   onSelectedTypeIds,
+  disabled = false,
 }: {
   tags: TagCount[];
   types: TypeCount[];
@@ -169,6 +170,7 @@ export function FilterChips({
   selectedTypeIds: string[];
   onSelectedTagIds: (ids: number[]) => void;
   onSelectedTypeIds: (ids: string[]) => void;
+  disabled?: boolean;
 }) {
   const selectedTags = tags.filter((tag) => selectedTagIds.includes(tag.id));
   const selectedTypes = types.filter((type) => selectedTypeIds.includes(type.id));
@@ -181,6 +183,7 @@ export function FilterChips({
           type="button"
           className="tag type-chip"
           aria-label={`Remove type ${type.label}`}
+          disabled={disabled}
           onClick={() => onSelectedTypeIds(toggleTypeId(selectedTypeIds, type.id))}
         >
           {type.label} ×
@@ -192,6 +195,7 @@ export function FilterChips({
           name={tag.name}
           color={displayTagColor(tag.name, [tag])}
           ariaLabel={`Remove ${tag.name}`}
+          disabled={disabled}
           onClick={() => onSelectedTagIds(selectedTagIds.filter((id) => id !== tag.id))}
         />
       ))}
