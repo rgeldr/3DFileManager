@@ -1,7 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { FolderRow } from "../../types";
 import type { LibraryModel } from "../../hooks/useLibrary";
-import { AddToLibraryDialog, folderOptions } from "./AddToLibraryDialog";
+import { AddToLibraryDialog } from "./AddToLibraryDialog";
 
 const importPaths = vi.fn();
 
@@ -16,10 +17,25 @@ afterEach(() => {
   importPaths.mockReset();
 });
 
+function folder(id: number, parentId: number | null, name: string, relpath?: string): FolderRow {
+  return { id, parentId, name, relpath: relpath ?? name, sortOrder: id };
+}
+
+const libraryTree = [
+  folder(1, null, "Bases and Toppers"),
+  folder(2, 1, "Bases"),
+  folder(3, 2, "Cobblestone"),
+  folder(4, null, "Terrain"),
+];
+
+function copyIntoLine() {
+  return document.querySelector(".folder-picker-destination")?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+}
+
 function app(overrides: Record<string, unknown> = {}): LibraryModel {
   return {
-    folders: [{ id: 2, parentId: null, name: "Models", relpath: "Models", sortOrder: 0 }],
-    libraryName: "Library",
+    folders: libraryTree,
+    libraryName: "3D Print Library",
     creators: ["Ada"],
     tags: ["PLA"],
     tagCounts: [],
@@ -31,13 +47,14 @@ function app(overrides: Record<string, unknown> = {}): LibraryModel {
     setImportTagText: vi.fn(),
     runDownloadsImport: vi.fn(async (paths, folderId) => {
       await importPaths(paths, folderId);
+      return true;
     }),
     ...overrides,
   } as unknown as LibraryModel;
 }
 
 describe("AddToLibraryDialog", () => {
-  it("calls importPaths with every selected path and the chosen folder", async () => {
+  it("calls importPaths with every selected path and the browsed folder", async () => {
     importPaths.mockResolvedValue({ importedCount: 1, importedIds: [1] });
     const model = app();
     render(
@@ -48,16 +65,63 @@ describe("AddToLibraryDialog", () => {
         onClose={() => undefined}
       />,
     );
-    expect((screen.getByPlaceholderText("Creator for all imported files") as HTMLInputElement).value).toBe("Ada");
-    expect(screen.getByRole("button", { name: /PLA/ })).toBeTruthy();
-    expect((screen.getByPlaceholderText("Tags for all imported files") as HTMLInputElement).value).toBe("benchy");
+    expect(copyIntoLine()).toContain("Copy into: 3D Print Library / Bases and Toppers / Bases");
     fireEvent.click(screen.getByRole("button", { name: "Add to library" }));
     await waitFor(() =>
       expect(importPaths).toHaveBeenCalledWith(["C:\\Downloads\\a.stl", "C:\\Downloads\\pack.zip"], 2),
     );
-    expect(model.setImportCreator).not.toHaveBeenCalled();
-    expect(model.setImportTags).not.toHaveBeenCalled();
-    expect(model.setImportTagText).not.toHaveBeenCalled();
+  });
+
+  it("shows only immediate subfolders and steps into a folder", async () => {
+    importPaths.mockResolvedValue({ importedCount: 1, importedIds: [1] });
+    render(
+      <AddToLibraryDialog
+        app={app()}
+        paths={["/tmp/a.stl"]}
+        defaultPlace={{ type: "root" }}
+        onClose={() => undefined}
+      />,
+    );
+    const list = screen.getByRole("listbox", { name: "Destination folder" });
+    expect([...list.querySelectorAll(".folder-picker-name")].map((node) => node.textContent)).toEqual([
+      "Bases and Toppers",
+      "Terrain",
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Open Bases and Toppers" }));
+    expect(copyIntoLine()).toBe("Copy into: 3D Print Library / Bases and Toppers");
+    expect([...list.querySelectorAll(".folder-picker-name")].map((node) => node.textContent)).toEqual(["Bases"]);
+    fireEvent.click(screen.getByRole("button", { name: "Add to library" }));
+    await waitFor(() => expect(importPaths).toHaveBeenCalledWith(["/tmp/a.stl"], 1));
+  });
+
+  it("steps out with Up and via breadcrumb", () => {
+    render(
+      <AddToLibraryDialog
+        app={app()}
+        paths={["/tmp/a.stl"]}
+        defaultPlace={{ type: "folder", id: 3 }}
+        onClose={() => undefined}
+      />,
+    );
+    expect(copyIntoLine()).toContain("Cobblestone");
+    fireEvent.click(screen.getByRole("button", { name: "Up one folder" }));
+    expect(copyIntoLine()).toBe("Copy into: 3D Print Library / Bases and Toppers / Bases");
+    fireEvent.click(screen.getByRole("button", { name: "Bases and Toppers" }));
+    expect(copyIntoLine()).toBe("Copy into: 3D Print Library / Bases and Toppers");
+    fireEvent.click(screen.getByRole("button", { name: "3D Print Library" }));
+    expect(copyIntoLine()).toBe("Copy into: 3D Print Library");
+  });
+
+  it("shows an empty-subfolder message", () => {
+    render(
+      <AddToLibraryDialog
+        app={app()}
+        paths={["/tmp/a.stl"]}
+        defaultPlace={{ type: "folder", id: 3 }}
+        onClose={() => undefined}
+      />,
+    );
+    expect(screen.getByText("No subfolders here.")).toBeTruthy();
   });
 
   it("offers comma tag suggestions like the summary dialog", () => {
@@ -134,7 +198,8 @@ describe("AddToLibraryDialog", () => {
         onClose={() => undefined}
       />,
     );
-    fireEvent.change(screen.getByLabelText("Destination folder"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Open Terrain" }));
+    expect(copyIntoLine()).toBe("Copy into: 3D Print Library / Terrain");
     rerender(
       <AddToLibraryDialog
         app={model}
@@ -143,20 +208,65 @@ describe("AddToLibraryDialog", () => {
         onClose={() => undefined}
       />,
     );
-    expect((screen.getByLabelText("Destination folder") as HTMLSelectElement).value).toBe("2");
+    expect(copyIntoLine()).toBe("Copy into: 3D Print Library / Terrain");
   });
 
-  it("sorts destination folders and shows nested paths with slashes", () => {
-    expect(folderOptions(
-      [
-        { id: 2, parentId: null, name: "Zeta", relpath: "zeta", sortOrder: 0 },
-        { id: 3, parentId: 2, name: "Boats", relpath: "prints\\boats", sortOrder: 0 },
-      ],
-      "Library",
-    )).toEqual([
-      { id: "root", label: "Library" },
-      { id: "3", label: "prints/boats" },
-      { id: "2", label: "zeta" },
-    ]);
+  it("starts at the default browse location from the library", () => {
+    render(
+      <AddToLibraryDialog
+        app={app()}
+        paths={["/tmp/a.stl"]}
+        defaultPlace={{ type: "folder", id: 2 }}
+        onClose={() => undefined}
+      />,
+    );
+    expect(copyIntoLine()).toBe("Copy into: 3D Print Library / Bases and Toppers / Bases");
+  });
+
+  it("handles keyboard navigation in the folder list", async () => {
+    importPaths.mockResolvedValue({ importedCount: 1, importedIds: [1] });
+    render(
+      <AddToLibraryDialog
+        app={app()}
+        paths={["/tmp/a.stl"]}
+        defaultPlace={{ type: "root" }}
+        onClose={() => undefined}
+      />,
+    );
+    const list = screen.getByRole("listbox", { name: "Destination folder" });
+    list.focus();
+    fireEvent.keyDown(list, { key: "ArrowDown" });
+    fireEvent.keyDown(list, { key: "Enter" });
+    expect(copyIntoLine()).toBe("Copy into: 3D Print Library / Bases and Toppers");
+    fireEvent.keyDown(list, { key: "Backspace" });
+    expect(copyIntoLine()).toBe("Copy into: 3D Print Library");
+  });
+
+  it("keeps the destination while typing in the creator field", () => {
+    render(
+      <AddToLibraryDialog
+        app={app()}
+        paths={["/tmp/a.stl"]}
+        defaultPlace={{ type: "root" }}
+        onClose={() => undefined}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Open Terrain" }));
+    fireEvent.change(screen.getByPlaceholderText("Creator for all imported files"), { target: { value: "New" } });
+    expect(copyIntoLine()).toBe("Copy into: 3D Print Library / Terrain");
+  });
+
+  it("closes on Escape", () => {
+    const onClose = vi.fn();
+    render(
+      <AddToLibraryDialog
+        app={app()}
+        paths={["/tmp/a.stl"]}
+        defaultPlace={{ type: "root" }}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

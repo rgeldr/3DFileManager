@@ -146,6 +146,89 @@
   margin: 0;
 }
 
+.folder-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+}
+
+.folder-picker-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-2);
+  justify-content: space-between;
+}
+
+.folder-picker-toolbar .breadcrumb {
+  flex: 1;
+  min-width: 0;
+}
+
+.folder-picker-up {
+  flex: 0 0 auto;
+}
+
+.folder-picker-destination {
+  font-size: 13px;
+}
+
+.folder-picker-destination span {
+  font-weight: 500;
+}
+
+.folder-picker-list {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-sunken);
+  padding: var(--space-1);
+  min-height: 2.5rem;
+}
+
+.folder-picker-list:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+.folder-picker-empty {
+  padding: var(--space-2);
+  margin: 0;
+}
+
+.folder-picker-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  border-radius: var(--radius-sm);
+  min-width: 0;
+}
+
+.folder-picker-row.focused {
+  background: var(--color-bg-tab-active);
+}
+
+.folder-picker-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: var(--space-1) var(--space-1) var(--space-1) 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.folder-picker-name:hover {
+  text-decoration: underline;
+}
+
 a.about-version:link,
 a.about-version:visited,
 a.about-version:hover,
