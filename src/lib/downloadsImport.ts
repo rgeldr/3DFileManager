@@ -13,6 +13,11 @@ export function browseToFolderId(place: Browse): number | null {
   return place.type === "folder" ? place.id : null;
 }
 
+/** Stable select value for a destination. Root and Downloads both use the library root. */
+export function downloadsDestinationKey(place: Browse): string {
+  return place.type === "folder" ? String(place.id) : "root";
+}
+
 /** Where Add to library goes after importPaths. A zero count stays on Downloads. */
 export function downloadsImportNavigation(
   result: { importedCount: number; importedIds: number[] },

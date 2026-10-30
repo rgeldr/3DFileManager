@@ -557,9 +557,11 @@ describe("useLibrary", () => {
       result.current.setBrowse({ type: "downloads" });
     });
     await waitFor(() => expect(result.current.browse).toEqual({ type: "downloads" }));
+    let started = false;
     await act(async () => {
-      await result.current.runDownloadsImport(["/dl/a.stl", "/dl/pack.zip"], 2);
+      started = await result.current.runDownloadsImport(["/dl/a.stl", "/dl/pack.zip"], 2);
     });
+    expect(started).toBe(true);
     expect(api.importPaths).toHaveBeenCalledWith(["/dl/a.stl", "/dl/pack.zip"], 2);
     expect(api.applyBulkMeta).not.toHaveBeenCalled();
     expect(result.current.importCreator).toBe("Ada");
@@ -605,10 +607,48 @@ describe("useLibrary", () => {
     mockCatalog();
     const { result } = renderHook(() => useLibrary(), { wrapper });
     await waitFor(() => expect(result.current.ready).toBe(true));
+    let started = true;
     await act(async () => {
-      await result.current.runDownloadsImport([], 2);
+      started = await result.current.runDownloadsImport([], 2);
     });
+    expect(started).toBe(false);
     expect(api.importPaths).not.toHaveBeenCalled();
     expect(result.current.summary).toBeNull();
+  });
+
+  it("does not start a second Downloads import while one is running", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    let release: (value: unknown) => void = () => undefined;
+    api.importPaths.mockReturnValue(new Promise((resolve) => {
+      release = resolve;
+    }));
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    let first = Promise.resolve(false);
+    act(() => {
+      first = result.current.runDownloadsImport(["/dl/a.stl"], 2);
+    });
+    let second = true;
+    await act(async () => {
+      second = await result.current.runDownloadsImport(["/dl/b.stl"], 2);
+    });
+    expect(second).toBe(false);
+    expect(api.importPaths).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toContain("already running");
+    await act(async () => {
+      release({
+        importedIds: [1],
+        importedCount: 1,
+        duplicateCount: 0,
+        unsupportedCount: 0,
+        failed: [],
+        recycleCount: 0,
+        leftInPlace: 0,
+        cancelled: false,
+        pendingHashCount: 0,
+      });
+      expect(await first).toBe(true);
+    });
   });
 });

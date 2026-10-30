@@ -1,9 +1,9 @@
 import { Modal } from "./Modal";
 import type { LibraryModel } from "../../hooks/useLibrary";
 import { ImportMetaFields } from "../ImportMetaFields";
-import { browseToFolderId, folderLabel } from "../../lib/downloadsImport";
+import { browseToFolderId, downloadsDestinationKey, folderLabel } from "../../lib/downloadsImport";
 import type { Browse, FolderRow } from "../../types";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export function folderOptions(folders: FolderRow[], libraryName: string): { id: string; label: string }[] {
   const sorted = [...folders].sort((a, b) => a.relpath.localeCompare(b.relpath, undefined, { numeric: true }));
@@ -39,13 +39,14 @@ export function AddToLibraryDialog({
     runDownloadsImport,
   } = app;
   const options = useMemo(() => folderOptions(folders, libraryName), [folders, libraryName]);
-  const [folderKey, setFolderKey] = useState(
-    defaultPlace.type === "folder" ? String(defaultPlace.id) : "root",
-  );
+  const defaultKey = downloadsDestinationKey(defaultPlace);
+  const pathKey = paths.join("\0");
+  const [folderKey, setFolderKey] = useState(defaultKey);
+  const submitLock = useRef(false);
 
   useEffect(() => {
-    setFolderKey(defaultPlace.type === "folder" ? String(defaultPlace.id) : "root");
-  }, [defaultPlace, paths.join("|")]);
+    setFolderKey(defaultKey);
+  }, [defaultKey, pathKey]);
 
   if (paths.length === 0) return null;
 
@@ -94,7 +95,12 @@ export function AddToLibraryDialog({
             type="button"
             className="primary"
             onClick={() => {
-              void runDownloadsImport(paths, browseToFolderId(place)).then(onClose);
+              if (submitLock.current) return;
+              submitLock.current = true;
+              void runDownloadsImport(paths, browseToFolderId(place)).then((started) => {
+                if (started) onClose();
+                else submitLock.current = false;
+              });
             }}
           >
             Add to library

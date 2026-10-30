@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browseToFolderId, downloadsImportNavigation, folderLabel } from "./downloadsImport";
+import { browseToFolderId, downloadsDestinationKey, downloadsImportNavigation, folderLabel } from "./downloadsImport";
 import type { FolderRow } from "../types";
 
 const folder = (id: number, name: string): FolderRow => ({
@@ -15,6 +15,14 @@ describe("browseToFolderId", () => {
     expect(browseToFolderId({ type: "root" })).toBeNull();
     expect(browseToFolderId({ type: "folder", id: 4 })).toBe(4);
     expect(browseToFolderId({ type: "downloads" })).toBeNull();
+  });
+});
+
+describe("downloadsDestinationKey", () => {
+  it("uses the folder id and one root key for library root and Downloads", () => {
+    expect(downloadsDestinationKey({ type: "folder", id: 4 })).toBe("4");
+    expect(downloadsDestinationKey({ type: "root" })).toBe("root");
+    expect(downloadsDestinationKey({ type: "downloads" })).toBe("root");
   });
 });
 

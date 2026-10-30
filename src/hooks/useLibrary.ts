@@ -431,11 +431,11 @@ export function useLibrary() {
   }, [refreshLists, reloadTree, targetFolderId]);
   runImportRef.current = runImport;
 
-  const runDownloadsImport = useCallback(async (paths: string[], folderId: number | null) => {
-    if (paths.length === 0) return;
+  const runDownloadsImport = useCallback(async (paths: string[], folderId: number | null): Promise<boolean> => {
+    if (paths.length === 0) return false;
     if (libraryBusy.current) {
       setError("Another library change is already running.");
-      return;
+      return false;
     }
     libraryBusy.current = true;
     setBusy("Importing…");
@@ -451,8 +451,10 @@ export function useLibrary() {
         await refreshLists(next.place);
         if (next.selectedIds.length > 0) setSelected(next.selectedIds);
       }
+      return true;
     } catch (err) {
       setError(String(err));
+      return true;
     } finally {
       libraryBusy.current = false;
       setImporting(false);
