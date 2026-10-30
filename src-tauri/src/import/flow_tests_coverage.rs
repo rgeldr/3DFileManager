@@ -1,5 +1,3 @@
-    use crate::import::plan::path_within;
-
     fn blank_summary() -> ImportOutcome {
         ImportOutcome {
             imported_ids: Vec::new(),

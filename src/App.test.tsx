@@ -63,6 +63,7 @@ vi.mock("./components/FileGrid", () => ({
 
 vi.mock("./components/Inspector", () => ({
   Inspector: () => <div data-testid="inspector" />,
+  PinIcon: () => <span data-testid="pin-icon" />,
 }));
 
 vi.mock("./components/Breadcrumb", () => ({
@@ -226,6 +227,51 @@ describe("AppShell", () => {
     expect(screen.getByTestId("sidebar")).toBeTruthy();
     expect(screen.getByTestId("file-grid")).toBeTruthy();
     expect(screen.getByTestId("inspector")).toBeTruthy();
+  });
+
+  it("shows Downloads as a local Details list and does not mount the catalog grid", () => {
+    const setSettings = vi.fn();
+    render(
+      <AppShell
+        app={libraryModel({
+          settings: { ...baseSettings, libraryRoot: "/library", gridSize: "large" },
+          browse: { type: "downloads" },
+          browseKey: "downloads",
+          setSettings,
+          downloadsList: {
+            status: "ok",
+            rows: [
+              {
+                name: "boat.stl",
+                relativeDir: "prints",
+                ext: "stl",
+                sizeBytes: 4,
+                mtime: 1,
+                absolutePath: "C:\\Users\\me\\Downloads\\prints\\boat.stl",
+              },
+            ],
+            truncated: false,
+          },
+          downloadsTruncated: false,
+          downloadSort: { field: "path", direction: "asc" },
+          setDownloadSort: () => undefined,
+          downloadsSelected: [],
+          setDownloadsSelected: () => undefined,
+          downloadsMenu: null,
+          setDownloadsMenu: () => undefined,
+          refreshDownloads: async () => undefined,
+          applyDownloadsFolder: async () => undefined,
+          selectedDownloadRow: null,
+        })}
+      />,
+    );
+    expect(screen.queryByTestId("file-grid")).toBeNull();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: /Path/ })).toBeTruthy();
+    expect(screen.getByText("prints")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Large" })).toBeNull();
+    expect((screen.getByLabelText("Creator") as HTMLSelectElement).disabled).toBe(true);
+    expect(setSettings).not.toHaveBeenCalled();
   });
 
   it("opens the existing folder menu when a grid folder is right-clicked", () => {

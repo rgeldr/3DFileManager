@@ -13,6 +13,7 @@ import {
   moveHistory,
   pushFolder,
   samePlace,
+  targetFolderId as browseTargetFolderId,
 } from "../lib/folderHistory";
 import { browseContainingFolder, containingFolderPlace } from "../lib/containingFolder";
 import { libraryListScope, libraryRefreshKey, librarySearchLimit, tagCountScope, truncateLibraryList } from "../lib/tagFilter";
@@ -140,7 +141,7 @@ export function useLibrary() {
     return parts[parts.length - 1] || "Library";
   }, [settings]);
 
-  const targetFolderId = browse.type === "folder" ? browse.id : null;
+  const targetFolderId = browseTargetFolderId(browse);
   const listKeyRef = useRef<string | null>(null);
   const inflightRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
   const refreshGen = useRef(0);

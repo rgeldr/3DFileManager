@@ -12,6 +12,10 @@ export function emptyHistory(): FolderHistory {
   return { back: [], current: { type: "root" }, forward: [] };
 }
 
+export function targetFolderId(browse: Browse): number | null {
+  return browse.type === "folder" ? browse.id : null;
+}
+
 export function samePlace(a: Browse, b: Browse): boolean {
   if (a.type === "downloads" || b.type === "downloads") return a.type === b.type;
   if (a.type === "root" || b.type === "root") return a.type === b.type;

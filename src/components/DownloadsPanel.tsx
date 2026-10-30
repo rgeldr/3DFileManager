@@ -53,6 +53,9 @@ export function DownloadsPanel({
         <button type="button" onClick={onSetFolder}>
           Change Downloads folder…
         </button>
+        <button type="button" onClick={onClearFolder}>
+          Clear saved path
+        </button>
       </div>
     );
   }

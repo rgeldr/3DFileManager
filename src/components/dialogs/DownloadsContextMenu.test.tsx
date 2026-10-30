@@ -2,11 +2,11 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DownloadsContextMenu } from "./DownloadsContextMenu";
 
-const revealPath = vi.fn(async () => undefined);
+const revealPath = vi.fn(async (_path: string) => undefined);
 
 vi.mock("../../api", () => ({
   api: {
-    revealPath: (...args: unknown[]) => revealPath(...args),
+    revealPath: (path: string) => revealPath(path),
   },
 }));
 

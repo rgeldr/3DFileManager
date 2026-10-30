@@ -30,6 +30,8 @@ const api = {
   prepareDragPaths: vi.fn(async () => ({ paths: [], skipped: [], reports: [] })),
   countFilesForScope: vi.fn(),
   addTagsUnderFolder: vi.fn(),
+  listDownloads: vi.fn(),
+  setDownloadsFolder: vi.fn(),
 };
 
 vi.mock("../api", () => ({
@@ -485,5 +487,48 @@ describe("useLibrary", () => {
     expect(result.current.error).toMatch(/disk blew up/);
     expect(result.current.diskDialog).toBeNull();
     expect(api.listFiles.mock.calls.length).toBeGreaterThan(callsBefore);
+  });
+
+  it("opens Downloads without a catalog query and clears both selections", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    api.listDownloads.mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          name: "boat.stl",
+          relativeDir: "prints",
+          ext: "stl",
+          sizeBytes: 4,
+          mtime: 1,
+          absolutePath: "/downloads/prints/boat.stl",
+        },
+      ],
+      truncated: false,
+    });
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.browse).toEqual({ type: "root" });
+    act(() => {
+      result.current.setSelected([7]);
+    });
+    api.listFiles.mockClear();
+    api.setGridSize.mockClear();
+    act(() => {
+      result.current.setBrowse({ type: "downloads" });
+    });
+    await waitFor(() => expect(result.current.downloadsList.status).toBe("ok"));
+    expect(result.current.selected).toEqual([]);
+    expect(result.current.browse).toEqual({ type: "downloads" });
+    expect(api.listFiles).not.toHaveBeenCalled();
+    expect(api.setGridSize).not.toHaveBeenCalled();
+    expect(result.current.settings?.gridSize).toBe("large");
+    act(() => {
+      result.current.setDownloadsSelected(["/downloads/prints/boat.stl"]);
+    });
+    act(() => {
+      result.current.setBrowse({ type: "root" });
+    });
+    expect(result.current.downloadsSelected).toEqual([]);
   });
 });

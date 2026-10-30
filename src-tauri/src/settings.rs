@@ -169,6 +169,7 @@ mod tests {
         assert_eq!(parsed.details_columns.name, default_details_columns().name);
         assert!(parsed.external_programs.is_empty());
         assert!(parsed.downloads_folder.is_none());
+        assert!(Settings::default().downloads_folder.is_none());
     }
 
     #[test]

@@ -11,13 +11,16 @@ describe("downloadsSelection", () => {
   it("replaces, toggles, and range-selects by path order", () => {
     expect(selectDownloadPath(ordered, [], "/b.stl", "replace")).toEqual(["/b.stl"]);
     expect(selectDownloadPath(ordered, ["/a.stl"], "/c.stl", "toggle")).toEqual(["/a.stl", "/c.stl"]);
+    expect(selectDownloadPath(ordered, ["/a.stl", "/c.stl"], "/a.stl", "toggle")).toEqual(["/c.stl"]);
     expect(selectDownloadPath(ordered, ["/a.stl"], "/c.stl", "range")).toEqual(["/a.stl", "/b.stl", "/c.stl"]);
+    expect(selectDownloadPath(ordered, ["/c.stl"], "/a.stl", "range")).toEqual(["/a.stl", "/b.stl", "/c.stl"]);
   });
 
   it("maps modifier keys to selection modes", () => {
     expect(downloadSelectMode({ metaKey: false, ctrlKey: false, shiftKey: false })).toBe("replace");
     expect(downloadSelectMode({ metaKey: true, ctrlKey: false, shiftKey: false })).toBe("toggle");
-    expect(downloadSelectMode({ metaKey: false, ctrlKey: false, shiftKey: true })).toBe("range");
+    expect(downloadSelectMode({ metaKey: false, ctrlKey: true, shiftKey: false })).toBe("toggle");
+    expect(downloadSelectMode({ metaKey: false, ctrlKey: true, shiftKey: true })).toBe("range");
   });
 
   it("keeps context-menu selection when the row is already selected", () => {

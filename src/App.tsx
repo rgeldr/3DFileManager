@@ -384,7 +384,7 @@ export function AppShell({ app }: { app: LibraryModel }) {
               Refresh
             </button>
           ) : null}
-          <div className={onDownloads ? "toolbar-filters disabled" : "toolbar-filters"} aria-disabled={onDownloads}>
+          <fieldset className="toolbar-filters" disabled={onDownloads}>
           <LibrarySearch
             query={query}
             creator={creator}
@@ -441,7 +441,7 @@ export function AppShell({ app }: { app: LibraryModel }) {
               </select>
             </div>
           </div>
-          </div>
+          </fieldset>
         </div>
         {onDownloads && downloadsTruncated ? (
           <div className="banner">

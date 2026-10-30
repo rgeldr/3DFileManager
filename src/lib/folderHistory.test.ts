@@ -8,6 +8,7 @@ import {
   placeExists,
   pushFolder,
   samePlace,
+  targetFolderId,
 } from "./folderHistory";
 
 const root = { type: "root" as const };
@@ -23,6 +24,9 @@ describe("samePlace and placeExists", () => {
     expect(samePlace({ type: "downloads" }, { type: "downloads" })).toBe(true);
     expect(samePlace({ type: "downloads" }, root)).toBe(false);
     expect(placeExists({ type: "downloads" }, () => false)).toBe(true);
+    expect(targetFolderId({ type: "downloads" })).toBeNull();
+    expect(targetFolderId(root)).toBeNull();
+    expect(targetFolderId(folder(4))).toBe(4);
     expect(placeExists(folder(4), (id) => id === 4)).toBe(true);
     expect(placeExists(folder(4), () => false)).toBe(false);
   });
@@ -48,6 +52,14 @@ describe("folder history", () => {
     const visited = pushFolder(start, folder(1));
     expect(pushFolder(visited, folder(1))).toBe(visited);
     expect(pushFolder(start, root)).toBe(start);
+  });
+
+  it("returns to the previous library folder from Downloads", () => {
+    const visited = pushFolder(pushFolder(emptyHistory(), folder(2)), { type: "downloads" });
+    const back = moveHistory(visited, "back", all);
+    expect(back.current).toEqual(folder(2));
+    expect(back.forward).toEqual([{ type: "downloads" }]);
+    expect(emptyHistory().current).toEqual(root);
   });
 
   it("walks back and forward without adding entries", () => {

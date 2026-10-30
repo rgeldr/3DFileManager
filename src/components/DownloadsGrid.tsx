@@ -69,7 +69,7 @@ export function DownloadsGrid({
             type="button"
             className={`file-row details-row${isSelected ? " selected" : ""}`}
             data-download-path={row.absolutePath}
-            title={row.relativeDir ? `${row.relativeDir}/${row.name}` : row.name}
+            title={row.absolutePath}
             draggable={false}
             onDragStart={(event) => event.preventDefault()}
             onClick={(event) => {

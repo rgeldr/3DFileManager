@@ -152,4 +152,5 @@ mod tests {
     include!("commands/tests_open.rs");
     include!("commands/tests_files.rs");
     include!("commands/tests_runtime.rs");
+    include!("commands/tests_downloads.rs");
 }

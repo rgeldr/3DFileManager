@@ -271,9 +271,15 @@
   white-space: nowrap;
 }
 
-.toolbar-filters.disabled {
+.toolbar-filters {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-inline-size: 0;
+}
+
+.toolbar-filters:disabled {
   opacity: 0.45;
-  pointer-events: none;
 }
 
 .empty-state {
