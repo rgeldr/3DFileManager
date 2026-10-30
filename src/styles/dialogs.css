@@ -161,9 +161,21 @@
   justify-content: space-between;
 }
 
+.card.card-add-library {
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
 .folder-picker-toolbar .breadcrumb {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.folder-picker-toolbar .breadcrumb-part,
+.folder-picker-toolbar .breadcrumb-segment {
+  flex: 0 0 auto;
 }
 
 .folder-picker-up {
@@ -172,15 +184,16 @@
 
 .folder-picker-destination {
   font-size: 13px;
-}
-
-.folder-picker-destination span {
-  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .folder-picker-list {
   max-height: 220px;
   overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-bg-sunken);
@@ -204,6 +217,11 @@
   gap: var(--space-1);
   border-radius: var(--radius-sm);
   min-width: 0;
+  cursor: pointer;
+}
+
+.folder-picker-row:hover {
+  background: var(--color-bg-hover);
 }
 
 .folder-picker-row.focused {
@@ -216,17 +234,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: left;
-  border: none;
-  background: transparent;
-  color: inherit;
   padding: var(--space-1) var(--space-1) var(--space-1) 0;
-  cursor: pointer;
-  font: inherit;
-}
-
-.folder-picker-name:hover {
-  text-decoration: underline;
 }
 
 a.about-version:link,

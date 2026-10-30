@@ -3,7 +3,8 @@ import type { LibraryModel } from "../../hooks/useLibrary";
 import { ImportMetaFields } from "../ImportMetaFields";
 import { FolderPicker } from "../FolderPicker";
 import { browseToFolderId, downloadsDestinationKey } from "../../lib/downloadsImport";
-import { normalizePickerBrowse } from "../../lib/folderPicker";
+import { isTypingTarget } from "../../lib/deleteKey";
+import { normalizePickerBrowse, pickerParentPlace, resolvePickerBrowse } from "../../lib/folderPicker";
 import type { Browse } from "../../types";
 import { useEffect, useRef, useState } from "react";
 
@@ -36,6 +37,7 @@ export function AddToLibraryDialog({
   const pathKey = paths.join("\0");
   const [browse, setBrowse] = useState<Browse>(() => normalizePickerBrowse(defaultPlace));
   const submitLock = useRef(false);
+  const place = resolvePickerBrowse(folders, browse);
 
   useEffect(() => {
     setBrowse(normalizePickerBrowse(defaultPlace));
@@ -43,17 +45,27 @@ export function AddToLibraryDialog({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Backspace" || isTypingTarget(event.target)) return;
+      event.preventDefault();
+      setBrowse((current) => {
+        const resolved = resolvePickerBrowse(folders, current);
+        return pickerParentPlace(folders, resolved) ?? resolved;
+      });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, folders]);
 
   if (paths.length === 0) return null;
 
   return (
     <Modal>
-      <div className="card">
+      <div className="card card-add-library">
         <h2>Add to library</h2>
         <p>
           {paths.length === 1 ? "1 file" : `${paths.length} files`} will be copied into the library.
@@ -61,7 +73,7 @@ export function AddToLibraryDialog({
         <FolderPicker
           folders={folders}
           libraryName={libraryName}
-          browse={browse}
+          browse={place}
           onBrowseChange={setBrowse}
         />
         <ImportMetaFields
@@ -87,7 +99,7 @@ export function AddToLibraryDialog({
             onClick={() => {
               if (submitLock.current) return;
               submitLock.current = true;
-              void runDownloadsImport(paths, browseToFolderId(browse)).then((started) => {
+              void runDownloadsImport(paths, browseToFolderId(place)).then((started) => {
                 if (started) onClose();
                 else submitLock.current = false;
               });

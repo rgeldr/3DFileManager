@@ -1,11 +1,13 @@
-import { useEffect, useId, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import type { Browse, FolderRow } from "../types";
 import { Breadcrumb } from "./Breadcrumb";
 import { FolderIcon } from "./FileGridRows";
+import { isTypingTarget } from "../lib/deleteKey";
 import {
   destinationDisplayPath,
-  folderHasChildren,
+  folderIdFromTarget,
   immediateChildFolders,
+  pickerActivationFolderId,
   pickerListKeyAction,
   pickerParentPlace,
 } from "../lib/folderPicker";
@@ -22,46 +24,69 @@ export function FolderPicker({
   onBrowseChange: (place: Browse) => void;
 }) {
   const listId = useId();
+  const listRef = useRef<HTMLDivElement>(null);
   const children = immediateChildFolders(folders, browse);
   const [focusIndex, setFocusIndex] = useState(-1);
+  const browseKey = browse.type === "folder" ? `folder:${browse.id}` : browse.type;
+  const destination = destinationDisplayPath(libraryName, folders, browse);
 
   useEffect(() => {
     setFocusIndex(-1);
-  }, [browse]);
+    if (isTypingTarget(document.activeElement)) return;
+    listRef.current?.focus();
+  }, [browseKey]);
+
+  useEffect(() => {
+    if (focusIndex < 0) return;
+    const row = listRef.current?.querySelector<HTMLElement>(`[data-index="${focusIndex}"]`);
+    row?.scrollIntoView?.({ block: "nearest" });
+  }, [focusIndex]);
+
+  const stepInto = (folderId: number) => {
+    onBrowseChange({ type: "folder", id: folderId });
+  };
 
   const stepUp = () => {
     const parent = pickerParentPlace(folders, browse);
     if (parent) onBrowseChange(parent);
   };
 
-  const stepInto = (folderId: number) => {
-    onBrowseChange({ type: "folder", id: folderId });
-  };
-
   const onListKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") event.preventDefault();
+    if (event.key === "Enter") {
+      const folderId = pickerActivationFolderId({
+        targetFolderId: folderIdFromTarget(event.target),
+        focusIndex,
+        children,
+      });
+      if (folderId == null) return;
+      event.preventDefault();
+      stepInto(folderId);
+      return;
+    }
     const action = pickerListKeyAction({
       key: event.key,
       focusIndex,
       childCount: children.length,
       children,
     });
-    if (!action) return;
+    if (action?.type !== "focus") return;
     event.preventDefault();
-    if (action.type === "focus") {
-      setFocusIndex(action.index);
-      return;
-    }
-    if (action.type === "enter") {
-      stepInto(action.folderId);
-      return;
-    }
-    stepUp();
+    setFocusIndex(action.index);
   };
+
+  const activeId = focusIndex >= 0 && children[focusIndex] ? `${listId}-folder-${children[focusIndex].id}` : undefined;
 
   return (
     <div className="folder-picker">
       <div className="folder-picker-toolbar">
-        <Breadcrumb libraryName={libraryName} folders={folders} browse={browse} onNavigate={onBrowseChange} />
+        <Breadcrumb
+          libraryName={libraryName}
+          folders={folders}
+          browse={browse}
+          onNavigate={onBrowseChange}
+          fullPath
+        />
         <button
           type="button"
           className="folder-picker-up"
@@ -72,14 +97,16 @@ export function FolderPicker({
           Up
         </button>
       </div>
-      <p className="folder-picker-destination">
-        Copy into: <span title={destinationDisplayPath(libraryName, folders, browse)}>{destinationDisplayPath(libraryName, folders, browse)}</span>
+      <p className="folder-picker-destination" aria-live="polite" title={destination}>
+        Copy into: {destination}
       </p>
       <div
         id={listId}
+        ref={listRef}
         className="folder-picker-list"
         role="listbox"
         aria-label="Destination folder"
+        aria-activedescendant={activeId}
         tabIndex={0}
         onKeyDown={onListKeyDown}
       >
@@ -91,28 +118,20 @@ export function FolderPicker({
             return (
               <div
                 key={folder.id}
+                id={`${listId}-folder-${folder.id}`}
+                data-folder-id={folder.id}
+                data-index={index}
                 className={`folder-picker-row${focused ? " focused" : ""}`}
                 role="option"
                 aria-selected={focused}
-                tabIndex={-1}
+                title={folder.name}
+                onClick={() => stepInto(folder.id)}
               >
-                <button
-                  type="button"
-                  className="tree-twist"
-                  aria-label={`Open ${folder.name}`}
-                  onClick={() => stepInto(folder.id)}
-                >
-                  <span className={`tree-twist-icon${folderHasChildren(folders, folder.id) ? " open" : ""}`} aria-hidden />
-                </button>
+                <span className="tree-twist" aria-hidden>
+                  <span className="tree-twist-icon" />
+                </span>
                 <FolderIcon size={16} />
-                <button
-                  type="button"
-                  className="folder-picker-name"
-                  title={folder.name}
-                  onClick={() => stepInto(folder.id)}
-                >
-                  {folder.name}
-                </button>
+                <span className="folder-picker-name">{folder.name}</span>
               </div>
             );
           })

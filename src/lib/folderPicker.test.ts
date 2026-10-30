@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { FolderRow } from "../types";
 import {
   destinationDisplayPath,
-  folderHasChildren,
+  folderIdFromTarget,
   immediateChildFolders,
   normalizePickerBrowse,
+  pickerActivationFolderId,
   pickerListKeyAction,
   pickerParentPlace,
+  resolvePickerBrowse,
 } from "./folderPicker";
 
 function folder(id: number, parentId: number | null, name: string): FolderRow {
@@ -36,6 +38,19 @@ describe("immediateChildFolders", () => {
     expect(immediateChildFolders(tree, { type: "folder", id: 1 }).map((row) => row.name)).toEqual(["Bases"]);
     expect(immediateChildFolders(tree, { type: "folder", id: 3 })).toEqual([]);
   });
+
+  it("keeps same names at different depths as separate ids and sorts numerically", () => {
+    const folders = [
+      folder(11, null, "Oval"),
+      folder(10, null, "Folder 10"),
+      folder(2, null, "Folder 2"),
+      folder(12, 11, "Oval"),
+      folder(13, 12, "Nested"),
+    ];
+    expect(immediateChildFolders(folders, { type: "root" }).map((row) => row.id)).toEqual([2, 10, 11]);
+    expect(immediateChildFolders(folders, { type: "folder", id: 11 }).map((row) => row.id)).toEqual([12]);
+    expect(immediateChildFolders(folders, { type: "folder", id: 12 }).map((row) => row.name)).toEqual(["Nested"]);
+  });
 });
 
 describe("pickerParentPlace", () => {
@@ -44,6 +59,16 @@ describe("pickerParentPlace", () => {
     expect(pickerParentPlace(tree, { type: "folder", id: 2 })).toEqual({ type: "folder", id: 1 });
     expect(pickerParentPlace(tree, { type: "folder", id: 1 })).toEqual({ type: "root" });
     expect(pickerParentPlace(tree, { type: "root" })).toBeNull();
+    expect(pickerParentPlace([folder(3, 2, "Cobblestone")], { type: "folder", id: 3 })).toEqual({ type: "root" });
+  });
+});
+
+describe("resolvePickerBrowse", () => {
+  it("keeps a live folder and drops a deleted one to the library root", () => {
+    expect(resolvePickerBrowse(tree, { type: "folder", id: 2 })).toEqual({ type: "folder", id: 2 });
+    expect(resolvePickerBrowse(tree, { type: "folder", id: 99 })).toEqual({ type: "root" });
+    expect(resolvePickerBrowse(tree, { type: "downloads" })).toEqual({ type: "root" });
+    expect(resolvePickerBrowse(tree, { type: "root" })).toEqual({ type: "root" });
   });
 });
 
@@ -53,13 +78,39 @@ describe("destinationDisplayPath", () => {
     expect(destinationDisplayPath("3D Print Library", tree, { type: "folder", id: 2 })).toBe(
       "3D Print Library / Bases and Toppers / Bases",
     );
+    expect(destinationDisplayPath("3D Print Library", tree, { type: "folder", id: 99 })).toBe("3D Print Library");
+    const deep = [
+      folder(1, null, "L1"),
+      folder(2, 1, "L2"),
+      folder(3, 2, "L3"),
+      folder(4, 3, "L4"),
+      folder(5, 4, "L5"),
+    ];
+    expect(destinationDisplayPath("Library", deep, { type: "folder", id: 5 })).toBe("Library / L1 / L2 / L3 / L4 / L5");
   });
 });
 
-describe("folderHasChildren", () => {
-  it("detects nested folders", () => {
-    expect(folderHasChildren(tree, 1)).toBe(true);
-    expect(folderHasChildren(tree, 3)).toBe(false);
+describe("pickerActivationFolderId", () => {
+  const children = immediateChildFolders(tree, { type: "root" });
+
+  it("prefers the row under the key event over the highlight index", () => {
+    expect(pickerActivationFolderId({ targetFolderId: children[1].id, focusIndex: 0, children })).toBe(children[1].id);
+    expect(pickerActivationFolderId({ targetFolderId: null, focusIndex: 0, children })).toBe(children[0].id);
+    expect(pickerActivationFolderId({ targetFolderId: 99, focusIndex: 1, children })).toBe(children[1].id);
+    expect(pickerActivationFolderId({ targetFolderId: null, focusIndex: -1, children })).toBeNull();
+  });
+});
+
+describe("folderIdFromTarget", () => {
+  it("reads the folder id from the row under the event target", () => {
+    const row = document.createElement("div");
+    row.setAttribute("data-folder-id", "4");
+    const child = document.createElement("span");
+    row.append(child);
+    expect(folderIdFromTarget(child)).toBe(4);
+    expect(folderIdFromTarget(row)).toBe(4);
+    expect(folderIdFromTarget(null)).toBeNull();
+    expect(folderIdFromTarget(document.createElement("div"))).toBeNull();
   });
 });
 
@@ -88,14 +139,12 @@ describe("pickerListKeyAction", () => {
     });
   });
 
-  it("goes up on Backspace", () => {
-    expect(pickerListKeyAction({ key: "Backspace", focusIndex: 0, childCount: 2, children })).toEqual({ type: "up" });
-  });
-
-  it("ignores navigation when there are no subfolders", () => {
+  it("ignores Backspace and other keys so the dialog can handle them once", () => {
+    expect(pickerListKeyAction({ key: "Backspace", focusIndex: 0, childCount: 2, children })).toBeNull();
+    expect(pickerListKeyAction({ key: "a", focusIndex: 0, childCount: 2, children })).toBeNull();
     expect(pickerListKeyAction({ key: "ArrowDown", focusIndex: -1, childCount: 0, children: [] })).toBeNull();
-    expect(pickerListKeyAction({ key: "Backspace", focusIndex: -1, childCount: 0, children: [] })).toEqual({
-      type: "up",
-    });
+    expect(pickerListKeyAction({ key: "ArrowDown", focusIndex: 1, childCount: 2, children })).toBeNull();
+    expect(pickerListKeyAction({ key: "ArrowUp", focusIndex: 0, childCount: 2, children })).toBeNull();
+    expect(pickerListKeyAction({ key: "Enter", focusIndex: -1, childCount: 2, children })).toBeNull();
   });
 });
