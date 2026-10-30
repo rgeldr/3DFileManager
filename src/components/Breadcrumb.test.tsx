@@ -19,6 +19,12 @@ const library = [
 ];
 
 describe("breadcrumb", () => {
+  it("returns a single Downloads crumb", () => {
+    const crumbs = folderCrumbs("Library", library, { type: "downloads" });
+    expect(crumbs).toEqual([{ kind: "place", place: { type: "downloads" }, label: "Downloads" }]);
+    expect(crumbKey(crumbs[0], 0)).toBe("downloads");
+  });
+
   it("shows the library and each ancestor", () => {
     const crumbs = folderCrumbs("3D Print Library", library, { type: "folder", id: 3 });
     expect(crumbs.map((crumb) => (crumb.kind === "place" ? crumb.label : "…"))).toEqual([

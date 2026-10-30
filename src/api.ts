@@ -145,6 +145,9 @@ export const api = {
   openInDefaultApp: (fileId: number) => invoke<void>("open_in_default_app", { fileId }),
   openInProgram: (fileId: number, programId: string) =>
     invoke<void>("open_in_program", { fileId, programId }),
+  setDownloadsFolder: (path: string | null) => invoke<Settings>("set_downloads_folder", { path }),
+  listDownloads: () => invoke<import("./types").ListDownloadsResult>("list_downloads"),
+  revealPath: (path: string) => invoke<void>("reveal_path", { path }),
   revealFile: (fileId: number) => invoke<void>("reveal_file", { fileId }),
   textPreview: (fileId: number) => invoke<string>("text_preview", { fileId }),
 };

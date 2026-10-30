@@ -5,16 +5,18 @@ export function TagChip({
   color,
   onClick,
   ariaLabel,
+  disabled = false,
 }: {
   name: string;
   color?: string;
   onClick?: () => void;
   ariaLabel?: string;
+  disabled?: boolean;
 }) {
   const style = tagChipStyle(color || displayTagColor(name, []));
   if (onClick) {
     return (
-      <button type="button" className="tag" style={style} aria-label={ariaLabel} onClick={onClick}>
+      <button type="button" className="tag" style={style} aria-label={ariaLabel} disabled={disabled} onClick={onClick}>
         {name} ×
       </button>
     );

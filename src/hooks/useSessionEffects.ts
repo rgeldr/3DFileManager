@@ -8,6 +8,7 @@ import { debugLog } from "../debugLog";
 import { clampInspector, clampSidebar } from "../lib/paneWidths";
 import { clampDetailsColumns } from "../lib/detailsColumns";
 import { persistPreviewHeight } from "../lib/previewSplit";
+import { pickDownloadsFolder } from "../components/DownloadsPanel";
 import type { LibrarySort, Settings } from "../types";
 import { fallbackDragIconPath, type Actions, type DiskProgress } from "./libraryTypes";
 
@@ -80,6 +81,7 @@ export function useSessionEffects(s: {
   setAboutOpen: (open: boolean) => void;
   setTagColorOpen: (open: boolean) => void;
   setExternalProgramsOpen: (open: boolean) => void;
+  applyDownloadsFolder: (path: string | null) => Promise<void>;
 }) {
   const {
     dialogOpen,
@@ -88,7 +90,7 @@ export function useSessionEffects(s: {
     browse, query, creator, selectedTagIds, selectedTypeIds, tagMatch, sort, setPreviewIconsEnabled, aboutOpen, setAboutVersion,
     setAboutVersionFailed, creatorTarget, setCreatorFileCount, includeSubfolders, fileMenu, setFileMenu,
     folderTagTarget, setFolderTagFileCount, diskProgress, setDiskDialog, toastTimer, actions, runDiskOp,
-    runImport, setAboutOpen, setTagColorOpen, setExternalProgramsOpen,
+    runImport, setAboutOpen, setTagColorOpen, setExternalProgramsOpen, applyDownloadsFolder,
   } = s;
   useEffect(() => {
     if (!dialogOpen) return;
@@ -205,8 +207,13 @@ export function useSessionEffects(s: {
       },
       openTagColors: () => setTagColorOpen(true),
       openExternalPrograms: () => setExternalProgramsOpen(true),
+      setDownloadsFolder: () => {
+        void pickDownloadsFolder().then((path) => {
+          if (path) void applyDownloadsFolder(path).catch((err) => setError(String(err)));
+        });
+      },
     };
-  }, [refreshLists, runDiskOp, runImport, setTheme]);
+  }, [applyDownloadsFolder, refreshLists, runDiskOp, runImport, setTheme]);
 
   useEffect(() => {
     return () => {

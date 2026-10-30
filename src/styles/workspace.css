@@ -17,11 +17,16 @@
   border-bottom: 1px solid var(--color-divider);
 }
 
+.toolbar-leading,
 .toolbar-search {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
   min-width: 0;
+}
+
+.toolbar-refresh {
+  align-self: flex-start;
 }
 
 .toolbar-search-row {

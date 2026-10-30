@@ -30,6 +30,9 @@ const api = {
   prepareDragPaths: vi.fn(async () => ({ paths: [], skipped: [], reports: [] })),
   countFilesForScope: vi.fn(),
   addTagsUnderFolder: vi.fn(),
+  listDownloads: vi.fn(),
+  setDownloadsFolder: vi.fn(),
+  applyBulkMeta: vi.fn(),
 };
 
 vi.mock("../api", () => ({
@@ -87,6 +90,7 @@ const settings = {
   searchScope: "library" as const,
   detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
   externalPrograms: [],
+  downloadsFolder: null,
 };
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -484,5 +488,167 @@ describe("useLibrary", () => {
     expect(result.current.error).toMatch(/disk blew up/);
     expect(result.current.diskDialog).toBeNull();
     expect(api.listFiles.mock.calls.length).toBeGreaterThan(callsBefore);
+  });
+
+  it("opens Downloads without a catalog query and clears both selections", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    api.listDownloads.mockResolvedValue({
+      status: "ok",
+      rows: [
+        {
+          name: "boat.stl",
+          relativeDir: "prints",
+          ext: "stl",
+          sizeBytes: 4,
+          mtime: 1,
+          absolutePath: "/downloads/prints/boat.stl",
+        },
+      ],
+      truncated: false,
+    });
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.browse).toEqual({ type: "root" });
+    act(() => {
+      result.current.setSelected([7]);
+    });
+    api.listFiles.mockClear();
+    api.setGridSize.mockClear();
+    act(() => {
+      result.current.setBrowse({ type: "downloads" });
+    });
+    await waitFor(() => expect(result.current.downloadsList.status).toBe("ok"));
+    expect(result.current.selected).toEqual([]);
+    expect(result.current.browse).toEqual({ type: "downloads" });
+    expect(api.listFiles).not.toHaveBeenCalled();
+    expect(api.setGridSize).not.toHaveBeenCalled();
+    expect(result.current.settings?.gridSize).toBe("large");
+    act(() => {
+      result.current.setDownloadsSelected(["/downloads/prints/boat.stl"]);
+    });
+    act(() => {
+      result.current.setBrowse({ type: "root" });
+    });
+    expect(result.current.downloadsSelected).toEqual([]);
+  });
+
+  it("imports into the dialog folder, keeps creator and tags, and opens the summary", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    api.listDownloads.mockResolvedValue({ status: "ok", rows: [], truncated: false });
+    api.importPaths.mockResolvedValue({
+      importedIds: [9, 10],
+      importedCount: 2,
+      duplicateCount: 0,
+      unsupportedCount: 0,
+      failed: [],
+      recycleCount: 0,
+      leftInPlace: 0,
+      cancelled: false,
+      pendingHashCount: 0,
+    });
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => {
+      result.current.setImportCreator("Ada");
+      result.current.setImportTags(["PLA"]);
+      result.current.setImportTagText("benchy");
+      result.current.setBrowse({ type: "downloads" });
+    });
+    await waitFor(() => expect(result.current.browse).toEqual({ type: "downloads" }));
+    let started = false;
+    await act(async () => {
+      started = await result.current.runDownloadsImport(["/dl/a.stl", "/dl/pack.zip"], 2);
+    });
+    expect(started).toBe(true);
+    expect(api.importPaths).toHaveBeenCalledWith(["/dl/a.stl", "/dl/pack.zip"], 2);
+    expect(api.applyBulkMeta).not.toHaveBeenCalled();
+    expect(result.current.importCreator).toBe("Ada");
+    expect(result.current.importTags).toEqual(["PLA"]);
+    expect(result.current.importTagText).toBe("benchy");
+    expect(result.current.summary?.importedIds).toEqual([9, 10]);
+    expect(result.current.browse).toEqual({ type: "folder", id: 2 });
+    expect(result.current.selected).toEqual([9, 10]);
+  });
+
+  it("stays on Downloads and still opens the summary when nothing was imported", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    api.listDownloads.mockResolvedValue({ status: "ok", rows: [], truncated: false });
+    api.importPaths.mockResolvedValue({
+      importedIds: [],
+      importedCount: 0,
+      duplicateCount: 1,
+      unsupportedCount: 0,
+      failed: [],
+      recycleCount: 0,
+      leftInPlace: 1,
+      cancelled: false,
+      pendingHashCount: 0,
+    });
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => {
+      result.current.setBrowse({ type: "downloads" });
+    });
+    await waitFor(() => expect(result.current.downloadsList.status).toBe("ok"));
+    await act(async () => {
+      await result.current.runDownloadsImport(["/dl/a.stl"], null);
+    });
+    expect(api.importPaths).toHaveBeenCalledWith(["/dl/a.stl"], null);
+    expect(result.current.browse).toEqual({ type: "downloads" });
+    expect(result.current.summary?.importedCount).toBe(0);
+    expect(result.current.selected).toEqual([]);
+  });
+
+  it("does not import when no Downloads paths are selected", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    let started = true;
+    await act(async () => {
+      started = await result.current.runDownloadsImport([], 2);
+    });
+    expect(started).toBe(false);
+    expect(api.importPaths).not.toHaveBeenCalled();
+    expect(result.current.summary).toBeNull();
+  });
+
+  it("does not start a second Downloads import while one is running", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    let release: (value: unknown) => void = () => undefined;
+    api.importPaths.mockReturnValue(new Promise((resolve) => {
+      release = resolve;
+    }));
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    let first = Promise.resolve(false);
+    act(() => {
+      first = result.current.runDownloadsImport(["/dl/a.stl"], 2);
+    });
+    let second = true;
+    await act(async () => {
+      second = await result.current.runDownloadsImport(["/dl/b.stl"], 2);
+    });
+    expect(second).toBe(false);
+    expect(api.importPaths).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toContain("already running");
+    await act(async () => {
+      release({
+        importedIds: [1],
+        importedCount: 1,
+        duplicateCount: 0,
+        unsupportedCount: 0,
+        failed: [],
+        recycleCount: 0,
+        leftInPlace: 0,
+        cancelled: false,
+        pendingHashCount: 0,
+      });
+      expect(await first).toBe(true);
+    });
   });
 });

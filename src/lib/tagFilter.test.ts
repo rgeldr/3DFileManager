@@ -76,6 +76,19 @@ describe("tagFilterBadge", () => {
 describe("libraryListScope", () => {
   const folder = { type: "folder" as const, id: 9 };
 
+  it("does not query the catalog on Downloads", () => {
+    expect(
+      libraryListScope({
+        browse: { type: "downloads" },
+        query: "orc",
+        creator: "x",
+        selectedTagCount: 2,
+        selectedTypeCount: 1,
+        scope: "library",
+      }),
+    ).toEqual({ folder: "downloads", folderId: null, creator: "" });
+  });
+
   it("searches the whole library for a tag filter and leaves a blank creator blank", () => {
     expect(libraryListScope({ browse: folder, query: "", creator: "", selectedTagCount: 1, selectedTypeCount: 0, scope: "library" })).toEqual({
       folder: "all",

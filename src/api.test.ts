@@ -88,6 +88,9 @@ const sampleArgs: Record<string, unknown[]> = {
   prepareDragPaths: [[1], "/icon.png"],
   openInDefaultApp: [1],
   revealFile: [1],
+  revealPath: ["C:\\Users\\me\\Downloads\\file.stl"],
+  setDownloadsFolder: ["C:\\Users\\me\\Downloads"],
+  listDownloads: [],
   textPreview: [1],
 };
 

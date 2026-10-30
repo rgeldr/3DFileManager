@@ -7,6 +7,9 @@ export type Crumb =
 const VISIBLE_CRUMBS = 4;
 
 export function folderCrumbs(libraryName: string, folders: FolderRow[], browse: Browse): Crumb[] {
+  if (browse.type === "downloads") {
+    return [{ kind: "place", place: { type: "downloads" }, label: "Downloads" }];
+  }
   const root: Crumb = { kind: "place", place: { type: "root" }, label: libraryName };
   if (browse.type === "root") return [root];
   const byId = new Map(folders.map((folder) => [folder.id, folder]));

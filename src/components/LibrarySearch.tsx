@@ -18,6 +18,7 @@ export function LibrarySearch({
   onClear,
   onSelectedTagIds,
   onSelectedTypeIds,
+  disabled = false,
 }: {
   query: string;
   creator: string;
@@ -31,6 +32,7 @@ export function LibrarySearch({
   onClear: () => void;
   onSelectedTagIds: (ids: number[]) => void;
   onSelectedTypeIds: (ids: string[]) => void;
+  disabled?: boolean;
 }) {
   const active = filtersActive({ query, creator, selectedTypeIds, selectedTagIds });
   const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -48,6 +50,7 @@ export function LibrarySearch({
           placeholder="Search"
           aria-label="Search"
           value={query}
+          disabled={disabled}
           onChange={(event) => onQuery(event.target.value)}
           onKeyDown={onSearchKeyDown}
         />
@@ -56,7 +59,7 @@ export function LibrarySearch({
           className="toolbar-clear"
           title={CLEAR_TITLE}
           aria-label="Clear filters"
-          disabled={!active}
+          disabled={disabled || !active}
           onClick={onClear}
         >
           Clear
@@ -67,6 +70,7 @@ export function LibrarySearch({
               type="radio"
               name="search-scope"
               checked={scope === "folder"}
+              disabled={disabled}
               onChange={() => onScope("folder")}
             />
             Current folder
@@ -76,6 +80,7 @@ export function LibrarySearch({
               type="radio"
               name="search-scope"
               checked={scope === "library"}
+              disabled={disabled}
               onChange={() => onScope("library")}
             />
             Entire library
@@ -87,6 +92,7 @@ export function LibrarySearch({
         types={types}
         selectedTagIds={selectedTagIds}
         selectedTypeIds={selectedTypeIds}
+        disabled={disabled}
         onSelectedTagIds={onSelectedTagIds}
         onSelectedTypeIds={onSelectedTypeIds}
       />

@@ -3,7 +3,8 @@ import type { CheckMenuItem } from "@tauri-apps/api/menu";
 import { api } from "../api";
 import { useTheme } from "../theme/ThemeProvider";
 import { DEFAULT_DETAILS_COLUMNS } from "../lib/detailsColumns";
-import type { Browse, DetailsColumns, DragReport, FileRow, FolderRow, ImportSummary, LibrarySort, Settings, TagCount, TagMatchMode, TypeCount, ViewMode } from "../types";
+import type { Browse, DetailsColumns, DragReport, DownloadRow, FileRow, FolderRow, ImportSummary, LibrarySort, ListDownloadsResult, Settings, TagCount, TagMatchMode, TypeCount, ViewMode } from "../types";
+import { DEFAULT_DOWNLOAD_SORT, type DownloadSort } from "../lib/downloadsSort";
 import {
   acceptHistoryClick,
   emptyHistory,
@@ -12,7 +13,9 @@ import {
   moveHistory,
   pushFolder,
   samePlace,
+  targetFolderId as browseTargetFolderId,
 } from "../lib/folderHistory";
+import { defaultImportDestination, downloadsImportNavigation } from "../lib/downloadsImport";
 import { browseContainingFolder, containingFolderPlace } from "../lib/containingFolder";
 import { libraryListScope, libraryRefreshKey, librarySearchLimit, tagCountScope, truncateLibraryList } from "../lib/tagFilter";
 import { extsForSelectedTypes, mergeTypeCounts } from "../lib/typeFilter";
@@ -109,6 +112,7 @@ export function useLibrary() {
     showAbout: () => undefined,
     openTagColors: () => undefined,
     openExternalPrograms: () => undefined,
+    setDownloadsFolder: () => undefined,
   });
   const themeItems = useRef<{ dark?: CheckMenuItem; light?: CheckMenuItem }>({});
   const gridItems = useRef<Partial<Record<ViewMode, CheckMenuItem>>>({});
@@ -122,6 +126,12 @@ export function useLibrary() {
   inspectorWidthRef.current = inspectorWidth;
   const [previewIconsEnabled, setPreviewIconsEnabled] = useState(false);
   const [folderExpandHint, setFolderExpandHint] = useState<{ key: string; nonce: number } | null>(null);
+  const [downloadsList, setDownloadsList] = useState<ListDownloadsResult>({ status: "unset" });
+  const [downloadsTruncated, setDownloadsTruncated] = useState(false);
+  const [downloadSort, setDownloadSort] = useState<DownloadSort>(DEFAULT_DOWNLOAD_SORT);
+  const [downloadsSelected, setDownloadsSelected] = useState<string[]>([]);
+  const [downloadsMenu, setDownloadsMenu] = useState<{ x: number; y: number; path: string; selection: string[] } | null>(null);
+  const [addToLibraryPaths, setAddToLibraryPaths] = useState<string[] | null>(null);
   const libraryBusy = useRef(false);
   const diskProgress = useRef<DiskProgress>(emptyProgress());
   const toastTimer = useRef<number | null>(null);
@@ -133,7 +143,7 @@ export function useLibrary() {
     return parts[parts.length - 1] || "Library";
   }, [settings]);
 
-  const targetFolderId = browse.type === "folder" ? browse.id : null;
+  const targetFolderId = browseTargetFolderId(browse);
   const listKeyRef = useRef<string | null>(null);
   const inflightRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
   const refreshGen = useRef(0);
@@ -145,6 +155,9 @@ export function useLibrary() {
     nextSort = sort,
     mode?: "passive",
   ) => {
+    if (nextBrowse.type === "downloads") {
+      return;
+    }
     const searchScope = settings?.searchScope ?? "library";
     const key = libraryRefreshKey({
       browse: nextBrowse,
@@ -210,6 +223,30 @@ export function useLibrary() {
       if (inflightRef.current?.promise === promise) inflightRef.current = null;
     }
   }, [browse, creator, query, selectedTagIds, selectedTypeIds, sort, tagMatch, settings?.searchScope]);
+
+  const refreshDownloads = useCallback(async () => {
+    const result = await api.listDownloads();
+    setDownloadsList(result);
+    setDownloadsTruncated(result.status === "ok" && result.truncated);
+  }, []);
+
+  const applyDownloadsFolder = useCallback(async (path: string | null) => {
+    const nextSettings = await api.setDownloadsFolder(path);
+    setSettings((current) => (current ? { ...current, downloadsFolder: nextSettings.downloadsFolder } : nextSettings));
+    if (browse.type === "downloads") {
+      await refreshDownloads();
+    }
+  }, [browse.type, refreshDownloads]);
+
+  useEffect(() => {
+    if (browse.type !== "downloads") {
+      setDownloadsSelected([]);
+      return;
+    }
+    setSelected([]);
+    void refreshDownloads().catch((err) => setError(String(err)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh when entering Downloads only
+  }, [browse.type]);
 
   const reloadTree = useCallback(async () => {
     const boot = await api.bootstrap();
@@ -394,11 +431,48 @@ export function useLibrary() {
   }, [refreshLists, reloadTree, targetFolderId]);
   runImportRef.current = runImport;
 
+  const runDownloadsImport = useCallback(async (paths: string[], folderId: number | null): Promise<boolean> => {
+    if (paths.length === 0) return false;
+    if (libraryBusy.current) {
+      setError("Another library change is already running.");
+      return false;
+    }
+    libraryBusy.current = true;
+    setBusy("Importing…");
+    setImporting(true);
+    setProgress({ current: 0, total: 0, message: "Counting files…" });
+    try {
+      const result = await api.importPaths(paths, folderId);
+      setSummary(result);
+      const next = downloadsImportNavigation(result, folderId);
+      if (next.place) {
+        setBrowse(next.place);
+        await reloadTree();
+        await refreshLists(next.place);
+        if (next.selectedIds.length > 0) setSelected(next.selectedIds);
+      }
+      return true;
+    } catch (err) {
+      setError(String(err));
+      return true;
+    } finally {
+      libraryBusy.current = false;
+      setImporting(false);
+      setBusy(null);
+      setProgress(null);
+    }
+  }, [refreshLists, reloadTree, setBrowse, setSelected]);
+
+  const openAddToLibrary = useCallback((paths: string[]) => {
+    if (paths.length === 0) return;
+    setAddToLibraryPaths([...paths]);
+  }, []);
+
   const dialogOpen = Boolean(
     busy || progress || summary || namePrompt || deleteConfirm || missingOpen || error || diskDialog || aboutOpen || tagColorOpen || externalProgramsOpen || creatorTarget || dragFailure,
   );
   const dialogBlockRef = useRef(false);
-  dialogBlockRef.current = Boolean(dialogOpen || folderTagTarget || fileMenu);
+  dialogBlockRef.current = Boolean(dialogOpen || folderTagTarget || fileMenu || downloadsMenu);
   const goHistory = useCallback((direction: "back" | "forward") => {
     const exists = (id: number) => foldersRef.current.some((folder) => folder.id === id);
     const next = moveHistory(historyRef.current, direction, exists);
@@ -438,6 +512,10 @@ export function useLibrary() {
   }, [goHistory]);
 
   const browseKey = browse.type === "folder" ? `folder:${browse.id}` : browse.type;
+  const selectedDownloadRow: DownloadRow | null =
+    downloadsSelected.length === 1 && downloadsList.status === "ok"
+      ? downloadsList.rows.find((row) => row.absolutePath === downloadsSelected[0]) ?? null
+      : null;
   const model = {
     theme, setTheme, ready, setReady, settings, setSettings, folders, setFolders, files, setFiles, listTruncated,
     browse, setBrowse, query, setQuery, creator, setCreator, selectedTagIds, setSelectedTagIds,
@@ -461,7 +539,9 @@ export function useLibrary() {
     previewIconsEnabled, setPreviewIconsEnabled, folderExpandHint, setFolderExpandHint, libraryBusy, diskProgress,
     toastTimer, libraryName, targetFolderId, refreshLists, reloadTree, showToast, runDiskOp, openNewFolderPrompt,
     openRenameFolderPrompt, openRenameFile, openContainingFolder, openDeleteFolderConfirm, performDeleteFolder, runImportRef, refreshListsRef,
-    runImport, dialogOpen, browseKey, onSelect, selectedFile,
+    runImport, dialogOpen, browseKey, onSelect, selectedFile, downloadsList, downloadsTruncated, downloadSort, setDownloadSort,
+    downloadsSelected, setDownloadsSelected, downloadsMenu, setDownloadsMenu, refreshDownloads, applyDownloadsFolder, selectedDownloadRow,
+    addToLibraryPaths, setAddToLibraryPaths, openAddToLibrary, runDownloadsImport, defaultImportDestination: defaultImportDestination(history),
   };
   const drag = useLibraryEffects(model);
   return { ...model, ...drag };

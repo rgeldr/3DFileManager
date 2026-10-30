@@ -41,6 +41,7 @@ export interface Settings {
   searchScope: SearchScope;
   detailsColumns: DetailsColumns;
   externalPrograms: ExternalProgram[];
+  downloadsFolder: string | null;
 }
 
 export interface DragReport {
@@ -149,4 +150,19 @@ export interface ThumbJob {
 
 export type Browse =
   | { type: "root" }
-  | { type: "folder"; id: number };
+  | { type: "folder"; id: number }
+  | { type: "downloads" };
+
+export interface DownloadRow {
+  name: string;
+  relativeDir: string;
+  ext: string;
+  sizeBytes: number;
+  mtime: number;
+  absolutePath: string;
+}
+
+export type ListDownloadsResult =
+  | { status: "unset" }
+  | { status: "missing" }
+  | { status: "ok"; rows: DownloadRow[]; truncated: boolean };

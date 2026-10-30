@@ -265,6 +265,36 @@
   white-space: nowrap;
 }
 
+.details-col-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbar-filters {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  min-inline-size: 0;
+}
+
+.toolbar-filters:disabled {
+  opacity: 0.45;
+}
+
+.empty-state {
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.downloads-inspector .mono {
+  word-break: break-all;
+}
+
 .details-col-name {
   min-width: 0;
   display: flex;

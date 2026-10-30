@@ -86,4 +86,5 @@ export interface Actions {
   showAbout: () => void;
   openTagColors: () => void;
   openExternalPrograms: () => void;
+  setDownloadsFolder: () => void;
 }

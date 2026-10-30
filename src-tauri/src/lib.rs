@@ -13,6 +13,7 @@ mod preview;
 mod relocate;
 mod rescan;
 mod settings;
+mod downloads;
 mod updater_version;
 
 use std::fs::{self, OpenOptions};
@@ -35,6 +36,7 @@ include!("commands/files.rs");
 include!("commands/import_cmd.rs");
 include!("commands/thumbs.rs");
 include!("commands/open.rs");
+include!("commands/downloads.rs");
 
 pub fn run() {
     tauri::Builder::default()
@@ -132,6 +134,9 @@ pub fn run() {
             open_in_program,
             reveal_file,
             reveal_folder,
+            reveal_path,
+            set_downloads_folder,
+            list_downloads,
             text_preview,
             debug_log
         ])
@@ -147,4 +152,5 @@ mod tests {
     include!("commands/tests_open.rs");
     include!("commands/tests_files.rs");
     include!("commands/tests_runtime.rs");
+    include!("commands/tests_downloads.rs");
 }
