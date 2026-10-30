@@ -15,7 +15,7 @@ import {
   samePlace,
   targetFolderId as browseTargetFolderId,
 } from "../lib/folderHistory";
-import { defaultImportDestination } from "../lib/downloadsImport";
+import { defaultImportDestination, downloadsImportNavigation } from "../lib/downloadsImport";
 import { browseContainingFolder, containingFolderPlace } from "../lib/containingFolder";
 import { libraryListScope, libraryRefreshKey, librarySearchLimit, tagCountScope, truncateLibraryList } from "../lib/tagFilter";
 import { extsForSelectedTypes, mergeTypeCounts } from "../lib/typeFilter";
@@ -444,12 +444,12 @@ export function useLibrary() {
     try {
       const result = await api.importPaths(paths, folderId);
       setSummary(result);
-      if (result.importedCount > 0) {
-        const place: Browse = folderId == null ? { type: "root" } : { type: "folder", id: folderId };
-        setBrowse(place);
+      const next = downloadsImportNavigation(result, folderId);
+      if (next.place) {
+        setBrowse(next.place);
         await reloadTree();
-        await refreshLists(place);
-        if (result.importedIds.length > 0) setSelected(result.importedIds);
+        await refreshLists(next.place);
+        if (next.selectedIds.length > 0) setSelected(next.selectedIds);
       }
     } catch (err) {
       setError(String(err));

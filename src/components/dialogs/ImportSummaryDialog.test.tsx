@@ -52,6 +52,17 @@ function app(overrides: Record<string, unknown> = {}): LibraryModel {
 }
 
 describe("Import summary tags", () => {
+  it("opens with the creator, chips, and pending comma text", () => {
+    render(<ImportSummaryDialog app={app()} />);
+    expect((screen.getByPlaceholderText("Creator for all imported files") as HTMLInputElement).value).toBe(
+      "Flexi Factory",
+    );
+    expect(screen.getByRole("button", { name: /FDM/ })).toBeTruthy();
+    expect((screen.getByPlaceholderText("Tags for all imported files") as HTMLInputElement).value).toBe(
+      "fdm, skeleton",
+    );
+  });
+
   it("suggests the tag after the last comma", () => {
     render(<ImportSummaryDialog app={app({ importTagText: "FDM, ske", importTags: [] })} />);
     const options = document.querySelectorAll("#import-tags option");

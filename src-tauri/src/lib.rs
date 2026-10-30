@@ -150,7 +150,6 @@ mod tests {
     use crate::settings::Settings;
     include!("commands/tests_thumbs.rs");
     include!("commands/tests_open.rs");
-    include!("commands/tests_downloads.rs");
     include!("commands/tests_files.rs");
     include!("commands/tests_runtime.rs");
     include!("commands/tests_downloads.rs");

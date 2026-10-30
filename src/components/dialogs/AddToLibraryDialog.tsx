@@ -5,7 +5,7 @@ import { browseToFolderId, folderLabel } from "../../lib/downloadsImport";
 import type { Browse, FolderRow } from "../../types";
 import { useEffect, useMemo, useState } from "react";
 
-function folderOptions(folders: FolderRow[], libraryName: string): { id: string; label: string }[] {
+export function folderOptions(folders: FolderRow[], libraryName: string): { id: string; label: string }[] {
   const sorted = [...folders].sort((a, b) => a.relpath.localeCompare(b.relpath, undefined, { numeric: true }));
   return [
     { id: "root", label: libraryName },

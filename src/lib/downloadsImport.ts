@@ -13,6 +13,18 @@ export function browseToFolderId(place: Browse): number | null {
   return place.type === "folder" ? place.id : null;
 }
 
+/** Where Add to library goes after importPaths. A zero count stays on Downloads. */
+export function downloadsImportNavigation(
+  result: { importedCount: number; importedIds: number[] },
+  folderId: number | null,
+): { place: Browse | null; selectedIds: number[] } {
+  if (result.importedCount <= 0) return { place: null, selectedIds: [] };
+  return {
+    place: folderId == null ? { type: "root" } : { type: "folder", id: folderId },
+    selectedIds: result.importedIds,
+  };
+}
+
 export function folderLabel(folders: FolderRow[], place: Browse, libraryName: string): string {
   if (place.type === "root") return libraryName;
   if (place.type === "downloads") return "Downloads";

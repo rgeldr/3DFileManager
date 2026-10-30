@@ -1,60 +1,55 @@
-import { describe, expect, it, vi } from "vitest";
-import { browseToFolderId } from "./downloadsImport";
-import type { Browse } from "../types";
+import { describe, expect, it } from "vitest";
+import { browseToFolderId, downloadsImportNavigation, folderLabel } from "./downloadsImport";
+import type { FolderRow } from "../types";
+
+const folder = (id: number, name: string): FolderRow => ({
+  id,
+  parentId: null,
+  name,
+  relpath: name,
+  sortOrder: 0,
+});
 
 describe("browseToFolderId", () => {
-  it("maps browse places to import folder ids", () => {
+  it("maps a library folder to its id and every other place to the library root", () => {
     expect(browseToFolderId({ type: "root" })).toBeNull();
     expect(browseToFolderId({ type: "folder", id: 4 })).toBe(4);
-    expect(browseToFolderId({ type: "downloads" } as Browse)).toBeNull();
+    expect(browseToFolderId({ type: "downloads" })).toBeNull();
   });
 });
 
-describe("runDownloadsImport navigation", () => {
-  it("jumps to the destination when importedCount is positive", async () => {
-    const setBrowse = vi.fn();
-    const refreshLists = vi.fn(async (_place?: unknown) => undefined);
-    const reloadTree = vi.fn(async () => undefined);
-    const setSelected = vi.fn((_ids?: number[]) => undefined);
-    const setSummary = vi.fn();
-    const importPaths = vi.fn(async (_paths: string[], _folderId: number | null) => ({
-      importedIds: [10],
-      importedCount: 1,
-      duplicateCount: 0,
-      unsupportedCount: 0,
-      failed: [],
-      recycleCount: 0,
-      leftInPlace: 0,
-      cancelled: false,
-      pendingHashCount: 0,
-    }));
-    const folderId = 2;
-    const result = await importPaths(["/dl/a.stl"], folderId);
-    setSummary(result);
-    if (result.importedCount > 0) {
-      setBrowse({ type: "folder", id: folderId });
-      await reloadTree();
-      await refreshLists({ type: "folder", id: folderId });
-      if (result.importedIds.length > 0) setSelected(result.importedIds);
-    }
-    expect(setBrowse).toHaveBeenCalledWith({ type: "folder", id: 2 });
-    expect(setSelected).toHaveBeenCalledWith([10]);
+describe("downloadsImportNavigation", () => {
+  it("jumps to the chosen folder and selects the returned ids when the import added files", () => {
+    expect(downloadsImportNavigation({ importedCount: 1, importedIds: [10] }, 2)).toEqual({
+      place: { type: "folder", id: 2 },
+      selectedIds: [10],
+    });
+    expect(downloadsImportNavigation({ importedCount: 1, importedIds: [4] }, null)).toEqual({
+      place: { type: "root" },
+      selectedIds: [4],
+    });
   });
 
-  it("stays on Downloads when importedCount is zero", async () => {
-    const setBrowse = vi.fn();
-    const result = {
-      importedIds: [],
-      importedCount: 0,
-      duplicateCount: 1,
-      unsupportedCount: 0,
-      failed: [],
-      recycleCount: 0,
-      leftInPlace: 0,
-      cancelled: false,
-      pendingHashCount: 0,
-    };
-    if (result.importedCount > 0) setBrowse({ type: "folder", id: 2 });
-    expect(setBrowse).not.toHaveBeenCalled();
+  it("still jumps when the id list was cleared above the summary cap", () => {
+    expect(downloadsImportNavigation({ importedCount: 201, importedIds: [] }, 2)).toEqual({
+      place: { type: "folder", id: 2 },
+      selectedIds: [],
+    });
+  });
+
+  it("stays put when nothing was imported", () => {
+    expect(downloadsImportNavigation({ importedCount: 0, importedIds: [] }, 2)).toEqual({
+      place: null,
+      selectedIds: [],
+    });
+  });
+});
+
+describe("folderLabel", () => {
+  it("names the library root, a folder, Downloads, and a missing folder", () => {
+    expect(folderLabel([], { type: "root" }, "Library")).toBe("Library");
+    expect(folderLabel([folder(2, "Models")], { type: "folder", id: 2 }, "Library")).toBe("Models");
+    expect(folderLabel([], { type: "downloads" }, "Library")).toBe("Downloads");
+    expect(folderLabel([], { type: "folder", id: 9 }, "Library")).toBe("Folder");
   });
 });

@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LibraryModel } from "../../hooks/useLibrary";
-import { AddToLibraryDialog } from "./AddToLibraryDialog";
+import { AddToLibraryDialog, folderOptions } from "./AddToLibraryDialog";
 
 const importPaths = vi.fn();
 
@@ -48,17 +48,22 @@ describe("AddToLibraryDialog", () => {
         onClose={() => undefined}
       />,
     );
+    expect((screen.getByPlaceholderText("Creator for all imported files") as HTMLInputElement).value).toBe("Ada");
+    expect(screen.getByRole("button", { name: /PLA/ })).toBeTruthy();
+    expect((screen.getByPlaceholderText("Tags for all imported files") as HTMLInputElement).value).toBe("benchy");
     fireEvent.click(screen.getByRole("button", { name: "Add to library" }));
     await waitFor(() =>
       expect(importPaths).toHaveBeenCalledWith(["C:\\Downloads\\a.stl", "C:\\Downloads\\pack.zip"], 2),
     );
     expect(model.setImportCreator).not.toHaveBeenCalled();
+    expect(model.setImportTags).not.toHaveBeenCalled();
+    expect(model.setImportTagText).not.toHaveBeenCalled();
   });
 
   it("offers comma tag suggestions like the summary dialog", () => {
     render(
       <AddToLibraryDialog
-        app={app({ importTagText: "PLA, ben", importTags: [] })}
+        app={app({ importTagText: "PLA, ben", importTags: [], tags: ["PLA", "benchy"] })}
         paths={["/tmp/a.stl"]}
         defaultPlace={{ type: "root" }}
         onClose={() => undefined}
@@ -66,5 +71,19 @@ describe("AddToLibraryDialog", () => {
     );
     const options = document.querySelectorAll("#add-library-tags option");
     expect([...options].map((option) => option.getAttribute("value"))).toEqual(["PLA, benchy"]);
+  });
+
+  it("sorts destination folders and shows nested paths with slashes", () => {
+    expect(folderOptions(
+      [
+        { id: 2, parentId: null, name: "Zeta", relpath: "zeta", sortOrder: 0 },
+        { id: 3, parentId: 2, name: "Boats", relpath: "prints\\boats", sortOrder: 0 },
+      ],
+      "Library",
+    )).toEqual([
+      { id: "root", label: "Library" },
+      { id: "3", label: "prints/boats" },
+      { id: "2", label: "zeta" },
+    ]);
   });
 });
