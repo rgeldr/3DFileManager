@@ -70,6 +70,22 @@ describe("breadcrumb", () => {
     expect(screen.queryByRole("button", { name: "…" })).toBeNull();
   });
 
+  it("shows every ancestor when fullPath is set", () => {
+    const onNavigate = vi.fn();
+    render(
+      <Breadcrumb
+        libraryName="3D Print Library"
+        folders={library}
+        browse={{ type: "folder", id: 5 }}
+        onNavigate={onNavigate}
+        fullPath
+      />,
+    );
+    expect(screen.queryByText("…")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Articulated Toys" }));
+    expect(onNavigate).toHaveBeenCalledWith({ type: "folder", id: 2 });
+  });
+
   it("crumbKey distinguishes the root, folders, and an ellipsis", () => {
     expect(crumbKey({ kind: "ellipsis" }, 2)).toBe("ellipsis-2");
     expect(crumbKey({ kind: "place", place: { type: "root" }, label: "3D Print Library" }, 0)).toBe("root");

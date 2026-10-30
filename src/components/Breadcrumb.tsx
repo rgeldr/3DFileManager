@@ -6,13 +6,17 @@ export function Breadcrumb({
   folders,
   browse,
   onNavigate,
+  fullPath = false,
 }: {
   libraryName: string;
   folders: FolderRow[];
   browse: Browse;
   onNavigate: (place: Browse) => void;
+  fullPath?: boolean;
 }) {
-  const crumbs = truncateCrumbs(folderCrumbs(libraryName, folders, browse));
+  const crumbs = fullPath
+    ? folderCrumbs(libraryName, folders, browse)
+    : truncateCrumbs(folderCrumbs(libraryName, folders, browse));
   return (
     <nav className="breadcrumb" aria-label="Folder path">
       {crumbs.map((crumb, index) => (

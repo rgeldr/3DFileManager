@@ -1,17 +1,12 @@
 import { Modal } from "./Modal";
 import type { LibraryModel } from "../../hooks/useLibrary";
 import { ImportMetaFields } from "../ImportMetaFields";
-import { browseToFolderId, downloadsDestinationKey, folderLabel } from "../../lib/downloadsImport";
-import type { Browse, FolderRow } from "../../types";
-import { useEffect, useMemo, useRef, useState } from "react";
-
-export function folderOptions(folders: FolderRow[], libraryName: string): { id: string; label: string }[] {
-  const sorted = [...folders].sort((a, b) => a.relpath.localeCompare(b.relpath, undefined, { numeric: true }));
-  return [
-    { id: "root", label: libraryName },
-    ...sorted.map((folder) => ({ id: String(folder.id), label: folder.relpath.replace(/\\/g, "/") })),
-  ];
-}
+import { FolderPicker } from "../FolderPicker";
+import { browseToFolderId, downloadsDestinationKey } from "../../lib/downloadsImport";
+import { isTypingTarget } from "../../lib/deleteKey";
+import { normalizePickerBrowse, pickerParentPlace, resolvePickerBrowse } from "../../lib/folderPicker";
+import type { Browse } from "../../types";
+import { useEffect, useRef, useState } from "react";
 
 export function AddToLibraryDialog({
   app,
@@ -38,42 +33,49 @@ export function AddToLibraryDialog({
     setImportTagText,
     runDownloadsImport,
   } = app;
-  const options = useMemo(() => folderOptions(folders, libraryName), [folders, libraryName]);
-  const defaultKey = downloadsDestinationKey(defaultPlace);
+  const defaultKey = downloadsDestinationKey(normalizePickerBrowse(defaultPlace));
   const pathKey = paths.join("\0");
-  const [folderKey, setFolderKey] = useState(defaultKey);
+  const [browse, setBrowse] = useState<Browse>(() => normalizePickerBrowse(defaultPlace));
   const submitLock = useRef(false);
+  const place = resolvePickerBrowse(folders, browse);
 
   useEffect(() => {
-    setFolderKey(defaultKey);
+    setBrowse(normalizePickerBrowse(defaultPlace));
   }, [defaultKey, pathKey]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Backspace" || isTypingTarget(event.target)) return;
+      event.preventDefault();
+      setBrowse((current) => {
+        const resolved = resolvePickerBrowse(folders, current);
+        return pickerParentPlace(folders, resolved) ?? resolved;
+      });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, folders]);
 
   if (paths.length === 0) return null;
 
-  const place: Browse = folderKey === "root" ? { type: "root" } : { type: "folder", id: Number(folderKey) };
-
   return (
     <Modal>
-      <div className="card">
+      <div className="card card-add-library">
         <h2>Add to library</h2>
         <p>
           {paths.length === 1 ? "1 file" : `${paths.length} files`} will be copied into the library.
         </p>
-        <label>
-          Destination folder
-          <select
-            aria-label="Destination folder"
-            value={folderKey}
-            onChange={(event) => setFolderKey(event.target.value)}
-          >
-            {options.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <p className="muted">Destination: {folderLabel(folders, place, libraryName)}</p>
+        <FolderPicker
+          folders={folders}
+          libraryName={libraryName}
+          browse={place}
+          onBrowseChange={setBrowse}
+        />
         <ImportMetaFields
           creators={creators}
           tags={tags}
