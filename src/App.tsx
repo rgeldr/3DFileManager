@@ -29,6 +29,7 @@ import {
 } from "./components/dialogs";
 import { DownloadsPanel, nextDownloadSort, pickDownloadsFolder } from "./components/DownloadsPanel";
 import { DownloadsInspector } from "./components/DownloadsInspector";
+import { AddToLibraryDialog } from "./components/dialogs/AddToLibraryDialog";
 import { DownloadsContextMenu } from "./components/dialogs/DownloadsContextMenu";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { useLibrary, type LibraryModel } from "./hooks/useLibrary";
@@ -131,6 +132,9 @@ export function AppShell({ app }: { app: LibraryModel }) {
     refreshDownloads,
     applyDownloadsFolder,
     selectedDownloadRow,
+    addToLibraryPaths,
+    setAddToLibraryPaths,
+    defaultImportDestination,
   } = app;
   const onDownloads = browse.type === "downloads";
   const [gridFolderMenu, setGridFolderMenu] = useState<{ x: number; y: number; folderId: number } | null>(null);
@@ -484,8 +488,8 @@ export function AppShell({ app }: { app: LibraryModel }) {
                 onSort={(field) => setDownloadSort(nextDownloadSort(downloadSort, field))}
                 selected={downloadsSelected}
                 onSelectionChange={setDownloadsSelected}
-                onContextMenu={(event, _path, _selection) => {
-                  setDownloadsMenu({ x: event.clientX, y: event.clientY, path: _path });
+                onContextMenu={(event, _path, selection) => {
+                  setDownloadsMenu({ x: event.clientX, y: event.clientY, path: _path, selection });
                 }}
                 onSetFolder={() => {
                   void pickDownloadsFolder().then((path) => {
@@ -663,6 +667,14 @@ export function AppShell({ app }: { app: LibraryModel }) {
       </div>
       <ImportProgressDialog app={app} />
       <ImportSummaryDialog app={app} />
+      {addToLibraryPaths ? (
+        <AddToLibraryDialog
+          app={app}
+          paths={addToLibraryPaths}
+          defaultPlace={defaultImportDestination}
+          onClose={() => setAddToLibraryPaths(null)}
+        />
+      ) : null}
       <FolderTagDialog app={app} />
       <CreatorDialog app={app} />
       <AboutDialog app={app} updates={updateCheck.about} />

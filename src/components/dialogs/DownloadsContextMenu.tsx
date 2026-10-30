@@ -8,10 +8,10 @@ export function DownloadsContextMenu({
   onClose,
 }: {
   app: LibraryModel;
-  menu: { x: number; y: number; path: string } | null;
+  menu: { x: number; y: number; path: string; selection: string[] } | null;
   onClose: () => void;
 }) {
-  const { setError } = app;
+  const { setError, openAddToLibrary } = app;
   useEffect(() => {
     if (!menu) return;
     const close = () => onClose();
@@ -38,6 +38,16 @@ export function DownloadsContextMenu({
       style={{ left: menu.x, top: menu.y }}
       role="menu"
     >
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => {
+          onClose();
+          openAddToLibrary(menu.selection);
+        }}
+      >
+        Add to library
+      </button>
       <button
         type="button"
         role="menuitem"

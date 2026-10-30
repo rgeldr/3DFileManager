@@ -85,4 +85,12 @@ describe("Import summary tags", () => {
     await waitFor(() => expect(model.setSummary).toHaveBeenCalledWith(null));
     expect(model.refreshLists).toHaveBeenCalled();
   });
+
+  it("does not call applyBulkMeta when creator and tags are blank", async () => {
+    const model = app({ importCreator: "", importTags: [], importTagText: "" });
+    render(<ImportSummaryDialog app={model} />);
+    fireEvent.click(screen.getByRole("button", { name: "Keep originals" }));
+    expect(applyBulkMeta).not.toHaveBeenCalled();
+    await waitFor(() => expect(model.setSummary).toHaveBeenCalledWith(null));
+  });
 });

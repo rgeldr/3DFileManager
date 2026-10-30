@@ -15,6 +15,7 @@ import {
   samePlace,
   targetFolderId as browseTargetFolderId,
 } from "../lib/folderHistory";
+import { defaultImportDestination } from "../lib/downloadsImport";
 import { browseContainingFolder, containingFolderPlace } from "../lib/containingFolder";
 import { libraryListScope, libraryRefreshKey, librarySearchLimit, tagCountScope, truncateLibraryList } from "../lib/tagFilter";
 import { extsForSelectedTypes, mergeTypeCounts } from "../lib/typeFilter";
@@ -129,7 +130,8 @@ export function useLibrary() {
   const [downloadsTruncated, setDownloadsTruncated] = useState(false);
   const [downloadSort, setDownloadSort] = useState<DownloadSort>(DEFAULT_DOWNLOAD_SORT);
   const [downloadsSelected, setDownloadsSelected] = useState<string[]>([]);
-  const [downloadsMenu, setDownloadsMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+  const [downloadsMenu, setDownloadsMenu] = useState<{ x: number; y: number; path: string; selection: string[] } | null>(null);
+  const [addToLibraryPaths, setAddToLibraryPaths] = useState<string[] | null>(null);
   const libraryBusy = useRef(false);
   const diskProgress = useRef<DiskProgress>(emptyProgress());
   const toastTimer = useRef<number | null>(null);
@@ -429,6 +431,41 @@ export function useLibrary() {
   }, [refreshLists, reloadTree, targetFolderId]);
   runImportRef.current = runImport;
 
+  const runDownloadsImport = useCallback(async (paths: string[], folderId: number | null) => {
+    if (paths.length === 0) return;
+    if (libraryBusy.current) {
+      setError("Another library change is already running.");
+      return;
+    }
+    libraryBusy.current = true;
+    setBusy("Importing…");
+    setImporting(true);
+    setProgress({ current: 0, total: 0, message: "Counting files…" });
+    try {
+      const result = await api.importPaths(paths, folderId);
+      setSummary(result);
+      if (result.importedCount > 0) {
+        const place: Browse = folderId == null ? { type: "root" } : { type: "folder", id: folderId };
+        setBrowse(place);
+        await reloadTree();
+        await refreshLists(place);
+        if (result.importedIds.length > 0) setSelected(result.importedIds);
+      }
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      libraryBusy.current = false;
+      setImporting(false);
+      setBusy(null);
+      setProgress(null);
+    }
+  }, [refreshLists, reloadTree, setBrowse, setSelected]);
+
+  const openAddToLibrary = useCallback((paths: string[]) => {
+    if (paths.length === 0) return;
+    setAddToLibraryPaths([...paths]);
+  }, []);
+
   const dialogOpen = Boolean(
     busy || progress || summary || namePrompt || deleteConfirm || missingOpen || error || diskDialog || aboutOpen || tagColorOpen || externalProgramsOpen || creatorTarget || dragFailure,
   );
@@ -502,6 +539,7 @@ export function useLibrary() {
     openRenameFolderPrompt, openRenameFile, openContainingFolder, openDeleteFolderConfirm, performDeleteFolder, runImportRef, refreshListsRef,
     runImport, dialogOpen, browseKey, onSelect, selectedFile, downloadsList, downloadsTruncated, downloadSort, setDownloadSort,
     downloadsSelected, setDownloadsSelected, downloadsMenu, setDownloadsMenu, refreshDownloads, applyDownloadsFolder, selectedDownloadRow,
+    addToLibraryPaths, setAddToLibraryPaths, openAddToLibrary, runDownloadsImport, defaultImportDestination: defaultImportDestination(history),
   };
   const drag = useLibraryEffects(model);
   return { ...model, ...drag };

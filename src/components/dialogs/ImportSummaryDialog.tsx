@@ -1,10 +1,8 @@
+import { ImportMetaFields, appendCommaTags } from "../ImportMetaFields";
 import { Modal } from "./Modal";
 import type { LibraryModel } from "../../hooks/useLibrary";
 import { api } from "../../api";
-import { appendCommaTags, commaTagOptions, tagFieldKey } from "../../lib/commaTags";
 import { importMetaPayload } from "../../lib/importMeta";
-import { displayTagColor } from "../../lib/tagColor";
-import { TagChip } from "../TagChip";
 
 export function ImportSummaryDialog({ app }: { app: LibraryModel }) {
   const { creators, tags, tagCounts = [], summary, setSummary, importCreator, setImportCreator, importTags, setImportTags, importTagText, setImportTagText, setError, refreshLists, runDiskOp } = app;
@@ -27,43 +25,17 @@ export function ImportSummaryDialog({ app }: { app: LibraryModel }) {
             {summary.importedIds.length > 0 ? (
               <>
                 <p className="muted">Applies to newly imported files only.</p>
-                <input
-                  placeholder="Creator for all imported files"
-                  list="import-creators"
-                  value={importCreator}
-                  onChange={(event) => setImportCreator(event.target.value)}
+                <ImportMetaFields
+                  creators={creators}
+                  tags={tags}
+                  tagCounts={tagCounts}
+                  importCreator={importCreator}
+                  setImportCreator={setImportCreator}
+                  importTags={importTags}
+                  setImportTags={setImportTags}
+                  importTagText={importTagText}
+                  setImportTagText={setImportTagText}
                 />
-                <datalist id="import-creators">
-                  {creators.map((item) => <option key={item} value={item} />)}
-                </datalist>
-                <div className="tags">
-                  {importTags.map((item) => (
-                    <TagChip
-                      key={item}
-                      name={item}
-                      color={displayTagColor(item, tagCounts)}
-                      onClick={() => setImportTags(importTags.filter((tag) => tag !== item))}
-                    />
-                  ))}
-                </div>
-                <input
-                  placeholder="Tags for all imported files"
-                  list="import-tags"
-                  value={importTagText}
-                  onChange={(event) => setImportTagText(event.target.value)}
-                  onKeyDown={(event) => {
-                    const next = tagFieldKey(importTags, importTagText, event.key);
-                    if (!next) return;
-                    event.preventDefault();
-                    setImportTags(next.tags);
-                    setImportTagText(next.text);
-                  }}
-                />
-                <datalist id="import-tags">
-                  {commaTagOptions(importTagText, tags).map((item) => (
-                    <option key={item} value={item} />
-                  ))}
-                </datalist>
               </>
             ) : null}
             {summary.recycleCount > 0 ? (
