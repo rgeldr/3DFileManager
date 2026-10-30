@@ -112,16 +112,37 @@ fn compatible_file(ext: &str) -> bool {
     is_supported_file(ext) || is_archive(ext)
 }
 
-/// Directory junctions are reparse points that Rust does not report as symlinks.
-/// `follow_links(false)` therefore still walks them unless we skip them first.
-fn junction_from_reparse(is_reparse_point: bool, is_symlink: bool) -> bool {
-    is_reparse_point && !is_symlink
-}
-
 /// `FILE_ATTRIBUTE_REPARSE_POINT`. Parentheses matter: `!=` binds tighter than `&`.
 fn has_reparse_point(attributes: u32) -> bool {
     const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
     (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
+}
+
+/// `FILE_ATTRIBUTE_DIRECTORY`. Same precedence constraint as `has_reparse_point`.
+fn directory_attribute(attributes: u32) -> bool {
+    const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
+    (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0
+}
+
+/// A junction (or other directory reparse point) is a directory. File reparse
+/// points, including OneDrive placeholders, are not. `filter_entry` drops any
+/// entry for which descent is refused, so a file must not take this path.
+/// The directory bit is the raw attribute, not `FileType::is_dir`, which is
+/// false for some reparse points. This does not follow the link.
+fn directory_reparse_point(is_reparse_point: bool, is_directory: bool) -> bool {
+    is_reparse_point && is_directory
+}
+
+fn paths_equal_os(left: &str, right: &str, windows: bool) -> bool {
+    let left = strip_verbatim_str(left);
+    let right = strip_verbatim_str(right);
+    if windows {
+        let left = left.replace('/', "\\").trim_end_matches('\\').to_lowercase();
+        let right = right.replace('/', "\\").trim_end_matches('\\').to_lowercase();
+        left == right
+    } else {
+        left == right
+    }
 }
 
 fn is_junction(path: &Path) -> bool {
@@ -131,15 +152,23 @@ fn is_junction(path: &Path) -> bool {
         let Ok(meta) = fs::symlink_metadata(path) else {
             return false;
         };
-        return junction_from_reparse(
-            has_reparse_point(meta.file_attributes()),
-            meta.file_type().is_symlink(),
-        );
+        let attributes = meta.file_attributes();
+        return directory_reparse_point(has_reparse_point(attributes), directory_attribute(attributes));
     }
     #[cfg(not(windows))]
     {
         let _ = path;
         false
+    }
+}
+
+/// The saved folder must still be the directory that was stored. A symlink or
+/// junction put in its place would otherwise be followed by `canonicalize`.
+fn saved_root_redirects(path: &Path) -> bool {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => true,
+        Ok(_) => is_junction(path),
+        Err(_) => false,
     }
 }
 
@@ -157,7 +186,12 @@ fn should_descend(path: &Path, depth: usize) -> bool {
     if depth == 0 {
         return true;
     }
-    !is_directory_symlink(path) && !is_junction(path)
+    // Junctions are classified from symlink metadata so they are not followed.
+    // File reparse points are not junctions and must still be yielded.
+    if is_junction(path) {
+        return false;
+    }
+    !is_directory_symlink(path)
 }
 
 fn relative_dir_display(root: &Path, file: &Path) -> String {
@@ -212,19 +246,32 @@ pub fn list_downloads(db: &AppDb) -> Result<ListDownloadsResult, String> {
         return Ok(ListDownloadsResult::Unset);
     };
     let root = PathBuf::from(saved);
-    if !root.is_dir() {
+    if saved_root_redirects(&root) || !root.is_dir() {
         return Ok(ListDownloadsResult::Missing);
     }
     let Ok(canonical_root) = root.canonicalize() else {
         return Ok(ListDownloadsResult::Missing);
     };
+    if !paths_equal_os(&root.to_string_lossy(), &canonical_root.to_string_lossy(), cfg!(windows)) {
+        return Ok(ListDownloadsResult::Missing);
+    }
     Ok(list_downloads_walk(&canonical_root, WalkCaps::production()))
 }
 
 pub fn allowed_reveal_target(downloads_root: &Path, candidate: &Path) -> Result<PathBuf, String> {
+    if saved_root_redirects(downloads_root) {
+        return Err("The Downloads folder is missing.".into());
+    }
     let root = downloads_root
         .canonicalize()
         .map_err(|_| "The Downloads folder is missing.".to_string())?;
+    if !paths_equal_os(
+        &downloads_root.to_string_lossy(),
+        &root.to_string_lossy(),
+        cfg!(windows),
+    ) {
+        return Err("The Downloads folder is missing.".into());
+    }
     let canonical = candidate.canonicalize().map_err(|_| "That file is not in Downloads.".to_string())?;
     if !path_contained(&canonical, &root) {
         return Err("That file is outside the Downloads folder.".into());
@@ -390,14 +437,22 @@ mod tests {
         assert!(compatible_file("7z"));
         assert!(compatible_file("rar"));
         assert!(!compatible_file("exe"));
-        assert!(junction_from_reparse(true, false));
-        assert!(!junction_from_reparse(true, true));
-        assert!(!junction_from_reparse(false, false));
         assert!(has_reparse_point(0x400));
         assert!(has_reparse_point(0x410));
         assert!(!has_reparse_point(0x10));
-        assert!(junction_from_reparse(has_reparse_point(0x400), false));
-        assert!(!junction_from_reparse(has_reparse_point(0x400), true));
+        assert!(directory_attribute(0x10));
+        assert!(directory_attribute(0x410));
+        assert!(!directory_attribute(0x400));
+        let cloud_file = directory_reparse_point(has_reparse_point(0x400), directory_attribute(0x400));
+        assert!(!cloud_file, "a file reparse point is not a junction");
+        assert!(directory_reparse_point(has_reparse_point(0x410), directory_attribute(0x410)));
+        assert!(!directory_reparse_point(false, true));
+        assert!(paths_equal_os(r"C:\Users\Me\Downloads", r"\\?\C:\Users\Me\Downloads", true));
+        assert!(paths_equal_os(r"C:\Users\Me\Downloads", r"c:\users\me\downloads\", true));
+        assert!(!paths_equal_os(r"C:\Users\Me\Downloads", r"D:\Other", true));
+        assert!(!paths_equal_os(r"C:\Users\Me\Downloads", r"C:\Users\Me\Downloads2", true));
+        assert!(paths_equal_os("/tmp/downloads", "/tmp/downloads", false));
+        assert!(!paths_equal_os("/tmp/downloads", "/tmp/outside", false));
     }
 
     #[test]
@@ -566,10 +621,14 @@ mod tests {
         assert!(is_directory_symlink(&root.join("dir-link")));
         assert!(is_directory_symlink(&root.join("dir-shortcut")));
         assert!(!is_directory_symlink(&real));
+        assert!(!is_directory_symlink(&root.join("inside-link.stl")));
         assert!(!should_descend(&root.join("dir-link"), 1));
         assert!(!should_descend(&root.join("dir-shortcut"), 1));
+        assert!(should_descend(&real, 1), "a normal file must still be yielded");
+        assert!(should_descend(&root.join("inside-link.stl"), 1), "a file symlink must still be yielded");
         assert!(should_descend(&root, 0));
         assert!(!is_junction(&root));
+        assert!(!saved_root_redirects(&root));
 
         let (rows, _) = ok(list_downloads_walk(&root.canonicalize().unwrap(), caps(1, 100, 100)));
         let names: Vec<_> = rows.iter().map(|row| row.name.as_str()).collect();
@@ -697,12 +756,40 @@ mod tests {
         assert!(err.contains("outside"));
         let missing = allowed_reveal_target(&dir.join("missing"), &inside).unwrap_err();
         assert!(missing.contains("missing"));
+        assert!(!saved_root_redirects(&root));
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink(&away, root.join("escape.stl")).unwrap();
             let escaped = allowed_reveal_target(&root, &root.join("escape.stl")).unwrap_err();
             assert!(escaped.contains("outside"));
+            let replaced = dir.join("replaced-root");
+            std::os::unix::fs::symlink(&outside, &replaced).unwrap();
+            assert!(saved_root_redirects(&replaced));
+            let redirected = allowed_reveal_target(&replaced, &away).unwrap_err();
+            assert!(redirected.contains("missing"), "a replaced Downloads root is not revealed");
         }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn list_does_not_follow_a_downloads_root_replaced_by_a_symlink() {
+        let dir = temp_dir("dl-replaced-root");
+        let downloads = dir.join("downloads");
+        let outside = dir.join("outside");
+        fs::create_dir_all(&downloads).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(downloads.join("kept.stl"), b"s").unwrap();
+        fs::write(outside.join("secret.stl"), b"no").unwrap();
+        let db = open_db(&dir);
+        set_downloads_folder(&db, Some(downloads.to_string_lossy().to_string())).unwrap();
+        let (before, _) = ok(list_downloads(&db).unwrap());
+        assert_eq!(before.len(), 1);
+        assert_eq!(before[0].name, "kept.stl");
+        fs::remove_dir_all(&downloads).unwrap();
+        symlink(&outside, &downloads).unwrap();
+        assert!(saved_root_redirects(&downloads));
+        assert!(matches!(list_downloads(&db).unwrap(), ListDownloadsResult::Missing));
         let _ = fs::remove_dir_all(&dir);
     }
 }
