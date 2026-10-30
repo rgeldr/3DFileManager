@@ -64,6 +64,38 @@ describe("folder tree menu", () => {
     expect(onRescan).toHaveBeenCalledWith(3);
   });
 
+  it("lists Downloads before the library root row", () => {
+    const onBrowse = vi.fn();
+    const { container } = render(
+      <Sidebar
+        folders={[toys]}
+        libraryName="3D Print Library"
+        browseKey="downloads"
+        dropTarget={null}
+        expandHint={null}
+        onBrowse={onBrowse}
+        onNew={() => undefined}
+        onRename={() => undefined}
+        onDelete={() => undefined}
+        onNewInFolder={() => undefined}
+        onRenameFolder={() => undefined}
+        onDeleteFolder={() => undefined}
+        onTagFolder={() => undefined}
+        onSetCreator={() => undefined}
+        onReveal={() => undefined}
+        onRescan={() => undefined}
+        onMoveFolder={() => undefined}
+        pinned
+        onPinnedChange={() => undefined}
+      />,
+    );
+    const rows = container.querySelectorAll(".sidebar-scroll > .folder-row");
+    expect(rows[0]?.classList.contains("downloads-row")).toBe(true);
+    expect(rows[0]?.textContent).toContain("Downloads");
+    fireEvent.click(screen.getByText("Downloads"));
+    expect(onBrowse).toHaveBeenCalledWith("downloads");
+  });
+
   it("browses the library root when its label is clicked", () => {
     const onBrowse = vi.fn();
     render(
@@ -157,7 +189,7 @@ describe("folder tree menu", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Expand Toys" }));
-    const rows = container.querySelectorAll(".folder-row");
+    const rows = container.querySelectorAll(".folder-row:not(.downloads-row)");
     expect(rows.length).toBe(3);
     for (const row of rows) {
       const icon = row.querySelector(":scope > svg.folder-icon");

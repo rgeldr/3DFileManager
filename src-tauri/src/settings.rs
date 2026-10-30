@@ -77,6 +77,8 @@ pub struct Settings {
     pub details_columns: DetailsColumns,
     #[serde(default)]
     pub external_programs: Vec<ExternalProgram>,
+    #[serde(default)]
+    pub downloads_folder: Option<String>,
 }
 
 impl Default for Settings {
@@ -94,6 +96,7 @@ impl Default for Settings {
             search_scope: default_search_scope(),
             details_columns: default_details_columns(),
             external_programs: Vec::new(),
+            downloads_folder: None,
         }
     }
 }
@@ -165,6 +168,7 @@ mod tests {
         assert_eq!(parsed.search_scope, default_search_scope());
         assert_eq!(parsed.details_columns.name, default_details_columns().name);
         assert!(parsed.external_programs.is_empty());
+        assert!(parsed.downloads_folder.is_none());
     }
 
     #[test]

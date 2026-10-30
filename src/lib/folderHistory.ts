@@ -13,6 +13,7 @@ export function emptyHistory(): FolderHistory {
 }
 
 export function samePlace(a: Browse, b: Browse): boolean {
+  if (a.type === "downloads" || b.type === "downloads") return a.type === b.type;
   if (a.type === "root" || b.type === "root") return a.type === b.type;
   return a.id === b.id;
 }
@@ -23,6 +24,7 @@ export function pushFolder(history: FolderHistory, next: Browse): FolderHistory 
 }
 
 export function placeExists(place: Browse, exists: (id: number) => boolean): boolean {
+  if (place.type === "downloads") return true;
   return place.type === "root" || exists(place.id);
 }
 

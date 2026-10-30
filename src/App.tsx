@@ -27,6 +27,9 @@ import {
   NamePromptDialog,
   Toast,
 } from "./components/dialogs";
+import { DownloadsPanel, nextDownloadSort, pickDownloadsFolder } from "./components/DownloadsPanel";
+import { DownloadsInspector } from "./components/DownloadsInspector";
+import { DownloadsContextMenu } from "./components/dialogs/DownloadsContextMenu";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { useLibrary, type LibraryModel } from "./hooks/useLibrary";
 import { useAppUpdate } from "./hooks/useAppUpdate";
@@ -116,6 +119,20 @@ export function AppShell({ app }: { app: LibraryModel }) {
     dropTarget,
     onPointerDown
   } = app;
+  const {
+    downloadsList,
+    downloadsTruncated,
+    downloadSort,
+    setDownloadSort,
+    downloadsSelected,
+    setDownloadsSelected,
+    downloadsMenu,
+    setDownloadsMenu,
+    refreshDownloads,
+    applyDownloadsFolder,
+    selectedDownloadRow,
+  } = app;
+  const onDownloads = browse.type === "downloads";
   const [gridFolderMenu, setGridFolderMenu] = useState<{ x: number; y: number; folderId: number } | null>(null);
   const thumbQueue = useThumbQueueCount(ready && Boolean(settings?.libraryRoot));
   const subfolders = centerSubfolders({
@@ -290,7 +307,8 @@ export function AppShell({ app }: { app: LibraryModel }) {
         dropTarget={dropTarget}
         expandHint={folderExpandHint}
         onBrowse={(key) => {
-          if (key === "root") setBrowse({ type: "root" });
+          if (key === "downloads") setBrowse({ type: "downloads" });
+          else if (key === "root") setBrowse({ type: "root" });
           else setBrowse({ type: "folder", id: Number(key.slice(7)) });
           setSelected([]);
         }}
@@ -350,14 +368,23 @@ export function AppShell({ app }: { app: LibraryModel }) {
             folders={folders}
             browse={browse}
             onNavigate={(place) => {
-              const same = place.type === "root"
-                ? browse.type === "root"
-                : browse.type === "folder" && browse.id === place.id;
+              const same =
+                place.type === "downloads"
+                  ? browse.type === "downloads"
+                  : place.type === "root"
+                    ? browse.type === "root"
+                    : browse.type === "folder" && browse.id === place.id;
               if (same) return;
               setBrowse(place);
               setSelected([]);
             }}
           />
+          {onDownloads ? (
+            <button type="button" onClick={() => void refreshDownloads().catch((err) => setError(String(err)))}>
+              Refresh
+            </button>
+          ) : null}
+          <div className={onDownloads ? "toolbar-filters disabled" : "toolbar-filters"} aria-disabled={onDownloads}>
           <LibrarySearch
             query={query}
             creator={creator}
@@ -396,7 +423,7 @@ export function AppShell({ app }: { app: LibraryModel }) {
               />
             </div>
             <div className="toolbar-row">
-              <select aria-label="Creator" value={creator} onChange={(event) => setCreator(event.target.value)}>
+              <select aria-label="Creator" value={creator} onChange={(event) => setCreator(event.target.value)} disabled={onDownloads}>
                 <option value="">All creators</option>
                 {creatorSelectOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
@@ -404,6 +431,7 @@ export function AppShell({ app }: { app: LibraryModel }) {
                 aria-label="Sort"
                 value={sort.field}
                 onChange={(event) => setSort(sortFromDropdown(event.target.value as SortField))}
+                disabled={onDownloads}
               >
                 <option value="name">Sort name</option>
                 <option value="size">Size</option>
@@ -413,8 +441,14 @@ export function AppShell({ app }: { app: LibraryModel }) {
               </select>
             </div>
           </div>
+          </div>
         </div>
-        {listTruncated ? (
+        {onDownloads && downloadsTruncated ? (
+          <div className="banner">
+            <span>The Downloads list is truncated. Narrow the folder or remove files to see more.</span>
+          </div>
+        ) : null}
+        {onDownloads ? null : listTruncated ? (
           <div className="banner">
             <span>{truncatedSearchMessage(LIBRARY_SEARCH_LIMIT)}</span>
           </div>
@@ -438,6 +472,26 @@ export function AppShell({ app }: { app: LibraryModel }) {
         {updateCheck.banner ? <UpdateBanner {...updateCheck.banner} /> : null}
         <div className={`workspace${inspectorPinned ? "" : " inspector-collapsed"}`}>
           <div className="grid-wrap" ref={gridScrollRef} tabIndex={-1}>
+            {onDownloads ? (
+              <DownloadsPanel
+                list={downloadsList}
+                sort={downloadSort}
+                onSort={(field) => setDownloadSort(nextDownloadSort(downloadSort, field))}
+                selected={downloadsSelected}
+                onSelectionChange={setDownloadsSelected}
+                onContextMenu={(event, _path, _selection) => {
+                  setDownloadsMenu({ x: event.clientX, y: event.clientY, path: _path });
+                }}
+                onSetFolder={() => {
+                  void pickDownloadsFolder().then((path) => {
+                    if (path) void applyDownloadsFolder(path).catch((err) => setError(String(err)));
+                  });
+                }}
+                onClearFolder={() => {
+                  void applyDownloadsFolder(null).catch((err) => setError(String(err)));
+                }}
+              />
+            ) : (
             <FileGrid
               files={files}
               folders={subfolders}
@@ -491,6 +545,7 @@ export function AppShell({ app }: { app: LibraryModel }) {
                 setGridFolderMenu({ x: event.clientX, y: event.clientY, folderId });
               }}
             />
+            )}
           </div>
           {inspectorPinned ? (
             <div
@@ -502,6 +557,17 @@ export function AppShell({ app }: { app: LibraryModel }) {
               onPointerDown={onPanePointerDown("inspector")}
             />
           ) : null}
+          {onDownloads ? (
+            <DownloadsInspector
+              row={selectedDownloadRow}
+              pinned={inspectorPinned}
+              onPinnedChange={(next) => {
+                setInspectorPinned(next);
+                setSettings((current) => (current ? { ...current, inspectorPinned: next } : current));
+                void api.setInspectorPinned(next).catch((err) => setError(String(err)));
+              }}
+            />
+          ) : (
           <Inspector
             file={selectedFile}
             folders={folders}
@@ -555,15 +621,17 @@ export function AppShell({ app }: { app: LibraryModel }) {
               });
             }}
           />
+          )}
         </div>
         <footer className="status">
           <span>
-            {files.length === 1 ? "1 file" : `${files.length} files`}
-            {selected.length ? ` · ${selected.length} selected` : ""}
-            {thumbQueue > 0
-              ? ` · ${thumbQueue} thumbnail${thumbQueue === 1 ? "" : "s"} still generating`
-              : ""}
+            {onDownloads
+              ? downloadsList.status === "ok"
+                ? `${downloadsList.rows.length === 1 ? "1 file" : `${downloadsList.rows.length} files`}${downloadsSelected.length ? ` · ${downloadsSelected.length} selected` : ""}`
+                : "Downloads"
+              : `${files.length === 1 ? "1 file" : `${files.length} files`}${selected.length ? ` · ${selected.length} selected` : ""}${thumbQueue > 0 ? ` · ${thumbQueue} thumbnail${thumbQueue === 1 ? "" : "s"} still generating` : ""}`}
           </span>
+          {onDownloads ? null : (
           <div className="view-toggle">
             {(
               [
@@ -584,6 +652,7 @@ export function AppShell({ app }: { app: LibraryModel }) {
               </button>
             ))}
           </div>
+          )}
         </footer>
       </section>
       </div>
@@ -601,6 +670,7 @@ export function AppShell({ app }: { app: LibraryModel }) {
       <DiskProgressDialog app={app} />
       <Toast app={app} />
       <FileContextMenu app={app} />
+      <DownloadsContextMenu app={app} menu={downloadsMenu} onClose={() => setDownloadsMenu(null)} />
       <FolderContextMenu
         menu={gridFolderMenu}
         onClose={() => setGridFolderMenu(null)}

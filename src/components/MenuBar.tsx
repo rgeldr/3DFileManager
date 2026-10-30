@@ -56,6 +56,11 @@ export function MenuBar(s: {
               await MenuItem.new({ text: "Import folder...", action: () => actions.current.importFolder() }),
               await MenuItem.new({ text: "Import archive...", action: () => actions.current.importArchive() }),
               await PredefinedMenuItem.new({ item: "Separator" }),
+              await MenuItem.new({
+                text: "Set Downloads folder...",
+                action: () => actions.current.setDownloadsFolder(),
+              }),
+              await PredefinedMenuItem.new({ item: "Separator" }),
               await MenuItem.new({ text: "Move library...", action: () => actions.current.moveLibrary() }),
               await MenuItem.new({ text: "Backup library...", action: () => actions.current.backupLibrary() }),
               await MenuItem.new({ text: "Import backup...", action: () => actions.current.restoreLibrary() }),

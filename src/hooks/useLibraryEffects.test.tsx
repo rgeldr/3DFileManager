@@ -26,6 +26,7 @@ vi.mock("../api", () => ({
         searchScope: "library",
         detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
         externalPrograms: [],
+        downloadsFolder: null,
       },
       folders: [],
       missingCount: 0,
@@ -77,6 +78,7 @@ const settings: Settings = {
   searchScope: "library",
   detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
   externalPrograms: [],
+  downloadsFolder: null,
 };
 
 const actions: Actions = {
@@ -92,6 +94,7 @@ const actions: Actions = {
   showAbout: () => undefined,
   openTagColors: () => undefined,
   openExternalPrograms: () => undefined,
+  setDownloadsFolder: () => undefined,
 };
 
 describe("useLibraryEffects", () => {
@@ -159,6 +162,7 @@ describe("useLibraryEffects", () => {
         setAboutOpen: () => undefined,
         setTagColorOpen: () => undefined,
         setExternalProgramsOpen: () => undefined,
+        applyDownloadsFolder: async () => undefined,
         dragRef: { current: null },
         filesRef: { current: [] },
         tryStartRef: { current: () => undefined },

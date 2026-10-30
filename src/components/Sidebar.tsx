@@ -7,6 +7,7 @@ import { PinIcon } from "./Inspector";
 type FolderContextMenu = { x: number; y: number; folderId: number | null };
 
 const ROOT_KEY = "root";
+export const DOWNLOADS_KEY = "downloads";
 const DRAG_THRESHOLD_PX = 5;
 
 export function folderKey(id: number) {
@@ -372,6 +373,22 @@ export function Sidebar({
         {pinButton}
       </div>
       <div className="sidebar-scroll" ref={scrollRef}>
+        <div
+          className={`folder-row downloads-row${browseKey === DOWNLOADS_KEY ? " active" : ""}`}
+          data-tree-key={DOWNLOADS_KEY}
+          tabIndex={0}
+          onPointerDown={(event) => {
+            if (event.button === 0 && event.currentTarget instanceof HTMLElement) event.currentTarget.focus();
+          }}
+          onClick={() => onBrowse(DOWNLOADS_KEY)}
+        >
+          <span className="tree-twist-spacer" aria-hidden />
+          <svg className="downloads-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden>
+            <path fill="#3d9a50" d="M8 2v7.2L5.4 6.6 4 8l4 4 4-4-1.4-1.4L8 9.2V2z" />
+            <path fill="#3d9a50" d="M3 13h10v1H3z" />
+          </svg>
+          <span className="folder-label">Downloads</span>
+        </div>
         <div className="section-label">Library</div>
         <div
           className={`folder-row${browseKey === ROOT_KEY ? " active" : ""}${dropClass(ROOT_KEY)}`}

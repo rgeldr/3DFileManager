@@ -87,6 +87,7 @@ const settings = {
   searchScope: "library" as const,
   detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
   externalPrograms: [],
+  downloadsFolder: null,
 };
 
 function wrapper({ children }: { children: ReactNode }) {

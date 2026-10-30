@@ -339,7 +339,7 @@ fn import_tree<F: FnMut(ImportProgress)>(
 }
 
 
-fn path_within(path: &Path, root: &Path) -> bool {
+pub(crate) fn path_within(path: &Path, root: &Path) -> bool {
     let Ok(path) = path.canonicalize() else {
         return false;
     };

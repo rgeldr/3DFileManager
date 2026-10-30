@@ -20,7 +20,9 @@ describe("samePlace and placeExists", () => {
     expect(samePlace(root, folder(1))).toBe(false);
     expect(samePlace(folder(1), folder(1))).toBe(true);
     expect(samePlace(folder(1), folder(2))).toBe(false);
-    expect(placeExists(root, () => false)).toBe(true);
+    expect(samePlace({ type: "downloads" }, { type: "downloads" })).toBe(true);
+    expect(samePlace({ type: "downloads" }, root)).toBe(false);
+    expect(placeExists({ type: "downloads" }, () => false)).toBe(true);
     expect(placeExists(folder(4), (id) => id === 4)).toBe(true);
     expect(placeExists(folder(4), () => false)).toBe(false);
   });

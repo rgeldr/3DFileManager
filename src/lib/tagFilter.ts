@@ -69,10 +69,10 @@ export const LIBRARY_SEARCH_LIMIT = 5000;
 
 /** Tag list scope. Entire library counts every file. Current folder uses the grid's folder, and a zero count still keeps the tag. */
 export function tagCountScope(input: {
-  listed: { folder: "all" | "root" | "id" | "subtree"; folderId: number | null; creator: string };
+  listed: { folder: "all" | "root" | "id" | "subtree" | "downloads"; folderId: number | null; creator: string };
   query: string;
   scope: SearchScope;
-}): { folder: "all" | "root" | "id" | "subtree"; folderId: number | null; query: string; creator: string } {
+}): { folder: "all" | "root" | "id" | "subtree" | "downloads"; folderId: number | null; query: string; creator: string } {
   if (input.scope === "library") {
     return { folder: "all", folderId: null, query: input.query, creator: input.listed.creator };
   }
@@ -84,7 +84,7 @@ export function tagCountScope(input: {
   };
 }
 
-export function librarySearchLimit(folder: "all" | "root" | "id" | "subtree"): number | undefined {
+export function librarySearchLimit(folder: "all" | "root" | "id" | "subtree" | "downloads"): number | undefined {
   return folder === "all" ? LIBRARY_SEARCH_LIMIT : undefined;
 }
 
@@ -104,7 +104,10 @@ export function libraryListScope(input: {
   selectedTagCount: number;
   selectedTypeCount: number;
   scope: SearchScope;
-}): { folder: "all" | "root" | "id" | "subtree"; folderId: number | null; creator: string } {
+}): { folder: "all" | "root" | "id" | "subtree" | "downloads"; folderId: number | null; creator: string } {
+  if (input.browse.type === "downloads") {
+    return { folder: "downloads", folderId: null, creator: "" };
+  }
   const filtering = browseIsFiltered({
     query: input.query,
     creator: input.creator,
@@ -131,6 +134,9 @@ export function centerSubfolders(input: {
   selectedTagCount: number;
   selectedTypeCount: number;
 }): FolderRow[] {
+  if (input.browse.type === "downloads") {
+    return [];
+  }
   if (
     browseIsFiltered({
       query: input.query,
