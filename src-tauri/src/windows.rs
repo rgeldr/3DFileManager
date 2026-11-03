@@ -2,7 +2,6 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use tauri::{AppHandle, Manager, WebviewWindow, WebviewWindowBuilder};
 
-pub const MAIN_WINDOW_LABEL: &str = "main";
 pub const SECONDARY_WINDOW_PREFIX: &str = "win-";
 
 static NEXT_WINDOW_INDEX: AtomicU32 = AtomicU32::new(1);
@@ -120,9 +119,8 @@ mod tests {
 
     #[test]
     fn label_window_config_replaces_the_main_label() {
-        assert_eq!(MAIN_WINDOW_LABEL, "main");
         let mut config: tauri::utils::config::WindowConfig =
-            serde_json::from_str(&format!(r#"{{"label":"{MAIN_WINDOW_LABEL}"}}"#)).unwrap();
+            serde_json::from_str(r#"{"label":"main"}"#).unwrap();
         label_window_config(&mut config, "win-3");
         assert_eq!(config.label, "win-3");
     }

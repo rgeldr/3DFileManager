@@ -2,6 +2,31 @@ import { spawnSync } from "node:child_process";
 import { existsSync, renameSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { homedir } from "node:os";
+import {
+  parseHostTripleFromRustcVersionOutput,
+  shouldUseMingwToolchain,
+} from "./mingw-target.mjs";
+
+function readHostTriple() {
+  const result = spawnSync("rustc", ["-vV"], { encoding: "utf8" });
+  if (result.status !== 0) {
+    return "";
+  }
+  return parseHostTripleFromRustcVersionOutput(result.stdout ?? "");
+}
+
+function runTauri(env) {
+  const cli = join(process.cwd(), "node_modules", "@tauri-apps", "cli", "tauri.js");
+  return spawnSync(process.execPath, [cli, ...process.argv.slice(2)], {
+    stdio: "inherit",
+    env,
+  });
+}
+
+const hostTriple = readHostTriple();
+if (!shouldUseMingwToolchain(process.env, hostTriple)) {
+  process.exit(runTauri(process.env)?.status ?? 1);
+}
 
 const env = { ...process.env };
 const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path") ?? "PATH";
@@ -22,7 +47,9 @@ const hasDlltool = mingwBin !== null;
 if (!hasDlltool) {
   mingwBin = join(homedir(), "mingw", "winlibs", "mingw64", "bin");
   if (!existsSync(join(mingwBin, "dlltool.exe"))) {
-    console.error("dlltool.exe was not found. Add a MinGW bin directory to PATH.");
+    console.error(
+      "dlltool.exe was not found. The active Rust target is windows-gnu; add a MinGW bin directory to PATH or install WinLibs under %USERPROFILE%\\mingw\\winlibs\\mingw64\\bin.",
+    );
     process.exit(1);
   }
   env[pathKey] = `${mingwBin}${delimiter}${pathValue}`;
@@ -53,13 +80,9 @@ function restoreToolchainDefaultManifest() {
 
 hideToolchainDefaultManifest();
 
-const cli = join(process.cwd(), "node_modules", "@tauri-apps", "cli", "tauri.js");
 let result;
 try {
-  result = spawnSync(process.execPath, [cli, ...process.argv.slice(2)], {
-    stdio: "inherit",
-    env,
-  });
+  result = runTauri(env);
 } finally {
   restoreToolchainDefaultManifest();
 }
