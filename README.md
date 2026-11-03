@@ -7,7 +7,9 @@ How to use the app is on the [wiki](https://github.com/rgeldr/3DFileManager/wiki
 ## Features
 
 - Library folder chosen on first launch. **File > Move library** moves it later. An empty library starts with FDM Prints, Models, and Wargaming Terrain.
-- Nested folders. Create, rename, and delete an empty folder. Drag a folder onto another folder to move it.
+- Nested folders. Create, rename, and delete an empty folder. Right-click a folder in the tree or the file grid for the same folder menu. Drag a folder in the tree or the grid onto another folder to move it.
+- **Downloads** in the sidebar lists supported files under a folder you set with **File > Set Downloads folder…**. Right-click files there for **Add to library** (pick the destination folder in a tree browser, then import with the same creator and tag fields as a normal import) or **Show in Explorer**.
+- **File > New window** (`Ctrl+N`) opens another library window in the same process. Starting the app again while it is running opens a new window instead of a second process. Windows share one catalog; each window keeps its own browse location, selection, and search until a change elsewhere refreshes it.
 - Import files, folders, and zip, rar, and 7z archives by dropping them on the window or from the File menu. Same-volume files are hard-linked; otherwise they are copied. Duplicates are detected by hash.
 - Sort name, creator, notes, and tags on each file. Search matches those fields plus the original file name. Filter by file type, tag (any or all), and creator. Search the current folder or the whole library.
 - Views: Medium, Large, Extra large, List, and Details. Sort by name, size, date modified, date added, or creator. Dark and light themes.
@@ -26,13 +28,13 @@ PNG and JPG thumbnails are resized so the long edge is at most 256 pixels and ca
 
 ## Install
 
-Download the NSIS installer from [GitHub Releases](https://github.com/rgeldr/3DFileManager/releases). The file is named `3D.File.Library_<version>_x64-setup.exe`, for example `3D.File.Library_26.10.28_x64-setup.exe`. It installs for the current user and uses WebView2.
+Download the NSIS installer from [GitHub Releases](https://github.com/rgeldr/3DFileManager/releases). The file is named `3D.File.Library_<version>_x64-setup.exe`, for example `3D.File.Library_26.11.2_x64-setup.exe`. It installs for the current user and uses WebView2.
 
 ## Updates
 
 On each launch the app checks [latest.json](https://github.com/rgeldr/3DFileManager/releases/latest/download/latest.json). A newer release shows a banner with **Install** and **Later**. Later hides the banner until the next launch. A failed or offline check stays quiet.
 
-**Help > About > Check for updates** compares the installed version with that file. A newer release shows the version and **Install**. Install downloads the NSIS installer, verifies its signature, and runs it. Otherwise About says **You're up to date.** or shows the error. Versions compare as semver, so 26.10.28 is newer than 26.10.9.
+**Help > About > Check for updates** compares the installed version with that file. A newer release shows the version and **Install**. Install downloads the NSIS installer, verifies its signature, and runs it. Otherwise About says **You're up to date.** or shows the error. Versions compare as semver, so 26.11.12 is newer than 26.11.9.
 
 ## Build
 
@@ -45,9 +47,9 @@ npm run tauri build
 
 `npm run tauri dev` runs the app against the Vite server on port 1420. `npm run tauri build` runs `npm run version:check` and `npm run build` before the Rust build.
 
-Versions are `YY.MM.N` (for example `26.10.28`) and must match in `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`. `npm run version:check` requires that `YY.MM` is the current month. `npm run version:bump` increments `N` in the current month, or starts at `.1` when the month changes.
+Versions are `YY.MM.N` (for example `26.11.2`) and must match in `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`. `npm run version:check` requires that `YY.MM` is the current month. `npm run version:bump` increments `N` in the current month, or starts at `.1` when the month changes.
 
-The updater accepts only valid semver. `26.10.28` works. A January version written as `26.01.1` does not, because of the leading zero.
+The updater accepts only valid semver. `26.11.2` works. A January version written as `26.01.1` does not, because of the leading zero.
 
 ## Release
 
@@ -65,17 +67,17 @@ npm run tauri build
 npm run tauri signer generate -- -w $env:USERPROFILE\.tauri\3d-file-library.key
 ```
 
-The signed build writes the installer and `3D.File.Library_<version>_x64-setup.exe.sig` under `src-tauri/target/release/bundle/nsis/`. A local build does not write `latest.json`. Create that file yourself. The `signature` value is the entire `.sig` file. The `url` must use the GitHub release tag exactly. Tags have no `v` prefix, so a release tagged `26.10.28` uses `releases/download/26.10.28/`, not `releases/download/v26.10.28/`.
+The signed build writes the installer and `3D.File.Library_<version>_x64-setup.exe.sig` under `src-tauri/target/release/bundle/nsis/`. After a signed build, `npm run release` runs the Tauri build and writes `latest.json` beside the installer via `scripts/make-latest-json.mjs` (set `RELEASE_NOTES` to override the default notes string). You can also create `latest.json` yourself. The `signature` value is the entire `.sig` file. The `url` must use the GitHub release tag exactly. Tags have no `v` prefix, so a release tagged `26.11.2` uses `releases/download/26.11.2/`, not `releases/download/v26.11.2/`. Uploaded asset names use dots instead of spaces in the file name.
 
 ```json
 {
-  "version": "26.10.28",
+  "version": "26.11.2",
   "notes": "What changed in this release.",
-  "pub_date": "2026-10-21T20:40:00Z",
+  "pub_date": "2026-11-03T20:40:00Z",
   "platforms": {
     "windows-x86_64-nsis": {
       "signature": "<entire contents of the .sig file>",
-      "url": "https://github.com/rgeldr/3DFileManager/releases/download/26.10.28/3D.File.Library_26.10.28_x64-setup.exe"
+      "url": "https://github.com/rgeldr/3DFileManager/releases/download/26.11.2/3D.File.Library_26.11.2_x64-setup.exe"
     }
   }
 }
@@ -91,7 +93,7 @@ npm run test:unit
 cargo test --locked --manifest-path src-tauri/Cargo.toml --lib -- --test-threads=1
 ```
 
-`npm test` checks the version files and that the frontend only calls plugin commands granted in `src-tauri/capabilities`. `npm run test:unit` runs Vitest. Rust tests should run one at a time so temporary libraries do not collide.
+`npm test` checks the version files, the MinGW wrapper when the Rust target is `windows-gnu`, and that the frontend only calls plugin commands granted in `src-tauri/capabilities`. `npm run test:unit` runs Vitest. Rust tests should run one at a time so temporary libraries do not collide.
 
 ## Layout
 
@@ -105,7 +107,7 @@ cargo test --locked --manifest-path src-tauri/Cargo.toml --lib -- --test-threads
 The catalog and settings are not inside the library folder. They live in `%APPDATA%\3D File Library\` (`dirs::data_dir()` plus `3D File Library`):
 
 - `library.db`
-- `settings.json` with `libraryRoot`, `theme`, `gridSize`, `sidebarWidth`, `inspectorWidth`, `previewHeight`, `inspectorPinned`, `searchScope`, `thumbRetry`, and `externalPrograms`
+- `settings.json` with `libraryRoot`, `theme`, `gridSize`, `sidebarWidth`, `inspectorWidth`, `previewHeight`, `inspectorPinned`, `searchScope`, `thumbRetry`, `downloadsFolder`, and `externalPrograms`
 - `thumbs\{sha256}.png`
 - `debug.log`
 

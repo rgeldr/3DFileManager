@@ -28,7 +28,7 @@ You can rename or delete those folders later. Delete is only offered for an empt
 
 ## The window
 
-- The left pane is the folder tree. Drag the splitter to resize it. A clipped folder name shows the full name in a tooltip.
+- The left pane is the folder tree. **Downloads** below the tree opens a separate file list for a folder you configure (see below). Drag the splitter to resize the tree. A clipped folder name shows the full name in a tooltip.
 - The center is the file list for the folder you selected. The library root shows the top-level folders.
 - The right pane is details and preview for the selected file. The pin button collapses it. Drag its splitter to resize it, and drag the preview splitter to change the preview height.
 - The toolbar has search, Clear, search scope, File Types, Tags, Creator, and Sort.
@@ -54,3 +54,22 @@ View, theme, pane widths, preview height, whether details are pinned, and search
 - Drag an empty area of the file list to draw a selection rectangle.
 
 Double-click a file to open it in the default app. Double-click a folder to open that folder.
+
+## Downloads
+
+Click **Downloads** in the sidebar to browse supported print files in a Windows folder without importing them yet.
+
+1. Choose **File > Set Downloads folder…** or click **Set Downloads folder…** in the empty state.
+2. The center pane lists compatible files in a Details-style table (name, folder, size, dates, full path). Sort by clicking a column header.
+3. Select files, then right-click for **Add to library** or **Show in Explorer**. **Add to library** opens a dialog where you pick the destination folder in the library tree, set optional creator and tags, and import. After a successful import the app opens the destination folder and selects the new files.
+4. Click **Refresh** in the toolbar to rescan the Downloads folder.
+
+The library search box, file-type filter, tag filter, creator filter, and sort menu do not apply while Downloads is open. If the walk hits size limits (deep folders or very large trees), a banner says the list is truncated.
+
+**File > Set Downloads folder…** changes the saved path. The path is stored in settings and shared across windows.
+
+## Multiple windows
+
+**File > New window** (`Ctrl+N`) opens another full library window. Launching **3D File Library** again while it is already running opens a new window in the same process instead of starting a second copy.
+
+Each window keeps its own folder selection, file selection, search, and scroll position. The catalog, tags, creators, settings, and disk jobs are shared. When one window imports, moves, or deletes files, other windows refresh their lists. Only one heavy disk job (import, rescan, backup restore, move library, and similar) runs at a time across all windows.
