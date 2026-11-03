@@ -44,6 +44,18 @@ describe("breadcrumb", () => {
       "Wolves",
       "Dire Wolf",
     ]);
+    const onNavigate = vi.fn();
+    render(
+      <Breadcrumb
+        libraryName="3D Print Library"
+        folders={library}
+        browse={{ type: "folder", id: 5 }}
+        onNavigate={onNavigate}
+      />,
+    );
+    expect(screen.getByText("…").hasAttribute("data-folder-id")).toBe(false);
+    expect(screen.getByRole("button", { name: "Wolves" }).getAttribute("data-folder-id")).toBe("4");
+    expect(screen.getByRole("button", { name: "Dire Wolf" }).getAttribute("data-folder-id")).toBe("5");
   });
 
   it("shows only the library when the current folder is gone", () => {
@@ -97,7 +109,21 @@ describe("breadcrumb", () => {
       />,
     );
     expect(screen.getByRole("button", { name: "Articulated Toys" }).className).toContain("drop");
+    expect(screen.getByRole("button", { name: "Articulated Toys" }).getAttribute("data-folder-id")).toBe("2");
+    expect(screen.getByRole("button", { name: "3D Print Library" }).getAttribute("data-folder-id")).toBe("root");
     expect(screen.getByRole("button", { name: "Flexi Animals" }).className).not.toContain("drop");
+  });
+
+  it("does not mark Downloads as a folder drop target", () => {
+    render(
+      <Breadcrumb
+        libraryName="3D Print Library"
+        folders={library}
+        browse={{ type: "downloads" }}
+        onNavigate={() => undefined}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Downloads" }).hasAttribute("data-folder-id")).toBe(false);
   });
 
   it("crumbKey distinguishes the root, folders, and an ellipsis", () => {

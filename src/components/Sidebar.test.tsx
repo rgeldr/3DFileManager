@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FolderRow } from "../types";
 import { Sidebar, folderKey } from "./Sidebar";
@@ -221,5 +221,85 @@ describe("folder tree menu", () => {
     renderSidebar(false);
     expect(screen.queryByText("Toys")).toBeNull();
     expect(screen.getByRole("button", { name: "Pin folders open" })).toBeTruthy();
+  });
+
+  it("does not move a folder onto itself or its current parent", () => {
+    const onMoveFolder = vi.fn();
+    const mini = { id: 8, parentId: 3, name: "Mini", relpath: "Toys/Mini", sortOrder: 0 };
+    const { container } = render(
+      <Sidebar
+        folders={[toys, mini]}
+        libraryName="3D Print Library"
+        browseKey="root"
+        dropTarget={null}
+        expandHint={null}
+        onBrowse={() => undefined}
+        onNew={() => undefined}
+        onRename={() => undefined}
+        onDelete={() => undefined}
+        onNewInFolder={() => undefined}
+        onRenameFolder={() => undefined}
+        onDeleteFolder={() => undefined}
+        onTagFolder={() => undefined}
+        onSetCreator={() => undefined}
+        onReveal={() => undefined}
+        onRescan={() => undefined}
+        onMoveFolder={onMoveFolder}
+        pinned
+        onPinnedChange={() => undefined}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Expand Toys" }));
+    const miniRow = screen.getByText("Mini").closest("[data-folder-id]") as HTMLElement;
+    const toysRow = screen.getByText("Toys").closest("[data-folder-id]") as HTMLElement;
+    const rootRow = screen.getByText("3D Print Library").closest("[data-folder-id]") as HTMLElement;
+    fireEvent.pointerDown(miniRow, { button: 0, clientX: 0, clientY: 0, pointerId: 1 });
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => toysRow });
+    fireEvent.pointerMove(window, { clientX: 24, clientY: 0, pointerId: 1 });
+    expect(container.querySelector(".folder-row.drop")).toBeNull();
+    fireEvent.pointerUp(window, { clientX: 24, clientY: 0, pointerId: 1 });
+    expect(onMoveFolder).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(miniRow, { button: 0, clientX: 0, clientY: 0, pointerId: 2 });
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => rootRow });
+    fireEvent.pointerMove(window, { clientX: 24, clientY: 8, pointerId: 2 });
+    fireEvent.pointerUp(window, { clientX: 24, clientY: 8, pointerId: 2 });
+    expect(onMoveFolder).toHaveBeenCalledWith(8, null);
+  });
+
+  it("expands a collapsed row after the drop target is held", () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <Sidebar
+          folders={[toys, { id: 8, parentId: 3, name: "Mini", relpath: "Toys/Mini", sortOrder: 0 }]}
+          libraryName="3D Print Library"
+          browseKey="root"
+          dropTarget="3"
+          expandHint={null}
+          onBrowse={() => undefined}
+          onNew={() => undefined}
+          onRename={() => undefined}
+          onDelete={() => undefined}
+          onNewInFolder={() => undefined}
+          onRenameFolder={() => undefined}
+          onDeleteFolder={() => undefined}
+          onTagFolder={() => undefined}
+          onSetCreator={() => undefined}
+          onReveal={() => undefined}
+          onRescan={() => undefined}
+          onMoveFolder={() => undefined}
+          pinned
+          onPinnedChange={() => undefined}
+        />,
+      );
+      expect(screen.queryByText("Mini")).toBeNull();
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      expect(screen.getByText("Mini")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

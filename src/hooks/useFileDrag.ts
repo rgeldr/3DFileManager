@@ -225,14 +225,17 @@ export function useFileDrag(s: {
       if (!drag || event.pointerId !== drag.pointerId) return;
       drag.x = event.clientX;
       drag.y = event.clientY;
-      const outside = pointerOutsideWindow(
-        event.clientX,
-        event.clientY,
-        window.innerWidth,
-        window.innerHeight,
-      );
-      if (outside) {
+      if (
+        pointerOutsideWindow(
+          event.clientX,
+          event.clientY,
+          window.innerWidth,
+          window.innerHeight,
+        )
+      ) {
         drag.leftWindow = true;
+      }
+      if (drag.leftWindow) {
         setDropTarget(null);
         return;
       }
@@ -246,7 +249,7 @@ export function useFileDrag(s: {
       const folder = element?.closest("[data-folder-id]")?.getAttribute("data-folder-id") ?? null;
       setDropTarget(legalFolderDrop(foldersRef.current, drag.folderId, folder));
     };
-    const finish = (event: PointerEvent) => {
+    const finish = (event: PointerEvent, commit: boolean) => {
       const drag = gridFolderDragRef.current;
       if (!drag || event.pointerId !== drag.pointerId) return;
       gridFolderDragRef.current = null;
@@ -257,7 +260,7 @@ export function useFileDrag(s: {
         window.cancelAnimationFrame(raf);
         raf = 0;
       }
-      if (!drag.active || drag.leftWindow) return;
+      if (!commit || !drag.active || drag.leftWindow) return;
       const element = document.elementFromPoint(event.clientX, event.clientY);
       const folder = element?.closest("[data-folder-id]")?.getAttribute("data-folder-id") ?? null;
       const legal = legalFolderDrop(foldersRef.current, drag.folderId, folder);
@@ -265,13 +268,15 @@ export function useFileDrag(s: {
       const parentId = legal === FOLDER_ROOT_DROP_ID ? null : Number(legal);
       onMoveFolder(drag.folderId, parentId);
     };
+    const onUp = (event: PointerEvent) => finish(event, true);
+    const onCancel = (event: PointerEvent) => finish(event, false);
     window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", finish);
-    window.addEventListener("pointercancel", finish);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
     return () => {
       window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", finish);
-      window.removeEventListener("pointercancel", finish);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
       if (raf !== 0) window.cancelAnimationFrame(raf);
     };
   }, [gridScrollRef, onMoveFolder]);

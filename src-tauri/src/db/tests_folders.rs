@@ -333,3 +333,83 @@
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn folder_rel_escapes_rejects_dot_and_parent_segments() {
+        assert!(super::folder_rel_escapes(""));
+        assert!(super::folder_rel_escapes("."));
+        assert!(super::folder_rel_escapes("Toys/../Outside"));
+        assert!(super::folder_rel_escapes(&format!(
+            "Toys{}..{}Outside",
+            std::path::MAIN_SEPARATOR,
+            std::path::MAIN_SEPARATOR
+        )));
+        assert!(!super::folder_rel_escapes("Toys/Animals"));
+    }
+
+    #[test]
+    fn move_folder_rejects_parent_that_canonicalizes_outside() {
+        let dir = std::env::temp_dir().join(format!("filelib-move-parent-out-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = open(&dir).unwrap();
+        let root = dir.join("library");
+        std::fs::create_dir_all(&root).unwrap();
+        let outside = dir.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+
+        let dest = db.create_folder(None, "Dest", 0).unwrap();
+        let source = db.create_folder(None, "Source", 0).unwrap();
+        std::fs::write(root.join("Source").join("keep.stl"), b"x").unwrap();
+        db.conn
+            .execute(
+                "UPDATE folders SET relpath = ?1 WHERE id = ?2",
+                rusqlite::params!["../outside", dest.id],
+            )
+            .unwrap();
+
+        assert!(db.move_folder(source.id, Some(dest.id)).is_err());
+        assert!(root.join("Source").join("keep.stl").is_file());
+        assert!(root.join("Dest").is_dir());
+        assert!(outside.is_dir());
+        assert!(!outside.join("Source").exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn move_folder_rejects_absolute_relpath_outside_library() {
+        let dir = std::env::temp_dir().join(format!("filelib-move-abs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = open(&dir).unwrap();
+        let root = dir.join("library");
+        std::fs::create_dir_all(&root).unwrap();
+        let outside = dir.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+
+        let dest = db.create_folder(None, "Dest", 0).unwrap();
+        let source = db.create_folder(None, "Source", 0).unwrap();
+        std::fs::write(root.join("Source").join("keep.stl"), b"x").unwrap();
+        let absolute = outside.to_string_lossy().to_string();
+        db.conn
+            .execute(
+                "UPDATE folders SET relpath = ?1 WHERE id = ?2",
+                rusqlite::params![absolute, source.id],
+            )
+            .unwrap();
+
+        assert!(db.move_folder(source.id, Some(dest.id)).is_err());
+        assert!(root.join("Source").join("keep.stl").is_file());
+        assert!(root.join("Dest").is_dir());
+        assert!(!root.join("Dest").join("Source").exists());
+        assert!(outside.is_dir());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
