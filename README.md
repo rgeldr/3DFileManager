@@ -36,7 +36,7 @@ On each launch the app checks [latest.json](https://github.com/rgeldr/3DFileMana
 
 ## Build
 
-Windows, from PowerShell. You need Node, Rust, and a MinGW `dlltool.exe`. `scripts/with-mingw.mjs` uses one already on `PATH`, or `%USERPROFILE%\mingw\winlibs\mingw64\bin`.
+Windows, from PowerShell. You need Node and Rust. The default MSVC toolchain (`x86_64-pc-windows-msvc`) uses Visual Studio Build Tools to compile native dependencies. If you use the GNU Rust target (`x86_64-pc-windows-gnu`), `npm run tauri` runs `scripts/with-mingw.mjs`, which needs a MinGW `dlltool.exe` on `PATH` or under `%USERPROFILE%\mingw\winlibs\mingw64\bin`.
 
 ```powershell
 npm install

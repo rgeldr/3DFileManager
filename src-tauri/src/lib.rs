@@ -1,6 +1,8 @@
 mod backup;
 mod ctb;
 mod db;
+mod library_events;
+mod windows;
 mod drag_out;
 mod drag_session;
 #[cfg(windows)]
@@ -26,8 +28,10 @@ use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::library_events::{emit_library_changed, LibraryChangeKind};
 use db::{AppDb, FolderFilter};
 use settings::Settings;
+use tauri::WebviewWindow;
 
 include!("commands/runtime.rs");
 include!("commands/library.rs");
@@ -37,9 +41,10 @@ include!("commands/import_cmd.rs");
 include!("commands/thumbs.rs");
 include!("commands/open.rs");
 include!("commands/downloads.rs");
+include!("commands/windows.rs");
 
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_drag::init())
@@ -50,7 +55,19 @@ pub fn run() {
                     updater_version::release_is_newer(&current, &release.version)
                 })
                 .build(),
-        )
+        );
+    #[cfg(windows)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // The plugin runs this on the UI thread inside its message window.
+            // Creating a webview there can deadlock, so hand the work to another thread.
+            let app = app.clone();
+            std::thread::spawn(move || {
+                let _ = windows::open_library_window(&app, None);
+            });
+        }));
+    }
+    builder
         .setup(|app| {
             let dir = data_dir();
             let db = db::open(&dir).expect("open database");
@@ -138,7 +155,8 @@ pub fn run() {
             set_downloads_folder,
             list_downloads,
             text_preview,
-            debug_log
+            debug_log,
+            open_new_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running 3D File Library");
@@ -153,4 +171,5 @@ mod tests {
     include!("commands/tests_files.rs");
     include!("commands/tests_runtime.rs");
     include!("commands/tests_downloads.rs");
+    include!("commands/tests_library_events.rs");
 }

@@ -95,6 +95,7 @@ const actions: Actions = {
   openTagColors: () => undefined,
   openExternalPrograms: () => undefined,
   setDownloadsFolder: () => undefined,
+  openNewWindow: () => undefined,
 };
 
 describe("useLibraryEffects", () => {
@@ -163,6 +164,9 @@ describe("useLibraryEffects", () => {
         setTagColorOpen: () => undefined,
         setExternalProgramsOpen: () => undefined,
         applyDownloadsFolder: async () => undefined,
+        libraryBusy: { current: false },
+        setBusy: () => undefined,
+        setImporting: () => undefined,
         dragRef: { current: null },
         filesRef: { current: [] },
         tryStartRef: { current: () => undefined },

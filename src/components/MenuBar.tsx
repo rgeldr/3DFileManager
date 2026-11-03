@@ -55,6 +55,11 @@ export function MenuBar(s: {
             items: [
               await MenuItem.new({ text: "Import folder...", action: () => actions.current.importFolder() }),
               await MenuItem.new({ text: "Import archive...", action: () => actions.current.importArchive() }),
+              await MenuItem.new({
+                text: "New window",
+                accelerator: "CmdOrCtrl+N",
+                action: () => actions.current.openNewWindow(),
+              }),
               await PredefinedMenuItem.new({ item: "Separator" }),
               await MenuItem.new({
                 text: "Set Downloads folder...",

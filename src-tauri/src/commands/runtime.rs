@@ -24,18 +24,29 @@ impl Drop for DiskGuard {
             .state::<AppState>()
             .disk_running
             .store(false, Ordering::SeqCst);
+        let _ = self.0.emit("library-job-idle", ());
     }
+}
+
+pub const DISK_BUSY_MESSAGE: &str = "A rescan is already running in another window.";
+
+fn claim_disk_running(flag: &AtomicBool) -> Result<(), String> {
+    if flag
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err(DISK_BUSY_MESSAGE.into());
+    }
+    Ok(())
+}
+
+fn request_disk_cancel(flag: &AtomicBool) {
+    flag.store(true, Ordering::SeqCst);
 }
 
 fn acquire_disk(app: &AppHandle) -> Result<DiskGuard, String> {
     let state = app.state::<AppState>();
-    if state
-        .disk_running
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
-        return Err("Another library change is already running.".into());
-    }
+    claim_disk_running(&state.disk_running)?;
     state.disk_cancel.store(false, Ordering::SeqCst);
     Ok(DiskGuard(app.clone()))
 }
@@ -44,12 +55,12 @@ fn emit_disk(app: &AppHandle, progress: &relocate::DiskProgress) {
     let _ = app.emit("disk-progress", progress);
 }
 
-async fn block_on_disk<T, F>(app: AppHandle, work: F) -> Result<T, String>
+async fn block_on_disk<T, F>(app: &AppHandle, work: F) -> Result<T, String>
 where
     T: Send + 'static,
     F: FnOnce(&AppDb, &AtomicBool, AppHandle) -> Result<T, String> + Send + 'static,
 {
-    let _guard = acquire_disk(&app)?;
+    let _guard = acquire_disk(app)?;
     let cancel = app.state::<AppState>().disk_cancel.clone();
     let db = app.state::<AppState>().db.clone();
     let worker = app.clone();

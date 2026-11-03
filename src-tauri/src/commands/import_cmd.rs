@@ -1,9 +1,11 @@
 #[tauri::command]
 async fn import_paths(
     app: AppHandle,
+    window: WebviewWindow,
     paths: Vec<String>,
     folder_id: Option<i64>,
 ) -> Result<import::ImportSummary, String> {
+    let source = window.label().to_string();
     let _timer = CommandTimer::start("import_paths");
     let _guard = acquire_disk(&app)?;
     let db = app.state::<AppState>().db.clone();
@@ -34,6 +36,7 @@ async fn import_paths(
         *stored = outcome.recycle_roots.clone();
     }
     hash_pass::spawn_hash_pass_if_needed(app.clone(), app.state::<AppState>().db.clone());
+    emit_library_changed(&app, crate::library_events::LibraryChangeKind::All, &source);
     Ok(import::summary_for_api(&outcome))
 }
 
@@ -44,5 +47,5 @@ fn cancel_import(state: State<AppState>) {
 
 #[tauri::command]
 fn cancel_disk_op(state: State<AppState>) {
-    state.disk_cancel.store(true, Ordering::SeqCst);
+    request_disk_cancel(&state.disk_cancel);
 }

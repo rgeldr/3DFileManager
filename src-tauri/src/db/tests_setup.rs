@@ -1,5 +1,17 @@
     use crate::settings::DetailsColumns;
     #[test]
+    fn sequential_setters_keep_both_field_changes() {
+        let (dir, db) = scratch_db("setup-merge");
+        db.set_pane_widths(320, 360).unwrap();
+        db.set_inspector_pinned(false).unwrap();
+        let boot = db.bootstrap().unwrap();
+        assert_eq!(boot.settings.sidebar_width, 320);
+        assert_eq!(boot.settings.inspector_width, 360);
+        assert!(!boot.settings.inspector_pinned);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn settings_setters_round_trip_through_bootstrap() {
         let (dir, db) = scratch_db("setup-setters");
         let cols = DetailsColumns {
