@@ -89,6 +89,7 @@ describe("MenuBar", () => {
         openTagColors: vi.fn(),
         openExternalPrograms: vi.fn(),
         setDownloadsFolder: vi.fn(),
+        openNewWindow: vi.fn(),
       },
     };
     const themeItems = { current: {} as Record<string, MenuRecord> };
@@ -110,6 +111,7 @@ describe("MenuBar", () => {
     const byText = (text: string) => created.find((item) => item.text === text);
     byText("Import folder...")?.action?.();
     byText("Import archive...")?.action?.();
+    byText("New window")?.action?.();
     byText("Move library...")?.action?.();
     byText("Backup library...")?.action?.();
     byText("Import backup...")?.action?.();
@@ -123,6 +125,7 @@ describe("MenuBar", () => {
 
     expect(actions.current.importFolder).toHaveBeenCalled();
     expect(actions.current.importArchive).toHaveBeenCalled();
+    expect(actions.current.openNewWindow).toHaveBeenCalled();
     expect(actions.current.moveLibrary).toHaveBeenCalled();
     expect(actions.current.backupLibrary).toHaveBeenCalled();
     expect(actions.current.restoreLibrary).toHaveBeenCalled();

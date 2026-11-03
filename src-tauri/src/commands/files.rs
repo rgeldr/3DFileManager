@@ -1,3 +1,6 @@
+use crate::library_events::{emit_library_changed, LibraryChangeKind};
+use tauri::WebviewWindow;
+
 fn recycle_and_drop_files(
     db: &Mutex<AppDb>,
     items: &[db::TrashItem],
@@ -174,91 +177,120 @@ async fn missing_files(app: AppHandle) -> Result<Vec<db::FileRow>, String> {
 }
 
 #[tauri::command]
-async fn remove_missing(app: AppHandle) -> Result<(), String> {
+async fn remove_missing(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
+    let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
     off_ui("remove_missing", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         db.remove_missing()
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Files, &source);
+    Ok(())
 }
 
 #[tauri::command]
 async fn update_file(
     app: AppHandle,
+    window: WebviewWindow,
     id: i64,
     sort_name: String,
     creator: String,
     notes: String,
     folder_id: Option<i64>,
 ) -> Result<DiskOutcome, String> {
+    let source = window.label().to_string();
     let _timer = CommandTimer::start("update_file");
-    block_on_disk(app, move |db, cancel, handle| {
+    let result = block_on_disk(app, move |db, cancel, handle| {
         let cancelled = db.update_file_with(id, &sort_name, &creator, &notes, folder_id, cancel, |progress| {
             emit_disk(&handle, &progress)
         })?;
         Ok(DiskOutcome { cancelled })
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Files, &source);
+    Ok(result)
 }
 
 #[tauri::command]
-async fn rename_file(app: AppHandle, id: i64, name: String) -> Result<DiskOutcome, String> {
+async fn rename_file(app: AppHandle, window: WebviewWindow, id: i64, name: String) -> Result<DiskOutcome, String> {
+    let source = window.label().to_string();
     let _timer = CommandTimer::start("rename_file");
-    block_on_disk(app, move |db, _cancel, _handle| {
+    let result = block_on_disk(app, move |db, _cancel, _handle| {
         db.rename_library_file(id, &name)?;
         Ok(DiskOutcome { cancelled: false })
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Files, &source);
+    Ok(result)
 }
 
 #[tauri::command]
-async fn set_tags(app: AppHandle, id: i64, tags: Vec<String>) -> Result<(), String> {
+async fn set_tags(app: AppHandle, window: WebviewWindow, id: i64, tags: Vec<String>) -> Result<(), String> {
+    let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
     off_ui("set_tags", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         db.set_tags(id, &tags)
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Tags, &source);
+    Ok(())
 }
 
 #[tauri::command]
 async fn add_tags_under_folder(
     app: AppHandle,
+    window: WebviewWindow,
     folder_id: Option<i64>,
     tags: Vec<String>,
 ) -> Result<i64, String> {
+    let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
-    off_ui("add_tags_under_folder", move || {
+    let count = off_ui("add_tags_under_folder", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         db.add_tags_under_folder(folder_id, &tags)
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Tags, &source);
+    Ok(count)
 }
 
 #[tauri::command]
-async fn add_tags_to_files(app: AppHandle, ids: Vec<i64>, tags: Vec<String>) -> Result<i64, String> {
+async fn add_tags_to_files(
+    app: AppHandle,
+    window: WebviewWindow,
+    ids: Vec<i64>,
+    tags: Vec<String>,
+) -> Result<i64, String> {
+    let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
-    off_ui("add_tags_to_files", move || {
+    let count = off_ui("add_tags_to_files", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         db.add_tags_to_files(&ids, &tags)
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Tags, &source);
+    Ok(count)
 }
 
 #[tauri::command]
 async fn apply_bulk_meta(
     app: AppHandle,
+    window: WebviewWindow,
     ids: Vec<i64>,
     creator: Option<String>,
     tags: Option<Vec<String>>,
 ) -> Result<(), String> {
+    let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
     off_ui("apply_bulk_meta", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         db.apply_import_meta(&ids, creator.as_deref(), tags.as_deref())
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Tags, &source);
+    Ok(())
 }
 
 #[tauri::command]
@@ -278,16 +310,20 @@ async fn count_files_for_scope(
 #[tauri::command]
 async fn set_creator_under_folder(
     app: AppHandle,
+    window: WebviewWindow,
     folder_id: Option<i64>,
     creator: String,
     include_subfolders: bool,
 ) -> Result<i64, String> {
+    let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
-    off_ui("set_creator_under_folder", move || {
+    let count = off_ui("set_creator_under_folder", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         db.set_creator_under_folder(folder_id, &creator, include_subfolders)
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Tags, &source);
+    Ok(count)
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -334,13 +370,21 @@ async fn list_tag_colors(app: AppHandle) -> Result<Vec<db::TagColorRow>, String>
 }
 
 #[tauri::command]
-async fn set_tag_color(app: AppHandle, id: i64, color: Option<String>) -> Result<(), String> {
+async fn set_tag_color(
+    app: AppHandle,
+    window: WebviewWindow,
+    id: i64,
+    color: Option<String>,
+) -> Result<(), String> {
+    let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
     off_ui("set_tag_color", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         db.set_tag_color(id, color.as_deref())
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Tags, &source);
+    Ok(())
 }
 
 #[derive(serde::Serialize)]
@@ -351,22 +395,26 @@ struct RecycleOutcome {
 }
 
 #[tauri::command]
-async fn recycle_paths(app: AppHandle, paths: Vec<String>) -> Result<RecycleOutcome, String> {
+async fn recycle_paths(app: AppHandle, window: WebviewWindow, paths: Vec<String>) -> Result<RecycleOutcome, String> {
+    let source = window.label().to_string();
     let _timer = CommandTimer::start("recycle_paths");
     let _guard = acquire_disk(&app)?;
     let cancel = app.state::<AppState>().disk_cancel.clone();
     let handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    let result = tauri::async_runtime::spawn_blocking(move || {
         let (failed, cancelled) =
             import::recycle_paths_with(&paths, &[], &cancel, |progress| emit_disk(&handle, &progress))?;
         Ok(RecycleOutcome { failed, cancelled })
     })
     .await
-    .map_err(|err| err.to_string())?
+    .map_err(|err| err.to_string())??;
+    emit_library_changed(&app, LibraryChangeKind::Files, &source);
+    Ok(result)
 }
 
 #[tauri::command]
-async fn recycle_last_import(app: AppHandle) -> Result<RecycleOutcome, String> {
+async fn recycle_last_import(app: AppHandle, window: WebviewWindow) -> Result<RecycleOutcome, String> {
+    let source = window.label().to_string();
     let _timer = CommandTimer::start("recycle_last_import");
     let paths = app
         .state::<AppState>()
@@ -383,33 +431,44 @@ async fn recycle_last_import(app: AppHandle) -> Result<RecycleOutcome, String> {
     let _guard = acquire_disk(&app)?;
     let cancel = app.state::<AppState>().disk_cancel.clone();
     let handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    let result = tauri::async_runtime::spawn_blocking(move || {
         let (failed, cancelled) =
             import::recycle_paths_with(&paths, &roots, &cancel, |progress| emit_disk(&handle, &progress))?;
         Ok(RecycleOutcome { failed, cancelled })
     })
     .await
-    .map_err(|err| err.to_string())?
+    .map_err(|err| err.to_string())??;
+    emit_library_changed(&app, LibraryChangeKind::Files, &source);
+    Ok(result)
 }
 
 #[tauri::command]
-async fn move_files(app: AppHandle, ids: Vec<i64>, folder_id: Option<i64>) -> Result<DiskOutcome, String> {
+async fn move_files(
+    app: AppHandle,
+    window: WebviewWindow,
+    ids: Vec<i64>,
+    folder_id: Option<i64>,
+) -> Result<DiskOutcome, String> {
+    let source = window.label().to_string();
     let _timer = CommandTimer::start("move_files");
-    block_on_disk(app, move |db, cancel, handle| {
+    let result = block_on_disk(app, move |db, cancel, handle| {
         let cancelled = db.move_files_with(&ids, folder_id, cancel, |progress| emit_disk(&handle, &progress))?;
         Ok(DiskOutcome { cancelled })
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Files, &source);
+    Ok(result)
 }
 
 #[tauri::command]
-async fn delete_files(app: AppHandle, ids: Vec<i64>) -> Result<DiskOutcome, String> {
+async fn delete_files(app: AppHandle, window: WebviewWindow, ids: Vec<i64>) -> Result<DiskOutcome, String> {
+    let source = window.label().to_string();
     let _timer = CommandTimer::start("delete_files");
     let _guard = acquire_disk(&app)?;
     let cancel = app.state::<AppState>().disk_cancel.clone();
     let db = app.state::<AppState>().db.clone();
     let handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    let result = tauri::async_runtime::spawn_blocking(move || {
         let items = {
             let db = db.lock().map_err(|e| e.to_string())?;
             db.trash_items(&ids)?
@@ -420,5 +479,7 @@ async fn delete_files(app: AppHandle, ids: Vec<i64>) -> Result<DiskOutcome, Stri
         Ok(DiskOutcome { cancelled })
     })
     .await
-    .map_err(|err| err.to_string())?
+    .map_err(|err| err.to_string())??;
+    emit_library_changed(&app, LibraryChangeKind::Files, &source);
+    Ok(result)
 }

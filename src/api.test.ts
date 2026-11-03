@@ -92,6 +92,7 @@ const sampleArgs: Record<string, unknown[]> = {
   setDownloadsFolder: ["C:\\Users\\me\\Downloads"],
   listDownloads: [],
   textPreview: [1],
+  openNewWindow: [],
 };
 
 describe("api command contract", () => {

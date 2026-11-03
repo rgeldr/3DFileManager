@@ -32,6 +32,18 @@
 
 
     #[test]
+    fn two_connections_never_claim_the_same_pending_thumb() {
+        let (dir, db) = scratch_db("thumb-dual-claim");
+        db.insert_file("a.stl", "a.stl", "stl", 1, "sha-a", 1, None, None).unwrap();
+        db.insert_file("b.stl", "b.stl", "stl", 1, "sha-b", 1, None, None).unwrap();
+        let other = open(&dir).unwrap();
+        let first = db.claim_next_pending_thumb().unwrap().expect("first claim");
+        let second = other.claim_next_pending_thumb().unwrap().expect("second claim");
+        assert_ne!(first.id, second.id);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn image_thumb_is_claimed_before_an_earlier_stl() {
         let (dir, db) = scratch_db("thumb-order");
         let stl = db

@@ -1,3 +1,6 @@
+use crate::library_events::{emit_library_changed, LibraryChangeKind};
+use tauri::WebviewWindow;
+
 fn validate_theme(theme: &str) -> Result<(), String> {
     if theme != "dark" && theme != "light" {
         return Err("Unknown theme.".into());
@@ -23,7 +26,8 @@ fn validate_search_scope(search_scope: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn set_theme(app: AppHandle, theme: String) -> Result<(), String> {
+async fn set_theme(app: AppHandle, window: WebviewWindow, theme: String) -> Result<(), String> {
+    let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
     off_ui("set_theme", move || {
         validate_theme(&theme)?;
@@ -32,11 +36,14 @@ async fn set_theme(app: AppHandle, theme: String) -> Result<(), String> {
         settings.theme = theme;
         db.save_settings(&settings)
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Settings, &source);
+    Ok(())
 }
 
 #[tauri::command]
-async fn set_grid_size(app: AppHandle, grid_size: String) -> Result<(), String> {
+async fn set_grid_size(app: AppHandle, window: WebviewWindow, grid_size: String) -> Result<(), String> {
+    let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
     off_ui("set_grid_size", move || {
         validate_grid_size(&grid_size)?;
@@ -45,61 +52,88 @@ async fn set_grid_size(app: AppHandle, grid_size: String) -> Result<(), String> 
         settings.grid_size = grid_size;
         db.save_settings(&settings)
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Settings, &source);
+    Ok(())
 }
 
 #[tauri::command]
-async fn set_pane_widths(app: AppHandle, sidebar_width: u32, inspector_width: u32) -> Result<(), String> {
+async fn set_pane_widths(
+    app: AppHandle,
+    window: WebviewWindow,
+    sidebar_width: u32,
+    inspector_width: u32,
+) -> Result<(), String> {
+    let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
     off_ui("set_pane_widths", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         db.set_pane_widths(sidebar_width, inspector_width)
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Settings, &source);
+    Ok(())
 }
 
 #[tauri::command]
-async fn set_details_columns(app: AppHandle, columns: settings::DetailsColumns) -> Result<(), String> {
+async fn set_details_columns(
+    app: AppHandle,
+    window: WebviewWindow,
+    columns: settings::DetailsColumns,
+) -> Result<(), String> {
+    let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
     off_ui("set_details_columns", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         db.set_details_columns(columns)
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Settings, &source);
+    Ok(())
 }
 
 #[tauri::command]
-async fn set_preview_height(app: AppHandle, preview_height: u32) -> Result<(), String> {
+async fn set_preview_height(app: AppHandle, window: WebviewWindow, preview_height: u32) -> Result<(), String> {
+    let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
     off_ui("set_preview_height", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         db.set_preview_height(preview_height)
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Settings, &source);
+    Ok(())
 }
 
 #[tauri::command]
-async fn set_inspector_pinned(app: AppHandle, inspector_pinned: bool) -> Result<(), String> {
+async fn set_inspector_pinned(app: AppHandle, window: WebviewWindow, inspector_pinned: bool) -> Result<(), String> {
+    let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
     off_ui("set_inspector_pinned", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         db.set_inspector_pinned(inspector_pinned)
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Settings, &source);
+    Ok(())
 }
 
 #[tauri::command]
-async fn set_sidebar_pinned(app: AppHandle, sidebar_pinned: bool) -> Result<(), String> {
+async fn set_sidebar_pinned(app: AppHandle, window: WebviewWindow, sidebar_pinned: bool) -> Result<(), String> {
+    let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
     off_ui("set_sidebar_pinned", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         db.set_sidebar_pinned(sidebar_pinned)
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Settings, &source);
+    Ok(())
 }
 
 #[tauri::command]
-async fn set_search_scope(app: AppHandle, search_scope: String) -> Result<(), String> {
+async fn set_search_scope(app: AppHandle, window: WebviewWindow, search_scope: String) -> Result<(), String> {
+    let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
     off_ui("set_search_scope", move || {
         validate_search_scope(&search_scope)?;
@@ -108,7 +142,9 @@ async fn set_search_scope(app: AppHandle, search_scope: String) -> Result<(), St
         settings.search_scope = search_scope;
         db.save_settings(&settings)
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Settings, &source);
+    Ok(())
 }
 
 fn save_external_programs(
@@ -124,14 +160,18 @@ fn save_external_programs(
 #[tauri::command]
 async fn set_external_programs(
     app: AppHandle,
+    window: WebviewWindow,
     programs: Vec<crate::external_programs::ExternalProgram>,
 ) -> Result<(), String> {
+    let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
     off_ui("set_external_programs", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         save_external_programs(&db, programs)
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Settings, &source);
+    Ok(())
 }
 
 #[tauri::command]

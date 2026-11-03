@@ -1,11 +1,21 @@
+use crate::library_events::{emit_library_changed, LibraryChangeKind};
+use tauri::WebviewWindow;
+
 #[tauri::command]
-async fn set_downloads_folder(app: AppHandle, path: Option<String>) -> Result<Settings, String> {
+async fn set_downloads_folder(
+    app: AppHandle,
+    window: WebviewWindow,
+    path: Option<String>,
+) -> Result<Settings, String> {
+    let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
-    off_ui("set_downloads_folder", move || {
+    let settings = off_ui("set_downloads_folder", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         crate::downloads::set_downloads_folder(&db, path)
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Settings, &source);
+    Ok(settings)
 }
 
 #[tauri::command]

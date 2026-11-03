@@ -82,6 +82,9 @@ export function useSessionEffects(s: {
   setTagColorOpen: (open: boolean) => void;
   setExternalProgramsOpen: (open: boolean) => void;
   applyDownloadsFolder: (path: string | null) => Promise<void>;
+  libraryBusy: { current: boolean };
+  setBusy: React.Dispatch<React.SetStateAction<string | null>>;
+  setImporting: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
   const {
     dialogOpen,
@@ -91,6 +94,7 @@ export function useSessionEffects(s: {
     setAboutVersionFailed, creatorTarget, setCreatorFileCount, includeSubfolders, fileMenu, setFileMenu,
     folderTagTarget, setFolderTagFileCount, diskProgress, setDiskDialog, toastTimer, actions, runDiskOp,
     runImport, setAboutOpen, setTagColorOpen, setExternalProgramsOpen, applyDownloadsFolder,
+    libraryBusy, setBusy, setImporting,
   } = s;
   useEffect(() => {
     if (!dialogOpen) return;
@@ -212,6 +216,9 @@ export function useSessionEffects(s: {
           if (path) void applyDownloadsFolder(path).catch((err) => setError(String(err)));
         });
       },
+      openNewWindow: () => {
+        void api.openNewWindow().catch((err) => setError(String(err)));
+      },
     };
   }, [applyDownloadsFolder, refreshLists, runDiskOp, runImport, setTheme]);
 
@@ -224,16 +231,13 @@ export function useSessionEffects(s: {
   useEffect(() => {
     const unlisten = listen<DiskProgress>("disk-progress", (event) => {
       diskProgress.current = event.payload;
-      setDiskDialog((current) =>
-        current
-          ? {
-              ...current,
-              ...event.payload,
-              title: current.title,
-              cancellable: current.cancellable && event.payload.cancellable,
-            }
-          : current,
-      );
+      libraryBusy.current = true;
+      setDiskDialog((current) => ({
+        ...(current ?? { title: "Working on library…" }),
+        ...event.payload,
+        title: current?.title ?? "Working on library…",
+        cancellable: event.payload.cancellable,
+      }));
     });
     return () => {
       void unlisten.then((stop) => stop());
@@ -274,6 +278,9 @@ export function useSessionEffects(s: {
       }
     });
     const progressUnlisten = listen<{ current: number; total: number; message: string }>("import-progress", (event) => {
+      libraryBusy.current = true;
+      setImporting(true);
+      setBusy("Importing…");
       setProgress(event.payload);
     });
     const hashUnlisten = listen("hash-pass-complete", () => {

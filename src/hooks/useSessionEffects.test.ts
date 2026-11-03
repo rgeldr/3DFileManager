@@ -107,6 +107,7 @@ function sessionBag(overrides: Record<string, unknown> = {}) {
       openTagColors: () => undefined,
       openExternalPrograms: () => undefined,
       setDownloadsFolder: () => undefined,
+      openNewWindow: () => undefined,
     },
   };
   return {
@@ -165,6 +166,9 @@ function sessionBag(overrides: Record<string, unknown> = {}) {
     setTagColorOpen,
     setExternalProgramsOpen,
     applyDownloadsFolder: vi.fn(async () => undefined),
+    libraryBusy: { current: false },
+    setBusy: vi.fn(),
+    setImporting: vi.fn(),
     ...overrides,
   };
 }

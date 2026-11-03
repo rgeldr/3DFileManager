@@ -150,4 +150,5 @@ export const api = {
   revealPath: (path: string) => invoke<void>("reveal_path", { path }),
   revealFile: (fileId: number) => invoke<void>("reveal_file", { fileId }),
   textPreview: (fileId: number) => invoke<string>("text_preview", { fileId }),
+  openNewWindow: () => invoke<string>("open_new_window"),
 };

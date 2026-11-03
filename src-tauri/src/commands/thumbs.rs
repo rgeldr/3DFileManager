@@ -1,3 +1,6 @@
+use crate::library_events::{emit_library_changed, LibraryChangeKind};
+use tauri::WebviewWindow;
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ThumbJob {
@@ -188,13 +191,16 @@ async fn pending_thumbnail_count(app: AppHandle) -> Result<i64, String> {
 }
 
 #[tauri::command]
-async fn clear_thumbnail_cache(app: AppHandle) -> Result<(), String> {
+async fn clear_thumbnail_cache(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
+    let source = window.label().to_string();
     let thumbs = app.state::<AppState>().thumbs.clone();
     off_ui("clear_thumbnail_cache", move || {
         let db = thumbs.lock().map_err(|e| e.to_string())?;
         db.clear_thumbs()
     })
-    .await
+    .await?;
+    emit_library_changed(&app, LibraryChangeKind::Files, &source);
+    Ok(())
 }
 
 fn requeue_image_thumbs_once(db: &AppDb) {

@@ -20,7 +20,9 @@ import { browseContainingFolder, containingFolderPlace } from "../lib/containing
 import { libraryListScope, libraryRefreshKey, librarySearchLimit, tagCountScope, truncateLibraryList } from "../lib/tagFilter";
 import { extsForSelectedTypes, mergeTypeCounts } from "../lib/typeFilter";
 import { useLibraryEffects } from "./useLibraryEffects";
+import { useLibraryChanged } from "./useLibraryChanged";
 import { useSelection } from "./useSelection";
+import { LIBRARY_JOB_BUSY_MESSAGE } from "../lib/libraryJobBusy";
 import {
   emptyProgress,
   type Actions,
@@ -113,6 +115,7 @@ export function useLibrary() {
     openTagColors: () => undefined,
     openExternalPrograms: () => undefined,
     setDownloadsFolder: () => undefined,
+    openNewWindow: () => undefined,
   });
   const themeItems = useRef<{ dark?: CheckMenuItem; light?: CheckMenuItem }>({});
   const gridItems = useRef<Partial<Record<ViewMode, CheckMenuItem>>>({});
@@ -271,7 +274,7 @@ export function useLibrary() {
     tree?: boolean;
   }) => {
     if (libraryBusy.current) {
-      setError("Another library change is already running.");
+      setError(LIBRARY_JOB_BUSY_MESSAGE);
       return;
     }
     libraryBusy.current = true;
@@ -402,7 +405,7 @@ export function useLibrary() {
   const runImport = useCallback(async (paths: string[]) => {
     if (paths.length === 0) return;
     if (libraryBusy.current) {
-      setError("Another library change is already running.");
+      setError(LIBRARY_JOB_BUSY_MESSAGE);
       return;
     }
     libraryBusy.current = true;
@@ -434,7 +437,7 @@ export function useLibrary() {
   const runDownloadsImport = useCallback(async (paths: string[], folderId: number | null): Promise<boolean> => {
     if (paths.length === 0) return false;
     if (libraryBusy.current) {
-      setError("Another library change is already running.");
+      setError(LIBRARY_JOB_BUSY_MESSAGE);
       return false;
     }
     libraryBusy.current = true;
@@ -543,6 +546,38 @@ export function useLibrary() {
     downloadsSelected, setDownloadsSelected, downloadsMenu, setDownloadsMenu, refreshDownloads, applyDownloadsFolder, selectedDownloadRow,
     addToLibraryPaths, setAddToLibraryPaths, openAddToLibrary, runDownloadsImport, defaultImportDestination: defaultImportDestination(history),
   };
+  useLibraryChanged({
+    ready,
+    browse,
+    query,
+    creator,
+    sort,
+    foldersRef,
+    setFolders,
+    setMissingCount,
+    setSettings,
+    setSidebarWidth,
+    setInspectorWidth,
+    setInspectorPinned,
+    setSidebarPinned,
+    setPreviewHeight,
+    setDetailsColumns,
+    setTheme,
+    setHistory,
+    setTags,
+    setCreators,
+    setCreatorOptions,
+    setTagCounts,
+    setTypeCounts,
+    refreshLists,
+    setThumbNonce,
+    showToast,
+    libraryBusy,
+    setBusy,
+    setImporting,
+    setProgress,
+    setDiskDialog,
+  });
   const drag = useLibraryEffects(model);
   return { ...model, ...drag };
 }

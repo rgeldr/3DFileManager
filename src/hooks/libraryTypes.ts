@@ -87,4 +87,5 @@ export interface Actions {
   openTagColors: () => void;
   openExternalPrograms: () => void;
   setDownloadsFolder: () => void;
+  openNewWindow: () => void;
 }

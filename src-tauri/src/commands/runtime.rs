@@ -34,7 +34,7 @@ fn acquire_disk(app: &AppHandle) -> Result<DiskGuard, String> {
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
-        return Err("Another library change is already running.".into());
+        return Err("A library operation is already running in another window.".into());
     }
     state.disk_cancel.store(false, Ordering::SeqCst);
     Ok(DiskGuard(app.clone()))

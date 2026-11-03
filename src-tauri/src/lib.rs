@@ -1,6 +1,8 @@
 mod backup;
 mod ctb;
 mod db;
+mod library_events;
+mod windows;
 mod drag_out;
 mod drag_session;
 #[cfg(windows)]
@@ -37,9 +39,10 @@ include!("commands/import_cmd.rs");
 include!("commands/thumbs.rs");
 include!("commands/open.rs");
 include!("commands/downloads.rs");
+include!("commands/windows.rs");
 
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_drag::init())
@@ -50,7 +53,14 @@ pub fn run() {
                     updater_version::release_is_newer(&current, &release.version)
                 })
                 .build(),
-        )
+        );
+    #[cfg(windows)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            let _ = windows::open_library_window(app, None);
+        }));
+    }
+    builder
         .setup(|app| {
             let dir = data_dir();
             let db = db::open(&dir).expect("open database");
@@ -138,7 +148,8 @@ pub fn run() {
             set_downloads_folder,
             list_downloads,
             text_preview,
-            debug_log
+            debug_log,
+            open_new_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running 3D File Library");
@@ -153,4 +164,5 @@ mod tests {
     include!("commands/tests_files.rs");
     include!("commands/tests_runtime.rs");
     include!("commands/tests_downloads.rs");
+    include!("commands/tests_library_events.rs");
 }
