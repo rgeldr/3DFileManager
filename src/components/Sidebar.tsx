@@ -1,27 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FOLDER_ROOT_DROP_ID, legalFolderDrop } from "../lib/folderMove";
 import type { FolderRow } from "../types";
 import { FolderContextMenu } from "./dialogs/FolderContextMenu";
 import { FolderIcon } from "./FileGridRows";
 import { PinIcon } from "./Inspector";
+import { pointerPastSlop } from "../lib/dragOut";
 
 type FolderContextMenu = { x: number; y: number; folderId: number | null };
 
-const ROOT_KEY = "root";
+const ROOT_KEY = FOLDER_ROOT_DROP_ID;
 export const DOWNLOADS_KEY = "downloads";
-const DRAG_THRESHOLD_PX = 5;
 
 export function folderKey(id: number) {
   return `folder:${id}`;
 }
 
-export function isFolderUnderAncestor(folders: FolderRow[], ancestorId: number, folderId: number | null): boolean {
-  let current = folderId;
-  while (current != null) {
-    if (current === ancestorId) return true;
-    current = folders.find((f) => f.id === current)?.parentId ?? null;
-  }
-  return false;
-}
+export { isFolderUnderAncestor } from "../lib/folderMove";
 
 export function Sidebar({
   folders,
@@ -88,16 +82,6 @@ export function Sidebar({
     [folders],
   );
 
-  const isInvalidFolderDrop = useCallback(
-    (dragFolderId: number, target: string | null) => {
-      if (!target) return true;
-      const dropFolderId = target === ROOT_KEY ? null : Number(target);
-      if (dropFolderId === dragFolderId) return true;
-      return isFolderUnderAncestor(folders, dragFolderId, dropFolderId);
-    },
-    [folders],
-  );
-
   const effectiveDropTarget = folderDragging ? folderDropTarget : dropTarget;
 
   const toggleExpanded = useCallback((key: string) => {
@@ -158,20 +142,14 @@ export function Sidebar({
       const drag = folderDragRef.current;
       if (!drag) return;
       if (!drag.active) {
-        const dx = event.clientX - drag.startX;
-        const dy = event.clientY - drag.startY;
-        if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+        if (!pointerPastSlop(drag.startX, drag.startY, event.clientX, event.clientY)) return;
         drag.active = true;
         setFolderDragging(true);
         setDraggingFolderId(drag.folderId);
       }
       const element = document.elementFromPoint(event.clientX, event.clientY);
       const folder = element?.closest("[data-folder-id]")?.getAttribute("data-folder-id") ?? null;
-      if (folder && !isInvalidFolderDrop(drag.folderId, folder)) {
-        setFolderDropTarget(folder);
-      } else {
-        setFolderDropTarget(null);
-      }
+      setFolderDropTarget(legalFolderDrop(folders, drag.folderId, folder));
     };
     const onUp = (event: PointerEvent) => {
       const drag = folderDragRef.current;
@@ -188,8 +166,9 @@ export function Sidebar({
       setFolderDragging(false);
       setDraggingFolderId(null);
       setFolderDropTarget(null);
-      if (!folder || isInvalidFolderDrop(drag.folderId, folder)) return;
-      const parentId = folder === ROOT_KEY ? null : Number(folder);
+      const legal = legalFolderDrop(folders, drag.folderId, folder);
+      if (!legal) return;
+      const parentId = legal === ROOT_KEY ? null : Number(legal);
       onMoveFolder(drag.folderId, parentId);
     };
     window.addEventListener("pointermove", onMove);
@@ -198,7 +177,7 @@ export function Sidebar({
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [isInvalidFolderDrop, onMoveFolder]);
+  }, [folders, onMoveFolder]);
 
   const openFolderContextMenu = (
     event: React.MouseEvent,

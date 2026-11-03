@@ -157,6 +157,8 @@ export function FileGrid({
   onSort,
   onContextMenu,
   onFolderContextMenu,
+  dropTarget = null,
+  draggingGridFolderId = null,
 }: {
   files: FileRow[];
   folders: FolderRow[];
@@ -170,6 +172,8 @@ export function FileGrid({
   selected: number[];
   previewIconsEnabled: boolean;
   scrollRootRef: React.RefObject<HTMLElement | null>;
+  dropTarget?: string | null;
+  draggingGridFolderId?: number | null;
   onSelect: (id: number, mode: "replace" | "toggle" | "range") => void;
   onSelectionChange: (ids: number[]) => void;
   onOpen?: (file: FileRow) => void;
@@ -417,6 +421,8 @@ export function FileGrid({
                     selected={false}
                     isFolder
                     dataFolderId={item.folder.id}
+                    dropHighlight={dropTarget === String(item.folder.id)}
+                    dragging={draggingGridFolderId === item.folder.id}
                     onDoubleClick={folderDoubleClick(item.folder.id)}
                     onContextMenu={folderContext(item.folder.id)}
                   />
@@ -468,6 +474,8 @@ export function FileGrid({
                   <DetailsFolderRow
                     key={`folder-${item.folder.id}`}
                     folder={item.folder}
+                    dropHighlight={dropTarget === String(item.folder.id)}
+                    dragging={draggingGridFolderId === item.folder.id}
                     onDoubleClick={folderDoubleClick(item.folder.id)}
                     onContextMenu={folderContext(item.folder.id)}
                   />
@@ -507,8 +515,9 @@ export function FileGrid({
                 <button
                   key={`folder-${folder.id}`}
                   type="button"
-                  className="tile folder-tile"
+                  className={`tile folder-tile${dropTarget === String(folder.id) ? " drop" : ""}${draggingGridFolderId === folder.id ? " dragging" : ""}`}
                   data-folder-id={folder.id}
+                  data-grid-folder={folder.id}
                   title={folder.name}
                   draggable={false}
                   onDragStart={(event) => event.preventDefault()}

@@ -125,6 +125,8 @@ export function ListRow({
   isFolder,
   dataFileId,
   dataFolderId,
+  dropHighlight = false,
+  dragging = false,
   onClick,
   onDoubleClick,
   onContextMenu,
@@ -134,6 +136,8 @@ export function ListRow({
   isFolder: boolean;
   dataFileId?: number;
   dataFolderId?: number;
+  dropHighlight?: boolean;
+  dragging?: boolean;
   onClick?: (event: React.MouseEvent) => void;
   onDoubleClick?: (event: React.MouseEvent) => void;
   onContextMenu?: (event: React.MouseEvent) => void;
@@ -141,9 +145,10 @@ export function ListRow({
   return (
     <button
       type="button"
-      className={`file-row list-row${selected ? " selected" : ""}${isFolder ? " folder-row-item" : ""}`}
+      className={`file-row list-row${selected ? " selected" : ""}${isFolder ? " folder-row-item" : ""}${dropHighlight ? " drop" : ""}${dragging ? " dragging" : ""}`}
       data-file-id={dataFileId}
       data-folder-id={dataFolderId}
+      data-grid-folder={dataFolderId}
       title={label}
       draggable={false}
       onDragStart={(event) => event.preventDefault()}
@@ -193,18 +198,23 @@ export function DetailsRow({
 
 export function DetailsFolderRow({
   folder,
+  dropHighlight = false,
+  dragging = false,
   onDoubleClick,
   onContextMenu,
 }: {
   folder: FolderRow;
+  dropHighlight?: boolean;
+  dragging?: boolean;
   onDoubleClick?: (event: React.MouseEvent) => void;
   onContextMenu?: (event: React.MouseEvent) => void;
 }) {
   return (
     <button
       type="button"
-      className="file-row details-row folder-row-item"
+      className={`file-row details-row folder-row-item${dropHighlight ? " drop" : ""}${dragging ? " dragging" : ""}`}
       data-folder-id={folder.id}
+      data-grid-folder={folder.id}
       title={folder.name}
       draggable={false}
       onDragStart={(event) => event.preventDefault()}

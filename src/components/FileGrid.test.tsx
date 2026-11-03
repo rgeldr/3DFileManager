@@ -308,6 +308,55 @@ describe("FileGrid", () => {
     scroller.remove();
   });
 
+  it("marks folder tiles, list rows, and details rows as grid drag sources", () => {
+    for (const viewMode of ["large", "list", "details"] as const) {
+      const scroller = document.createElement("div");
+      sizeScroller(scroller, 0);
+      document.body.appendChild(scroller);
+      const view = render(
+        <FileGrid
+          {...gridBase({
+            view: viewMode,
+            folders: [{ id: 1, name: "Terrain", parentId: null }],
+            scrollRootRef: { current: scroller },
+            dropTarget: "1",
+            draggingGridFolderId: 1,
+          })}
+        />,
+        { container: scroller },
+      );
+      const row = view.container.querySelector("[data-grid-folder='1']") as HTMLElement;
+      expect(row.getAttribute("data-folder-id")).toBe("1");
+      expect(row.className).toContain("drop");
+      expect(row.className).toContain("dragging");
+      expect(row.getAttribute("draggable")).toBe("false");
+      view.unmount();
+      scroller.remove();
+    }
+  });
+
+  it("does not start a marquee from a folder tile", () => {
+    const scroller = document.createElement("div");
+    scroller.className = "grid-wrap";
+    sizeScroller(scroller, 0);
+    document.body.appendChild(scroller);
+    const view = render(
+      <FileGrid
+        {...gridBase({
+          folders: [{ id: 1, name: "Terrain", parentId: null }],
+          scrollRootRef: { current: scroller },
+        })}
+      />,
+      { container: scroller },
+    );
+    const tile = view.container.querySelector("[data-grid-folder='1']") as HTMLElement;
+    fireEvent.pointerDown(tile, { button: 0, pointerId: 3, clientX: 40, clientY: 40 });
+    fireEvent.pointerMove(scroller, { pointerId: 3, clientX: 160, clientY: 160 });
+    expect(document.querySelector(".selection-marquee")).toBeNull();
+    view.unmount();
+    scroller.remove();
+  });
+
   it("shows folder icon and name once in list view", () => {
     const scroller = document.createElement("div");
     sizeScroller(scroller, 0);

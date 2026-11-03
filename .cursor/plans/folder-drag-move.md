@@ -1,4 +1,4 @@
-Status: plan only, not started
+Status: implemented in PR (folder drag-move implementation)
 
 # Drag a folder from the center grid
 

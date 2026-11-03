@@ -131,6 +131,23 @@ impl AppDb {
 
         let root = self.library_root()?;
         let old_rel = self.folder_relpath(id)?;
+        if folder_rel_escapes(&old_rel) {
+            return Err("That folder is outside the library.".into());
+        }
+        crate::contained_library_dir(&root, &old_rel)?;
+        match new_parent_id {
+            Some(pid) => {
+                let parent_rel = self.folder_relpath(pid)?;
+                if folder_rel_escapes(&parent_rel) {
+                    return Err("That folder is outside the library.".into());
+                }
+                crate::contained_library_dir(&root, &parent_rel)?;
+            }
+            None => {
+                crate::contained_library_dir(&root, "")?;
+            }
+        }
+
         let name: String = self
             .conn
             .query_row("SELECT name FROM folders WHERE id = ?1", [id], |r| r.get(0))
@@ -367,4 +384,12 @@ impl AppDb {
             .map_err(|e| e.to_string())
     }
 
+}
+
+/// True when a catalog relpath has an empty, `.`, or `..` segment.
+/// Separators are both `/` and `\`, so a Windows `..\` segment is rejected
+/// before `Path::join` can escape the library root.
+fn folder_rel_escapes(rel: &str) -> bool {
+    rel.split(['/', '\\'])
+        .any(|part| part.is_empty() || part == "." || part == "..")
 }

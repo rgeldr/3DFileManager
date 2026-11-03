@@ -107,7 +107,6 @@ export function AppShell({ app }: { app: LibraryModel }) {
     inspectorWidthRef,
     previewIconsEnabled,
     folderExpandHint,
-    setFolderExpandHint,
     libraryName,
     refreshLists,
     runDiskOp,
@@ -118,7 +117,9 @@ export function AppShell({ app }: { app: LibraryModel }) {
     onSelect,
     selectedFile,
     dropTarget,
-    onPointerDown
+    draggingGridFolderId,
+    onPointerDown,
+    onMoveFolder,
   } = app;
   const {
     downloadsList,
@@ -338,22 +339,7 @@ export function AppShell({ app }: { app: LibraryModel }) {
         onRescan={onRescanFolder}
         onTagFolder={onTagFolder}
         onSetCreator={onSetFolderCreator}
-        onMoveFolder={(id, parentId) => {
-          const name = folders.find((item) => item.id === id)?.name ?? "folder";
-          const expandKey = parentId == null ? "root" : `folder:${parentId}`;
-          void runDiskOp({
-            title: `Moving "${name}"...`,
-            cancellable: true,
-            success: `Moved "${name}"`,
-            cancelled: "Move cancelled",
-            run: () => api.moveFolder(id, parentId),
-            tree: true,
-            after: async () => {
-              setFolderExpandHint((hint) => ({ key: expandKey, nonce: (hint?.nonce ?? 0) + 1 }));
-              await refreshLists();
-            },
-          });
-        }}
+        onMoveFolder={onMoveFolder}
       />
       {sidebarPinned ? (
         <div
@@ -371,6 +357,7 @@ export function AppShell({ app }: { app: LibraryModel }) {
             libraryName={libraryName}
             folders={folders}
             browse={browse}
+            dropTarget={dropTarget}
             onNavigate={(place) => {
               const same =
                 place.type === "downloads"
@@ -504,6 +491,8 @@ export function AppShell({ app }: { app: LibraryModel }) {
             <FileGrid
               files={files}
               folders={subfolders}
+              dropTarget={dropTarget}
+              draggingGridFolderId={draggingGridFolderId}
               emptyMessage={gridEmptyMessage({
                 selectedTagCount: selectedTagIds.length,
                 selectedTypeCount: selectedTypeIds.length,
