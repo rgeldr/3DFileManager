@@ -111,5 +111,36 @@
             "backup export does not change library rows"
         );
         assert!(include_str!("../lib.rs").contains("open_new_window"));
-        assert!(include_str!("../lib.rs").contains("library-job-idle") || include_str!("runtime.rs").contains("library-job-idle"));
+        assert!(include_str!("runtime.rs").contains("library-job-idle"));
+    }
+
+    #[test]
+    fn second_launch_opens_a_window_off_the_plugin_thread() {
+        let lib = include_str!("../lib.rs");
+        let plugin = lib
+            .find("tauri_plugin_single_instance::init")
+            .expect("single-instance plugin");
+        let callback = &lib[plugin..];
+        assert!(
+            callback.contains("std::thread::spawn"),
+            "creating a webview on the plugin's UI-thread callback can deadlock"
+        );
+        let spawn = callback.find("std::thread::spawn").unwrap();
+        assert!(
+            callback[spawn..].contains("windows::open_library_window"),
+            "the second launch must open a library window in the running process"
+        );
+    }
+
+    #[test]
+    fn disk_guard_clears_the_job_and_emits_idle() {
+        let runtime = include_str!("runtime.rs");
+        let drop_at = runtime.find("impl Drop for DiskGuard").expect("DiskGuard");
+        let body = &runtime[drop_at..];
+        assert!(body.contains("disk_running"));
+        assert!(body.contains("store(false"));
+        assert!(
+            body.contains("emit(\"library-job-idle\""),
+            "every window clears its busy banner from this event"
+        );
     }

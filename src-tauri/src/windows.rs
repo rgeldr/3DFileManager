@@ -70,14 +70,21 @@ pub fn open_library_window(
         .ok_or_else(|| "Missing main window config.".to_string())?;
     label_window_config(&mut window_config, &label);
     let (x, y) = placed_origin(app, anchor);
-    let window = WebviewWindowBuilder::from_config(app, &window_config)
+    // `from_config` applies the webview `dragDropEnabled` flag. The window-level
+    // file-drop target is a separate Windows-only builder method, so it has to
+    // be set here or a `false` config value is ignored (tao defaults it to true).
+    #[cfg_attr(not(windows), allow(unused_mut))]
+    let mut window = WebviewWindowBuilder::from_config(app, &window_config)
         .map_err(|err| err.to_string())?
         .title(&config.title)
         .inner_size(config.width, config.height)
         .min_inner_size(config.min_width, config.min_height)
-        .position(x as f64, y as f64)
-        .build()
-        .map_err(|err| err.to_string())?;
+        .position(x as f64, y as f64);
+    #[cfg(windows)]
+    {
+        window = window.drag_and_drop(config.drag_drop_enabled);
+    }
+    let window = window.build().map_err(|err| err.to_string())?;
     window.set_focus().map_err(|err| err.to_string())?;
     Ok(window)
 }
@@ -113,9 +120,23 @@ mod tests {
 
     #[test]
     fn label_window_config_replaces_the_main_label() {
+        assert_eq!(MAIN_WINDOW_LABEL, "main");
         let mut config: tauri::utils::config::WindowConfig =
-            serde_json::from_str(r#"{"label":"main"}"#).unwrap();
+            serde_json::from_str(&format!(r#"{{"label":"{MAIN_WINDOW_LABEL}"}}"#)).unwrap();
         label_window_config(&mut config, "win-3");
         assert_eq!(config.label, "win-3");
+    }
+
+    #[test]
+    fn windows_file_drop_follows_the_shared_config() {
+        let source = include_str!("windows.rs");
+        let start = source
+            .find("pub fn open_library_window")
+            .expect("open_library_window");
+        let body = &source[start..];
+        assert!(
+            body.contains("#[cfg(windows)]") && body.contains(".drag_and_drop(config.drag_drop_enabled)"),
+            "secondary windows must set the Windows-only drag-and-drop flag from config"
+        );
     }
 }
