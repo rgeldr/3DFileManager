@@ -1,7 +1,8 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FolderRow } from "../types";
-import { Sidebar, folderKey, isFolderUnderAncestor } from "./Sidebar";
+import { Sidebar, folderKey } from "./Sidebar";
+import { isFolderUnderAncestor } from "../lib/folderMove";
 
 afterEach(cleanup);
 

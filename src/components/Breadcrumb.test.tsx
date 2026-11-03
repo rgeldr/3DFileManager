@@ -86,6 +86,20 @@ describe("breadcrumb", () => {
     expect(onNavigate).toHaveBeenCalledWith({ type: "folder", id: 2 });
   });
 
+  it("highlights a breadcrumb segment when dropTarget matches", () => {
+    render(
+      <Breadcrumb
+        libraryName="3D Print Library"
+        folders={library}
+        browse={{ type: "folder", id: 3 }}
+        dropTarget="2"
+        onNavigate={() => undefined}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Articulated Toys" }).className).toContain("drop");
+    expect(screen.getByRole("button", { name: "Flexi Animals" }).className).not.toContain("drop");
+  });
+
   it("crumbKey distinguishes the root, folders, and an ellipsis", () => {
     expect(crumbKey({ kind: "ellipsis" }, 2)).toBe("ellipsis-2");
     expect(crumbKey({ kind: "place", place: { type: "root" }, label: "3D Print Library" }, 0)).toBe("root");

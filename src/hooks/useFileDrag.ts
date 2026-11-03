@@ -1,9 +1,11 @@
-import { useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { api } from "../api";
 import { debugLog } from "../debugLog";
 import { dragSourceKey, dragSources, fileDragOptions, nativeDragDecision, pointerOutsideWindow, pointerPastSlop, suppressHtmlDrag } from "../lib/dragOut";
-import type { DragReport, FileRow } from "../types";
+import { FOLDER_ROOT_DROP_ID, legalFolderDrop } from "../lib/folderMove";
+import { scrollPanesUnderPointer } from "../lib/paneAutoScroll";
+import type { DragReport, FileRow, FolderRow } from "../types";
 import type { FileDrag } from "./libraryTypes";
 
 type RunDisk = (opts: {
@@ -15,6 +17,18 @@ type RunDisk = (opts: {
   after?: () => Promise<void> | void;
 }) => Promise<void>;
 
+type GridFolderDrag = {
+  folderId: number;
+  pointerId: number;
+  originX: number;
+  originY: number;
+  x: number;
+  y: number;
+  active: boolean;
+  leftWindow: boolean;
+  captureEl: HTMLElement | null;
+};
+
 export function useFileDrag(s: {
   dragRef: { current: FileDrag | null };
   filesRef: { current: FileRow[] };
@@ -23,17 +37,27 @@ export function useFileDrag(s: {
   dragPrepCache: { current: { key: string; paths: string[]; skipped: string[]; reports: DragReport[] } | null };
   dragIconRef: { current: string | null };
   selected: number[];
+  folders: FolderRow[];
+  gridScrollRef: RefObject<HTMLElement | null>;
+  onMoveFolder: (id: number, parentId: number | null) => void;
   showToast: (message: string) => void;
   setDragFailure: (failure: { message: string; fileId: number } | null) => void;
   runDiskOp: RunDisk;
 }) {
   const {
     dragRef, filesRef, tryStartRef, prefetchRef, dragPrepCache, dragIconRef,
-    selected, showToast, setDragFailure, runDiskOp,
+    selected, folders, gridScrollRef, onMoveFolder, showToast, setDragFailure, runDiskOp,
   } = s;
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [draggingGridFolderId, setDraggingGridFolderId] = useState<number | null>(null);
+  const gridFolderDragRef = useRef<GridFolderDrag | null>(null);
+  const foldersRef = useRef(folders);
+  foldersRef.current = folders;
+  const sidebarScrollRef = useRef<HTMLElement | null>(null);
   const releaseDragCapture = (node: HTMLElement | null, pointerId: number) => {
-    if (node?.hasPointerCapture(pointerId)) node.releasePointerCapture(pointerId);
+    if (typeof node?.hasPointerCapture === "function" && node.hasPointerCapture(pointerId)) {
+      node.releasePointerCapture(pointerId);
+    }
   };
 
   prefetchRef.current = (ids) => {
@@ -184,7 +208,99 @@ export function useFileDrag(s: {
     };
   }, [runDiskOp]);
 
+  useEffect(() => {
+    sidebarScrollRef.current = document.querySelector(".sidebar-scroll");
+  });
+
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const drag = gridFolderDragRef.current;
+      if (!drag?.active) return;
+      scrollPanesUnderPointer(drag.x, drag.y, [sidebarScrollRef.current, gridScrollRef.current]);
+      raf = window.requestAnimationFrame(tick);
+    };
+    const onMove = (event: PointerEvent) => {
+      const drag = gridFolderDragRef.current;
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      drag.x = event.clientX;
+      drag.y = event.clientY;
+      const outside = pointerOutsideWindow(
+        event.clientX,
+        event.clientY,
+        window.innerWidth,
+        window.innerHeight,
+      );
+      if (outside) {
+        drag.leftWindow = true;
+        setDropTarget(null);
+        return;
+      }
+      if (!drag.active) {
+        if (!pointerPastSlop(drag.originX, drag.originY, event.clientX, event.clientY)) return;
+        drag.active = true;
+        setDraggingGridFolderId(drag.folderId);
+        if (raf === 0) raf = window.requestAnimationFrame(tick);
+      }
+      const element = document.elementFromPoint(event.clientX, event.clientY);
+      const folder = element?.closest("[data-folder-id]")?.getAttribute("data-folder-id") ?? null;
+      setDropTarget(legalFolderDrop(foldersRef.current, drag.folderId, folder));
+    };
+    const finish = (event: PointerEvent) => {
+      const drag = gridFolderDragRef.current;
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      gridFolderDragRef.current = null;
+      releaseDragCapture(drag.captureEl, event.pointerId);
+      setDraggingGridFolderId(null);
+      setDropTarget(null);
+      if (raf !== 0) {
+        window.cancelAnimationFrame(raf);
+        raf = 0;
+      }
+      if (!drag.active || drag.leftWindow) return;
+      const element = document.elementFromPoint(event.clientX, event.clientY);
+      const folder = element?.closest("[data-folder-id]")?.getAttribute("data-folder-id") ?? null;
+      const legal = legalFolderDrop(foldersRef.current, drag.folderId, folder);
+      if (!legal) return;
+      const parentId = legal === FOLDER_ROOT_DROP_ID ? null : Number(legal);
+      onMoveFolder(drag.folderId, parentId);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      if (raf !== 0) window.cancelAnimationFrame(raf);
+    };
+  }, [gridScrollRef, onMoveFolder]);
+
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const gridFolder = (event.target as HTMLElement).closest("[data-grid-folder]");
+    if (gridFolder && event.button === 0) {
+      const id = Number(gridFolder.getAttribute("data-grid-folder"));
+      if (!Number.isFinite(id)) return;
+      gridFolderDragRef.current = {
+        folderId: id,
+        pointerId: event.pointerId,
+        originX: event.clientX,
+        originY: event.clientY,
+        x: event.clientX,
+        y: event.clientY,
+        active: false,
+        leftWindow: false,
+        captureEl: gridFolder instanceof HTMLElement ? gridFolder : null,
+      };
+      if (gridFolder instanceof HTMLElement) {
+        try {
+          gridFolder.setPointerCapture(event.pointerId);
+        } catch {
+          // The pointer can already be gone.
+        }
+      }
+      return;
+    }
     const tile = (event.target as HTMLElement).closest("[data-file-id]");
     if (!tile || event.button !== 0) return;
     const id = Number(tile.getAttribute("data-file-id"));
@@ -219,5 +335,5 @@ export function useFileDrag(s: {
     }
     prefetchRef.current(ids);
   };
-  return { dropTarget, onPointerDown };
+  return { dropTarget, draggingGridFolderId, onPointerDown };
 }

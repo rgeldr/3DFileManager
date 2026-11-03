@@ -307,6 +307,23 @@ export function useLibrary() {
     }
   }, [refreshLists, reloadTree, showToast]);
 
+  const onMoveFolder = useCallback((id: number, parentId: number | null) => {
+    const name = folders.find((item) => item.id === id)?.name ?? "folder";
+    const expandKey = parentId == null ? "root" : `folder:${parentId}`;
+    void runDiskOp({
+      title: `Moving "${name}"...`,
+      cancellable: true,
+      success: `Moved "${name}"`,
+      cancelled: "Move cancelled",
+      run: () => api.moveFolder(id, parentId),
+      tree: true,
+      after: async () => {
+        setFolderExpandHint((hint) => ({ key: expandKey, nonce: (hint?.nonce ?? 0) + 1 }));
+        await refreshLists();
+      },
+    });
+  }, [folders, refreshLists, reloadTree, runDiskOp, setFolderExpandHint]);
+
   const openNewFolderPrompt = useCallback((parentId: number | null) => {
     setNamePrompt({
       title: "New folder",
@@ -540,7 +557,7 @@ export function useLibrary() {
     toast, setToast, dragRef, filesRef, tryStartRef, prefetchRef, dragPrepCache, actions, themeItems, gridItems,
     thumbNonce, setThumbNonce, thumbGeneration, gridScrollRef, dragIconRef, sidebarWidthRef, inspectorWidthRef,
     previewIconsEnabled, setPreviewIconsEnabled, folderExpandHint, setFolderExpandHint, libraryBusy, diskProgress,
-    toastTimer, libraryName, targetFolderId, refreshLists, reloadTree, showToast, runDiskOp, openNewFolderPrompt,
+    toastTimer, libraryName, targetFolderId, refreshLists, reloadTree, showToast, runDiskOp, onMoveFolder, openNewFolderPrompt,
     openRenameFolderPrompt, openRenameFile, openContainingFolder, openDeleteFolderConfirm, performDeleteFolder, runImportRef, refreshListsRef,
     runImport, dialogOpen, browseKey, onSelect, selectedFile, downloadsList, downloadsTruncated, downloadSort, setDownloadSort,
     downloadsSelected, setDownloadsSelected, downloadsMenu, setDownloadsMenu, refreshDownloads, applyDownloadsFolder, selectedDownloadRow,

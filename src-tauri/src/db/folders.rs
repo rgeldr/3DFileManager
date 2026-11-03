@@ -131,6 +131,29 @@ impl AppDb {
 
         let root = self.library_root()?;
         let old_rel = self.folder_relpath(id)?;
+        if old_rel
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
+        {
+            return Err("That folder is outside the library.".into());
+        }
+        crate::contained_library_dir(&root, &old_rel)?;
+        match new_parent_id {
+            Some(pid) => {
+                let parent_rel = self.folder_relpath(pid)?;
+                if parent_rel
+                    .split('/')
+                    .any(|part| part.is_empty() || part == "." || part == "..")
+                {
+                    return Err("That folder is outside the library.".into());
+                }
+                crate::contained_library_dir(&root, &parent_rel)?;
+            }
+            None => {
+                crate::contained_library_dir(&root, "")?;
+            }
+        }
+
         let name: String = self
             .conn
             .query_row("SELECT name FROM folders WHERE id = ?1", [id], |r| r.get(0))

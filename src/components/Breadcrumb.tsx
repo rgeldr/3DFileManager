@@ -1,22 +1,32 @@
 import type { Browse, FolderRow } from "../types";
 import { folderCrumbs, truncateCrumbs, type Crumb } from "../lib/breadcrumb";
+import { FOLDER_ROOT_DROP_ID } from "../lib/folderMove";
 
 export function Breadcrumb({
   libraryName,
   folders,
   browse,
+  dropTarget = null,
   onNavigate,
   fullPath = false,
 }: {
   libraryName: string;
   folders: FolderRow[];
   browse: Browse;
+  dropTarget?: string | null;
   onNavigate: (place: Browse) => void;
   fullPath?: boolean;
 }) {
   const crumbs = fullPath
     ? folderCrumbs(libraryName, folders, browse)
     : truncateCrumbs(folderCrumbs(libraryName, folders, browse));
+
+  const dropIdForCrumb = (crumb: Extract<Crumb, { kind: "place" }>): string | null => {
+    if (crumb.place.type === "root") return FOLDER_ROOT_DROP_ID;
+    if (crumb.place.type === "folder") return String(crumb.place.id);
+    return null;
+  };
+
   return (
     <nav className="breadcrumb" aria-label="Folder path">
       {crumbs.map((crumb, index) => (
@@ -25,9 +35,20 @@ export function Breadcrumb({
           {crumb.kind === "ellipsis" ? (
             <span className="breadcrumb-ellipsis" aria-hidden="true">…</span>
           ) : (
-            <button type="button" className="breadcrumb-segment" onClick={() => onNavigate(crumb.place)}>
-              {crumb.label}
-            </button>
+            (() => {
+              const dropId = dropIdForCrumb(crumb);
+              const dropClass = dropId != null && dropTarget === dropId ? " drop" : "";
+              return (
+                <button
+                  type="button"
+                  className={`breadcrumb-segment${dropClass}`}
+                  data-folder-id={dropId ?? undefined}
+                  onClick={() => onNavigate(crumb.place)}
+                >
+                  {crumb.label}
+                </button>
+              );
+            })()
           )}
         </span>
       ))}

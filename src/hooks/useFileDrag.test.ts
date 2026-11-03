@@ -6,6 +6,7 @@ import { useFileDrag } from "./useFileDrag";
 const startDrag = vi.fn();
 const prepareDragPaths = vi.fn();
 const moveFiles = vi.fn();
+const moveFolder = vi.fn();
 
 vi.mock("@crabnebula/tauri-plugin-drag", () => ({
   startDrag: (...args: unknown[]) => startDrag(...args),
@@ -15,6 +16,7 @@ vi.mock("../api", () => ({
   api: {
     prepareDragPaths: (...args: unknown[]) => prepareDragPaths(...args),
     moveFiles: (...args: unknown[]) => moveFiles(...args),
+    moveFolder: (...args: unknown[]) => moveFolder(...args),
   },
 }));
 
@@ -26,6 +28,7 @@ afterEach(() => {
   startDrag.mockReset();
   prepareDragPaths.mockReset();
   moveFiles.mockReset();
+  moveFolder.mockReset();
   vi.restoreAllMocks();
 });
 
@@ -53,6 +56,10 @@ function file(overrides: Partial<FileRow> = {}): FileRow {
   };
 }
 
+function folderRow(id: number, parentId: number | null): import("../types").FolderRow {
+  return { id, parentId, name: `f${id}`, relpath: `f${id}`, sortOrder: id };
+}
+
 function bag(overrides: Record<string, unknown> = {}) {
   const dragRef = { current: null as ReturnType<typeof useFileDrag> extends never ? never : import("./libraryTypes").FileDrag | null };
   const filesRef = { current: [file({ id: 1 }), file({ id: 2, sortName: "b", originalName: "b.stl", absolutePath: "/library/b.stl" })] };
@@ -63,6 +70,7 @@ function bag(overrides: Record<string, unknown> = {}) {
   const setDragFailure = vi.fn();
   const runDiskOp = vi.fn(async (_op: { title: string; run: () => Promise<unknown> }) => undefined);
   const showToast = vi.fn();
+  const onMoveFolder = vi.fn();
   return {
     dragRef,
     filesRef,
@@ -71,6 +79,9 @@ function bag(overrides: Record<string, unknown> = {}) {
     dragPrepCache,
     dragIconRef,
     selected: [1],
+    folders: [folderRow(1, null), folderRow(2, 1), folderRow(5, null)],
+    gridScrollRef: { current: null },
+    onMoveFolder,
     showToast,
     setDragFailure,
     runDiskOp,
@@ -189,5 +200,155 @@ describe("useFileDrag", () => {
     expect(moveFiles).toHaveBeenCalledWith([1], 9);
     tile.remove();
     folder.remove();
+  });
+
+  it("moves a grid folder without prepareDragPaths, moveFiles, or startDrag", () => {
+    const state = bag();
+    const { result } = renderHook(() => useFileDrag(state));
+
+    const source = document.createElement("button");
+    source.setAttribute("data-grid-folder", "5");
+    source.setAttribute("data-folder-id", "5");
+    document.body.appendChild(source);
+    source.setPointerCapture = vi.fn();
+    source.hasPointerCapture = vi.fn(() => false);
+    source.releasePointerCapture = vi.fn();
+
+    const target = document.createElement("div");
+    target.setAttribute("data-folder-id", "2");
+    document.body.appendChild(target);
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: () => target,
+    });
+
+    act(() => {
+      result.current.onPointerDown({
+        button: 0,
+        pointerId: 7,
+        clientX: 10,
+        clientY: 10,
+        target: source,
+      } as unknown as React.PointerEvent<HTMLDivElement>);
+    });
+    expect(state.dragRef.current).toBeNull();
+
+    act(() => {
+      window.dispatchEvent(
+        new PointerEvent("pointermove", {
+          pointerId: 7,
+          clientX: 40,
+          clientY: 40,
+          buttons: 1,
+          bubbles: true,
+        }),
+      );
+    });
+    expect(result.current.dropTarget).toBe("2");
+    expect(result.current.draggingGridFolderId).toBe(5);
+
+    act(() => {
+      window.dispatchEvent(
+        new PointerEvent("pointerup", {
+          pointerId: 7,
+          clientX: 40,
+          clientY: 40,
+          bubbles: true,
+        }),
+      );
+    });
+
+    expect(state.onMoveFolder).toHaveBeenCalledWith(5, 2);
+    expect(prepareDragPaths).not.toHaveBeenCalled();
+    expect(moveFiles).not.toHaveBeenCalled();
+    expect(startDrag).not.toHaveBeenCalled();
+    source.remove();
+    target.remove();
+  });
+
+  it("ignores an illegal grid-folder drop and one that leaves the window", () => {
+    const state = bag({ folders: [folderRow(1, null), folderRow(2, 1)] });
+    const { result } = renderHook(() => useFileDrag(state));
+
+    const source = document.createElement("button");
+    source.setAttribute("data-grid-folder", "1");
+    document.body.appendChild(source);
+    source.setPointerCapture = vi.fn();
+    source.hasPointerCapture = vi.fn(() => false);
+    source.releasePointerCapture = vi.fn();
+
+    const descendant = document.createElement("div");
+    descendant.setAttribute("data-folder-id", "2");
+    document.body.appendChild(descendant);
+
+    act(() => {
+      result.current.onPointerDown({
+        button: 0,
+        pointerId: 8,
+        clientX: 0,
+        clientY: 0,
+        target: source,
+      } as unknown as React.PointerEvent<HTMLDivElement>);
+    });
+
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: () => descendant,
+    });
+    act(() => {
+      window.dispatchEvent(
+        new PointerEvent("pointermove", {
+          pointerId: 8,
+          clientX: 30,
+          clientY: 30,
+          buttons: 1,
+          bubbles: true,
+        }),
+      );
+      window.dispatchEvent(
+        new PointerEvent("pointerup", {
+          pointerId: 8,
+          clientX: 30,
+          clientY: 30,
+          bubbles: true,
+        }),
+      );
+    });
+    expect(state.onMoveFolder).not.toHaveBeenCalled();
+
+    state.onMoveFolder.mockClear();
+    act(() => {
+      result.current.onPointerDown({
+        button: 0,
+        pointerId: 9,
+        clientX: 100,
+        clientY: 100,
+        target: source,
+      } as unknown as React.PointerEvent<HTMLDivElement>);
+    });
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
+    act(() => {
+      window.dispatchEvent(
+        new PointerEvent("pointermove", {
+          pointerId: 9,
+          clientX: -5,
+          clientY: 100,
+          buttons: 1,
+          bubbles: true,
+        }),
+      );
+      window.dispatchEvent(
+        new PointerEvent("pointerup", {
+          pointerId: 9,
+          clientX: -5,
+          clientY: 100,
+          bubbles: true,
+        }),
+      );
+    });
+    expect(state.onMoveFolder).not.toHaveBeenCalled();
+    source.remove();
+    descendant.remove();
   });
 });

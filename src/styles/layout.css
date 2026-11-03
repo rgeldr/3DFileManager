@@ -136,7 +136,18 @@
   outline: 1px solid var(--color-accent);
 }
 
+.folder-tile.drop,
+.file-row.folder-row-item.drop,
+.breadcrumb-segment.drop {
+  outline: 1px solid var(--color-accent);
+}
+
 .folder-row.dragging {
+  opacity: 0.45;
+}
+
+.folder-tile.dragging,
+.file-row.folder-row-item.dragging {
   opacity: 0.45;
 }
 
