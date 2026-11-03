@@ -39,3 +39,17 @@
         assert!(validate_search_scope("Library").is_err());
         assert!(validate_search_scope("").is_err());
     }
+
+    #[test]
+    fn a_second_disk_claim_fails_immediately_and_cancel_is_visible() {
+        let running = AtomicBool::new(false);
+        let cancel = AtomicBool::new(false);
+        claim_disk_running(&running).unwrap();
+        let started = std::time::Instant::now();
+        let err = claim_disk_running(&running).unwrap_err();
+        assert!(started.elapsed() < std::time::Duration::from_millis(200));
+        assert_eq!(err, DISK_BUSY_MESSAGE);
+        assert!(running.load(Ordering::SeqCst));
+        request_disk_cancel(&cancel);
+        assert!(cancel.load(Ordering::SeqCst));
+    }

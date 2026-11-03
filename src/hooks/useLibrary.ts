@@ -570,13 +570,9 @@ export function useLibrary() {
     setTagCounts,
     setTypeCounts,
     refreshLists,
+    refreshDownloads,
     setThumbNonce,
     showToast,
-    libraryBusy,
-    setBusy,
-    setImporting,
-    setProgress,
-    setDiskDialog,
   });
   const drag = useLibraryEffects(model);
   return { ...model, ...drag };

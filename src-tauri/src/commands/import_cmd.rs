@@ -50,5 +50,5 @@ fn cancel_import(state: State<AppState>) {
 
 #[tauri::command]
 fn cancel_disk_op(state: State<AppState>) {
-    state.disk_cancel.store(true, Ordering::SeqCst);
+    request_disk_cancel(&state.disk_cancel);
 }

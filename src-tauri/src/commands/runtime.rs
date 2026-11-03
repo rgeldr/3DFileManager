@@ -24,18 +24,29 @@ impl Drop for DiskGuard {
             .state::<AppState>()
             .disk_running
             .store(false, Ordering::SeqCst);
+        let _ = self.0.emit("library-job-idle", ());
     }
+}
+
+pub const DISK_BUSY_MESSAGE: &str = "A rescan is already running in another window.";
+
+fn claim_disk_running(flag: &AtomicBool) -> Result<(), String> {
+    if flag
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return Err(DISK_BUSY_MESSAGE.into());
+    }
+    Ok(())
+}
+
+fn request_disk_cancel(flag: &AtomicBool) {
+    flag.store(true, Ordering::SeqCst);
 }
 
 fn acquire_disk(app: &AppHandle) -> Result<DiskGuard, String> {
     let state = app.state::<AppState>();
-    if state
-        .disk_running
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
-        return Err("A library operation is already running in another window.".into());
-    }
+    claim_disk_running(&state.disk_running)?;
     state.disk_cancel.store(false, Ordering::SeqCst);
     Ok(DiskGuard(app.clone()))
 }

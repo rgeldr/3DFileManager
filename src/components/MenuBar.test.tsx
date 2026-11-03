@@ -9,6 +9,7 @@ type MenuRecord = {
   checked?: boolean;
   setChecked: ReturnType<typeof vi.fn>;
   item?: string;
+  accelerator?: string;
   items?: MenuRecord[];
 };
 
@@ -19,6 +20,7 @@ function record(input: Record<string, unknown>): MenuRecord {
     text: input.text as string | undefined,
     action: input.action as (() => void) | undefined,
     checked: input.checked as boolean | undefined,
+    accelerator: input.accelerator as string | undefined,
     setChecked: vi.fn(async () => undefined),
     item: input.item as string | undefined,
     items: input.items as MenuRecord[] | undefined,
@@ -125,6 +127,7 @@ describe("MenuBar", () => {
 
     expect(actions.current.importFolder).toHaveBeenCalled();
     expect(actions.current.importArchive).toHaveBeenCalled();
+    expect(byText("New window")?.accelerator).toBe("CmdOrCtrl+N");
     expect(actions.current.openNewWindow).toHaveBeenCalled();
     expect(actions.current.moveLibrary).toHaveBeenCalled();
     expect(actions.current.backupLibrary).toHaveBeenCalled();

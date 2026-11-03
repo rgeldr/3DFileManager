@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use tauri::{AppHandle, Manager, PhysicalPosition, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, WebviewWindow, WebviewWindowBuilder};
 
 pub const MAIN_WINDOW_LABEL: &str = "main";
 pub const SECONDARY_WINDOW_PREFIX: &str = "win-";
@@ -37,26 +37,41 @@ pub fn offset_position(base: (i32, i32)) -> (i32, i32) {
     (base.0 + 32, base.1 + 32)
 }
 
+/// `WebviewWindowBuilder` takes its label from `WindowConfig`. There is no
+/// builder method that replaces it, so the label has to be written first.
+pub fn label_window_config(config: &mut tauri::utils::config::WindowConfig, label: &str) {
+    config.label = label.to_string();
+}
+
+fn placed_origin(app: &AppHandle, anchor: Option<(i32, i32)>) -> (i32, i32) {
+    if let Some(pos) = anchor {
+        return offset_position(pos);
+    }
+    for window in app.webview_windows().values() {
+        if let Ok(pos) = window.outer_position() {
+            return offset_position((pos.x, pos.y));
+        }
+    }
+    (120, 120)
+}
+
 pub fn open_library_window(
     app: &AppHandle,
     anchor: Option<(i32, i32)>,
 ) -> Result<WebviewWindow, String> {
     let label = next_secondary_window_label();
     let config = main_window_config_from_tauri_conf();
-    let window_config = app
+    let mut window_config = app
         .config()
         .app
         .windows
         .first()
         .cloned()
         .ok_or_else(|| "Missing main window config.".to_string())?;
-    let (x, y) = match anchor {
-        Some(pos) => offset_position(pos),
-        None => (100, 100),
-    };
+    label_window_config(&mut window_config, &label);
+    let (x, y) = placed_origin(app, anchor);
     let window = WebviewWindowBuilder::from_config(app, &window_config)
         .map_err(|err| err.to_string())?
-        .label(&label)
         .title(&config.title)
         .inner_size(config.width, config.height)
         .min_inner_size(config.min_width, config.min_height)
@@ -83,7 +98,7 @@ mod tests {
 
     #[test]
     fn main_window_config_matches_tauri_conf_defaults() {
-        let config = main_window_config_from_tauri_conf();
+        let config: MainWindowConfig = main_window_config_from_tauri_conf();
         assert_eq!(config.title, "3D File Library");
         assert_eq!(config.width, 1280.0);
         assert_eq!(config.height, 800.0);
@@ -95,5 +110,13 @@ mod tests {
     #[test]
     fn offset_position_shifts_slightly() {
         assert_eq!(offset_position((10, 20)), (42, 52));
+    }
+
+    #[test]
+    fn label_window_config_replaces_the_main_label() {
+        let mut config: tauri::utils::config::WindowConfig =
+            serde_json::from_str(r#"{"label":"main"}"#).unwrap();
+        label_window_config(&mut config, "win-3");
+        assert_eq!(config.label, "win-3");
     }
 }

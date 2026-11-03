@@ -57,7 +57,12 @@ pub fn run() {
     #[cfg(windows)]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            let _ = windows::open_library_window(app, None);
+            // The plugin runs this on the UI thread inside its message window.
+            // Creating a webview there can deadlock, so hand the work to another thread.
+            let app = app.clone();
+            std::thread::spawn(move || {
+                let _ = windows::open_library_window(&app, None);
+            });
         }));
     }
     builder

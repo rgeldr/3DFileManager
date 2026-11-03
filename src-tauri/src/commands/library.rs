@@ -164,22 +164,15 @@ async fn move_library_root(app: AppHandle, window: WebviewWindow, path: String) 
 }
 
 #[tauri::command]
-async fn export_library_backup(
-    app: AppHandle,
-    window: WebviewWindow,
-    path: String,
-) -> Result<DiskOutcome, String> {
-    let source = window.label().to_string();
+async fn export_library_backup(app: AppHandle, path: String) -> Result<DiskOutcome, String> {
     let _timer = CommandTimer::start("export_library_backup");
-    let result = block_on_disk(app, move |db, cancel, handle| {
+    block_on_disk(app, move |db, cancel, handle| {
         let cancelled = backup::export_library(db, PathBuf::from(path).as_path(), cancel, |progress| {
             emit_disk(&handle, &progress)
         })?;
         Ok(DiskOutcome { cancelled })
     })
-    .await?;
-    emit_library_changed(&app, LibraryChangeKind::All, &source);
-    Ok(result)
+    .await
 }
 
 #[tauri::command]

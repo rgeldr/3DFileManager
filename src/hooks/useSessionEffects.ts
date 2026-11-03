@@ -8,6 +8,7 @@ import { debugLog } from "../debugLog";
 import { clampInspector, clampSidebar } from "../lib/paneWidths";
 import { clampDetailsColumns } from "../lib/detailsColumns";
 import { persistPreviewHeight } from "../lib/previewSplit";
+import { LIBRARY_JOB_BUSY_MESSAGE } from "../lib/libraryJobBusy";
 import { pickDownloadsFolder } from "../components/DownloadsPanel";
 import type { LibrarySort, Settings } from "../types";
 import { fallbackDragIconPath, type Actions, type DiskProgress } from "./libraryTypes";
@@ -109,13 +110,20 @@ export function useSessionEffects(s: {
   }, [dialogOpen]);
 
   useEffect(() => {
+    const refuseIfBusy = () => {
+      if (!libraryBusy.current) return false;
+      setError(LIBRARY_JOB_BUSY_MESSAGE);
+      return true;
+    };
     actions.current = {
       importFolder: () => {
+        if (refuseIfBusy()) return;
         void open({ directory: true, multiple: false }).then((path) => {
           if (typeof path === "string") void runImport([path]);
         });
       },
       importArchive: () => {
+        if (refuseIfBusy()) return;
         void open({
           multiple: true,
           filters: [{ name: "Archives", extensions: ["zip", "rar", "7z"] }],
@@ -125,6 +133,7 @@ export function useSessionEffects(s: {
         });
       },
       moveLibrary: () => {
+        if (refuseIfBusy()) return;
         void open({ directory: true, multiple: false }).then((path) => {
           if (typeof path !== "string") return;
           void runDiskOp({
@@ -142,6 +151,7 @@ export function useSessionEffects(s: {
         });
       },
       backupLibrary: () => {
+        if (refuseIfBusy()) return;
         void open({ directory: true, multiple: false }).then((path) => {
           if (typeof path !== "string") return;
           void runDiskOp({
@@ -154,6 +164,7 @@ export function useSessionEffects(s: {
         });
       },
       restoreLibrary: (libraryPath) => {
+        if (refuseIfBusy()) return;
         void open({ directory: true, multiple: false }).then((backupPath) => {
           if (typeof backupPath !== "string") return;
           const runRestore = (dest: string) => {
@@ -180,6 +191,7 @@ export function useSessionEffects(s: {
         });
       },
       rescan: () => {
+        if (refuseIfBusy()) return;
         void runDiskOp({
           title: "Rescanning library...",
           cancellable: true,
@@ -239,8 +251,18 @@ export function useSessionEffects(s: {
         cancellable: event.payload.cancellable,
       }));
     });
+    const idle = listen("library-job-idle", () => {
+      libraryBusy.current = false;
+      setBusy(null);
+      setImporting(false);
+      setProgress(null);
+      setDiskDialog(null);
+    });
     return () => {
-      void unlisten.then((stop) => stop());
+      void Promise.all([unlisten, idle]).then(([stopProgress, stopIdle]) => {
+        stopProgress();
+        stopIdle();
+      });
     };
   }, []);
 

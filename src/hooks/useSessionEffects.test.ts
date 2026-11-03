@@ -396,4 +396,44 @@ describe("useSessionEffects", () => {
     await waitFor(() => expect(runDiskOp).toHaveBeenCalled());
     expect(restoreLibraryBackup).toHaveBeenCalledWith("/backup/dir", "/dest/lib");
   });
+
+  it("refuses a new library job while one is already running and clears the banner when the job goes idle", async () => {
+    bootstrap.mockResolvedValue({
+      settings: {
+        libraryRoot: "/lib",
+        theme: "dark",
+        gridSize: "large",
+        sidebarWidth: 240,
+        inspectorWidth: 320,
+        previewHeight: 240,
+        thumbRetry: 0,
+        inspectorPinned: true,
+        sidebarPinned: true,
+        searchScope: "library",
+        detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      },
+      folders: [],
+      missingCount: 0,
+    });
+    const handlers = new Map<string, (event: { payload?: unknown }) => void>();
+    listen.mockImplementation(async (...args: unknown[]) => {
+      handlers.set(String(args[0]), args[1] as (event: { payload?: unknown }) => void);
+      return () => undefined;
+    });
+    const state = sessionBag();
+    state.libraryBusy.current = true;
+    renderHook(() => useSessionEffects(state as Parameters<typeof useSessionEffects>[0]));
+    await waitFor(() => expect(state.actions.current.rescan).not.toBeUndefined());
+    act(() => {
+      state.actions.current.rescan();
+    });
+    expect(state.setError).toHaveBeenCalledWith("A rescan is already running in another window.");
+    expect(state.runDiskOp).not.toHaveBeenCalled();
+    act(() => {
+      handlers.get("library-job-idle")?.({});
+    });
+    expect(state.libraryBusy.current).toBe(false);
+    expect(state.setDiskDialog).toHaveBeenCalledWith(null);
+    expect(state.setBusy).toHaveBeenCalledWith(null);
+  });
 });

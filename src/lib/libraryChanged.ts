@@ -39,7 +39,6 @@ export function mergeLibraryChangeKinds(
 export function debounceLibraryChanged(
   schedule: (callback: () => void) => number,
   clear: (id: number) => void,
-  waitMs: number,
 ) {
   let timer: number | null = null;
   let pending: LibraryChangeKind | null = null;

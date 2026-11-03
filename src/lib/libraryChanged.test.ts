@@ -27,7 +27,6 @@ describe("libraryChanged", () => {
     const debounced = debounceLibraryChanged(
       (callback) => window.setTimeout(callback, 50),
       (id) => window.clearTimeout(id),
-      50,
     );
     debounced.push("files", run);
     debounced.push("folders", run);

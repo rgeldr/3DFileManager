@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useLibraryChanged } from "./useLibraryChanged";
 
-const listen = vi.fn(async () => () => undefined);
+const listen = vi.fn(async (..._args: unknown[]) => () => undefined);
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: (...args: unknown[]) => listen(...args),
@@ -70,8 +70,8 @@ describe("useLibraryChanged", () => {
     const showToast = vi.fn();
     const setFolders = vi.fn();
     let handler: ((event: { payload: { kind: string; sourceWindow: string } }) => void) | null = null;
-    listen.mockImplementation(async (_name, cb) => {
-      handler = cb;
+    listen.mockImplementation(async (...args: unknown[]) => {
+      handler = args[1] as (event: { payload: { kind: string; sourceWindow: string } }) => void;
       return () => undefined;
     });
     const { unmount } = renderHook(() =>
@@ -99,13 +99,9 @@ describe("useLibraryChanged", () => {
         setTagCounts: vi.fn(),
         setTypeCounts: vi.fn(),
         refreshLists,
+        refreshDownloads: vi.fn(async () => undefined),
         setThumbNonce: vi.fn(),
         showToast,
-        libraryBusy: { current: false },
-        setBusy: vi.fn(),
-        setImporting: vi.fn(),
-        setProgress: vi.fn(),
-        setDiskDialog: vi.fn(),
       }),
     );
     expect(handler).not.toBeNull();
@@ -119,7 +115,13 @@ describe("useLibraryChanged", () => {
     await act(async () => {
       vi.advanceTimersByTime(200);
     });
-    expect(refreshLists).toHaveBeenCalled();
+    expect(refreshLists).toHaveBeenCalledWith(
+      { type: "root" },
+      "",
+      "",
+      { field: "name", direction: "asc" },
+    );
+    expect(bootstrap).not.toHaveBeenCalled();
     unmount();
     vi.useRealTimers();
   });

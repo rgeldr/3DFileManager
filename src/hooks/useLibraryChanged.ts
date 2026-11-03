@@ -10,6 +10,7 @@ import {
   type LibraryChangedPayload,
 } from "../lib/libraryChanged";
 import { clampInspector, clampSidebar } from "../lib/paneWidths";
+import { samePlace } from "../lib/folderHistory";
 import { persistPreviewHeight } from "../lib/previewSplit";
 import type { Browse, FolderRow, LibrarySort, Settings } from "../types";
 
@@ -43,17 +44,9 @@ export function useLibraryChanged(s: {
     nextSort?: LibrarySort,
     mode?: "passive",
   ) => Promise<void>;
+  refreshDownloads: () => Promise<void>;
   setThumbNonce: React.Dispatch<React.SetStateAction<number>>;
   showToast: (message: string) => void;
-  libraryBusy: { current: boolean };
-  setBusy: React.Dispatch<React.SetStateAction<string | null>>;
-  setImporting: React.Dispatch<React.SetStateAction<boolean>>;
-  setProgress: React.Dispatch<
-    React.SetStateAction<{ current: number; total: number; message: string } | null>
-  >;
-  setDiskDialog: React.Dispatch<
-    React.SetStateAction<import("./libraryTypes").DiskDialog | null>
-  >;
 }) {
   const {
     ready,
@@ -79,13 +72,9 @@ export function useLibraryChanged(s: {
     setTagCounts,
     setTypeCounts,
     refreshLists,
+    refreshDownloads,
     setThumbNonce,
     showToast,
-    libraryBusy,
-    setBusy,
-    setImporting,
-    setProgress,
-    setDiskDialog,
   } = s;
 
   const windowLabel = useRef("main");
@@ -115,21 +104,17 @@ export function useLibraryChanged(s: {
     const debounced = debounceLibraryChanged(
       (callback) => window.setTimeout(callback, 150),
       (id) => window.clearTimeout(id),
-      150,
     );
 
     const handle = async (payload: LibraryChangedPayload) => {
       if (shouldIgnoreLibraryChanged(payload, windowLabel.current)) return;
-      libraryBusy.current = false;
-      setBusy(null);
-      setImporting(false);
-      setProgress(null);
-      setDiskDialog(null);
       debounced.push(payload.kind, async (kind) => {
         const previousFolders = foldersRef.current;
+        let nextBrowse = browse;
         if (kind === "settings") {
           const settings = await api.getSettings();
           await applySettings(settings);
+          if (browse.type === "downloads") await refreshDownloads();
           return;
         }
         if (kind === "folders" || kind === "all") {
@@ -141,40 +126,42 @@ export function useLibraryChanged(s: {
           }
           const fallback = browseAfterFolderTreeUpdate(browse, previousFolders, boot.folders);
           if (fallback.notice) showToast(fallback.notice);
-          if (fallback.browse !== browse) {
+          if (!samePlace(fallback.browse, browse)) {
+            nextBrowse = fallback.browse;
             setHistory((current) => ({ ...current, current: fallback.browse, forward: [] }));
           }
         }
         if (kind === "tags" || kind === "all") {
-          const [tagRows, creatorRows, typeRows] = await Promise.all([
+          const folderId = nextBrowse.type === "folder" ? nextBrowse.id : null;
+          const folder = nextBrowse.type === "folder" ? "subtree" : "all";
+          const [tagRows, creatorRows, typeRows, tagCounts] = await Promise.all([
             api.listTags(),
             api.listCreators({ folder: "", folderId: null }),
             api.listTypeCounts({
-              folder: browse.type === "folder" ? "subtree" : "all",
-              folderId: browse.type === "folder" ? browse.id : null,
+              folder,
+              folderId,
               query,
               creator,
               tagIds: [],
               tagMatch: "any",
             }),
+            api.listTagCounts({
+              folder,
+              folderId,
+              query,
+              creator,
+              exts: [],
+            }),
           ]);
           setTags(tagRows);
           setCreators(creatorRows);
           setCreatorOptions(creatorRows);
-          setTagCounts(await api.listTagCounts({
-            folder: browse.type === "folder" ? "subtree" : "all",
-            folderId: browse.type === "folder" ? browse.id : null,
-            query,
-            creator,
-            exts: [],
-          }));
+          setTagCounts(tagCounts);
           setTypeCounts(typeRows);
         }
-        if (kind === "files" || kind === "all") {
-          await refreshLists(undefined, undefined, undefined, sort, "passive");
-          setThumbNonce((nonce) => nonce + 1);
-        } else if (kind === "folders") {
-          await refreshLists(undefined, undefined, undefined, sort, "passive");
+        if (kind === "files" || kind === "folders" || kind === "all" || kind === "tags") {
+          await refreshLists(nextBrowse, query, creator, sort);
+          if (kind !== "folders") setThumbNonce((nonce) => nonce + 1);
         }
       });
     };
@@ -186,5 +173,5 @@ export function useLibraryChanged(s: {
       debounced.cancel();
       void unlisten.then((stop) => stop());
     };
-  }, [ready, browse, query, creator, sort, refreshLists, showToast]);
+  }, [ready, browse, query, creator, sort, refreshLists, refreshDownloads, showToast]);
 }
