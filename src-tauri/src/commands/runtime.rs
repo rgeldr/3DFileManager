@@ -55,12 +55,12 @@ fn emit_disk(app: &AppHandle, progress: &relocate::DiskProgress) {
     let _ = app.emit("disk-progress", progress);
 }
 
-async fn block_on_disk<T, F>(app: AppHandle, work: F) -> Result<T, String>
+async fn block_on_disk<T, F>(app: &AppHandle, work: F) -> Result<T, String>
 where
     T: Send + 'static,
     F: FnOnce(&AppDb, &AtomicBool, AppHandle) -> Result<T, String> + Send + 'static,
 {
-    let _guard = acquire_disk(&app)?;
+    let _guard = acquire_disk(app)?;
     let cancel = app.state::<AppState>().disk_cancel.clone();
     let db = app.state::<AppState>().db.clone();
     let worker = app.clone();

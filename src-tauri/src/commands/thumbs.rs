@@ -1,6 +1,3 @@
-use crate::library_events::{emit_library_changed, LibraryChangeKind};
-use tauri::WebviewWindow;
-
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ThumbJob {

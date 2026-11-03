@@ -12,7 +12,7 @@ pub fn next_secondary_window_label() -> String {
     format!("{SECONDARY_WINDOW_PREFIX}{index}")
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MainWindowConfig {
     pub title: String,
     pub width: f64,
@@ -75,7 +75,6 @@ pub fn open_library_window(
         .title(&config.title)
         .inner_size(config.width, config.height)
         .min_inner_size(config.min_width, config.min_height)
-        .drag_and_drop(config.drag_drop_enabled)
         .position(x as f64, y as f64)
         .build()
         .map_err(|err| err.to_string())?;

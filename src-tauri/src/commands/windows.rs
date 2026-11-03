@@ -1,7 +1,5 @@
-use tauri::{AppHandle, Manager, WebviewWindow};
-
 #[tauri::command]
-pub async fn open_new_window(app: AppHandle, window: WebviewWindow) -> Result<String, String> {
+async fn open_new_window(app: AppHandle, window: WebviewWindow) -> Result<String, String> {
     let anchor = window
         .outer_position()
         .map(|pos: tauri::PhysicalPosition<i32>| (pos.x, pos.y))

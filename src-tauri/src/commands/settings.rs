@@ -1,6 +1,3 @@
-use crate::library_events::{emit_library_changed, LibraryChangeKind};
-use tauri::WebviewWindow;
-
 fn validate_theme(theme: &str) -> Result<(), String> {
     if theme != "dark" && theme != "light" {
         return Err("Unknown theme.".into());

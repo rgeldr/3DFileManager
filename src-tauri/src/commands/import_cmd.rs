@@ -1,6 +1,3 @@
-use crate::library_events::emit_library_changed;
-use tauri::WebviewWindow;
-
 #[tauri::command]
 async fn import_paths(
     app: AppHandle,

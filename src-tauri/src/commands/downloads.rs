@@ -1,6 +1,3 @@
-use crate::library_events::{emit_library_changed, LibraryChangeKind};
-use tauri::WebviewWindow;
-
 #[tauri::command]
 async fn set_downloads_folder(
     app: AppHandle,

@@ -1,6 +1,3 @@
-use crate::library_events::{emit_library_changed, LibraryChangeKind};
-use tauri::WebviewWindow;
-
 fn recycle_and_drop_files(
     db: &Mutex<AppDb>,
     items: &[db::TrashItem],
@@ -201,11 +198,11 @@ async fn update_file(
 ) -> Result<DiskOutcome, String> {
     let source = window.label().to_string();
     let _timer = CommandTimer::start("update_file");
-    let result = block_on_disk(app, move |db, cancel, handle| {
+    let result = block_on_disk(&app, move |db, cancel, handle| {
         let cancelled = db.update_file_with(id, &sort_name, &creator, &notes, folder_id, cancel, |progress| {
             emit_disk(&handle, &progress)
         })?;
-        Ok(DiskOutcome { cancelled })
+        Ok::<DiskOutcome, String>(DiskOutcome { cancelled })
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Files, &source);
@@ -216,7 +213,7 @@ async fn update_file(
 async fn rename_file(app: AppHandle, window: WebviewWindow, id: i64, name: String) -> Result<DiskOutcome, String> {
     let source = window.label().to_string();
     let _timer = CommandTimer::start("rename_file");
-    let result = block_on_disk(app, move |db, _cancel, _handle| {
+    let result = block_on_disk(&app, move |db, _cancel, _handle| {
         db.rename_library_file(id, &name)?;
         Ok(DiskOutcome { cancelled: false })
     })
@@ -404,7 +401,7 @@ async fn recycle_paths(app: AppHandle, window: WebviewWindow, paths: Vec<String>
     let result = tauri::async_runtime::spawn_blocking(move || {
         let (failed, cancelled) =
             import::recycle_paths_with(&paths, &[], &cancel, |progress| emit_disk(&handle, &progress))?;
-        Ok(RecycleOutcome { failed, cancelled })
+        Ok::<RecycleOutcome, String>(RecycleOutcome { failed, cancelled })
     })
     .await
     .map_err(|err| err.to_string())??;
@@ -434,7 +431,7 @@ async fn recycle_last_import(app: AppHandle, window: WebviewWindow) -> Result<Re
     let result = tauri::async_runtime::spawn_blocking(move || {
         let (failed, cancelled) =
             import::recycle_paths_with(&paths, &roots, &cancel, |progress| emit_disk(&handle, &progress))?;
-        Ok(RecycleOutcome { failed, cancelled })
+        Ok::<RecycleOutcome, String>(RecycleOutcome { failed, cancelled })
     })
     .await
     .map_err(|err| err.to_string())??;
@@ -451,9 +448,9 @@ async fn move_files(
 ) -> Result<DiskOutcome, String> {
     let source = window.label().to_string();
     let _timer = CommandTimer::start("move_files");
-    let result = block_on_disk(app, move |db, cancel, handle| {
+    let result = block_on_disk(&app, move |db, cancel, handle| {
         let cancelled = db.move_files_with(&ids, folder_id, cancel, |progress| emit_disk(&handle, &progress))?;
-        Ok(DiskOutcome { cancelled })
+        Ok::<DiskOutcome, String>(DiskOutcome { cancelled })
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Files, &source);
@@ -476,7 +473,7 @@ async fn delete_files(app: AppHandle, window: WebviewWindow, ids: Vec<i64>) -> R
         let cancelled = recycle_and_drop_files(&db, &items, &cancel, |progress| emit_disk(&handle, &progress), |path| {
             trash::delete(path).map_err(|err| err.to_string())
         })?;
-        Ok(DiskOutcome { cancelled })
+        Ok::<DiskOutcome, String>(DiskOutcome { cancelled })
     })
     .await
     .map_err(|err| err.to_string())??;

@@ -28,8 +28,10 @@ use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::library_events::{emit_library_changed, LibraryChangeKind};
 use db::{AppDb, FolderFilter};
 use settings::Settings;
+use tauri::WebviewWindow;
 
 include!("commands/runtime.rs");
 include!("commands/library.rs");

@@ -30,6 +30,41 @@
     }
 
     #[test]
+    fn shared_command_imports_are_centralized_in_lib_rs() {
+        let sources = [
+            ("library.rs", include_str!("library.rs")),
+            ("settings.rs", include_str!("settings.rs")),
+            ("files.rs", include_str!("files.rs")),
+            ("import_cmd.rs", include_str!("import_cmd.rs")),
+            ("thumbs.rs", include_str!("thumbs.rs")),
+            ("downloads.rs", include_str!("downloads.rs")),
+            ("windows.rs", include_str!("windows.rs")),
+        ];
+        for (file, src) in sources {
+            assert!(
+                !src.contains("use crate::library_events"),
+                "{file} should not import library_events (lib.rs owns it)"
+            );
+            assert!(
+                !src.contains("use tauri::WebviewWindow"),
+                "{file} should not import WebviewWindow (lib.rs owns it)"
+            );
+        }
+        let lib = include_str!("../lib.rs");
+        assert!(lib.contains("use crate::library_events"));
+        assert!(lib.contains("use tauri::WebviewWindow"));
+    }
+
+    #[test]
+    fn block_on_disk_borrows_the_app_handle() {
+        let runtime = include_str!("runtime.rs");
+        assert!(
+            runtime.contains("async fn block_on_disk<T, F>(app: &AppHandle"),
+            "block_on_disk should take &AppHandle so callers can emit after disk work"
+        );
+    }
+
+    #[test]
     fn mutating_commands_emit_one_library_changed_with_the_right_kind() {
         let sources = [
             include_str!("library.rs"),

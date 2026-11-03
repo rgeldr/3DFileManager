@@ -1,6 +1,3 @@
-use crate::library_events::{emit_library_changed, LibraryChangeKind};
-use tauri::WebviewWindow;
-
 #[tauri::command]
 async fn library_stats(app: AppHandle) -> Result<db::LibraryStats, String> {
     let db = app.state::<AppState>().db.clone();
@@ -71,9 +68,9 @@ async fn rename_folder(
 ) -> Result<DiskOutcome, String> {
     let source = window.label().to_string();
     let _timer = CommandTimer::start("rename_folder");
-    let result = block_on_disk(app, move |db, cancel, app| {
+    let result = block_on_disk(&app, move |db, cancel, app| {
         let cancelled = db.rename_folder_with(id, &name, cancel, |progress| emit_disk(&app, &progress))?;
-        Ok(DiskOutcome { cancelled })
+        Ok::<DiskOutcome, String>(DiskOutcome { cancelled })
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Folders, &source);
@@ -84,7 +81,7 @@ async fn rename_folder(
 async fn delete_folder(app: AppHandle, window: WebviewWindow, id: i64) -> Result<DiskOutcome, String> {
     let source = window.label().to_string();
     let _timer = CommandTimer::start("delete_folder");
-    let result = block_on_disk(app, move |db, _cancel, _app| {
+    let result = block_on_disk(&app, move |db, _cancel, _app| {
         db.delete_folder(id)?;
         Ok(DiskOutcome { cancelled: false })
     })
@@ -102,11 +99,11 @@ async fn move_folder(
 ) -> Result<DiskOutcome, String> {
     let source = window.label().to_string();
     let _timer = CommandTimer::start("move_folder");
-    let result = block_on_disk(app, move |db, cancel, app| {
+    let result = block_on_disk(&app, move |db, cancel, app| {
         let cancelled = db.move_folder_with(id, parent_id, cancel, false, |progress| {
             emit_disk(&app, &progress)
         })?;
-        Ok(DiskOutcome { cancelled })
+        Ok::<DiskOutcome, String>(DiskOutcome { cancelled })
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Folders, &source);
@@ -117,7 +114,7 @@ async fn move_folder(
 async fn rescan_library(app: AppHandle, window: WebviewWindow) -> Result<rescan::RescanSummary, String> {
     let source = window.label().to_string();
     let _timer = CommandTimer::start("rescan_library");
-    let result = block_on_disk(app, move |db, cancel, handle| {
+    let result = block_on_disk(&app, move |db, cancel, handle| {
         rescan::rescan_with(db, cancel, None, |progress| emit_disk(&handle, &progress))
     })
     .await?;
@@ -133,7 +130,7 @@ async fn rescan_folder(
 ) -> Result<rescan::RescanSummary, String> {
     let source = window.label().to_string();
     let _timer = CommandTimer::start("rescan_folder");
-    let result = block_on_disk(app, move |db, cancel, handle| {
+    let result = block_on_disk(&app, move |db, cancel, handle| {
         let rel = db.folder_relpath(folder_id)?;
         rescan::rescan_with(db, cancel, Some(&rel), |progress| emit_disk(&handle, &progress))
     })
@@ -147,7 +144,7 @@ async fn move_library_root(app: AppHandle, window: WebviewWindow, path: String) 
     let source = window.label().to_string();
     let _timer = CommandTimer::start("move_library_root");
     let scope_app = app.clone();
-    let result = block_on_disk(app, move |db, cancel, handle| {
+    let result = block_on_disk(&app, move |db, cancel, handle| {
         let cancelled = db.move_library_root(PathBuf::from(path).as_path(), cancel, |progress| {
             emit_disk(&handle, &progress)
         })?;
@@ -156,7 +153,7 @@ async fn move_library_root(app: AppHandle, window: WebviewWindow, path: String) 
                 allow_asset_scope(&scope_app, &root);
             }
         }
-        Ok(DiskOutcome { cancelled })
+        Ok::<DiskOutcome, String>(DiskOutcome { cancelled })
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::All, &source);
@@ -166,11 +163,11 @@ async fn move_library_root(app: AppHandle, window: WebviewWindow, path: String) 
 #[tauri::command]
 async fn export_library_backup(app: AppHandle, path: String) -> Result<DiskOutcome, String> {
     let _timer = CommandTimer::start("export_library_backup");
-    block_on_disk(app, move |db, cancel, handle| {
+    block_on_disk(&app, move |db, cancel, handle| {
         let cancelled = backup::export_library(db, PathBuf::from(path).as_path(), cancel, |progress| {
             emit_disk(&handle, &progress)
         })?;
-        Ok(DiskOutcome { cancelled })
+        Ok::<DiskOutcome, String>(DiskOutcome { cancelled })
     })
     .await
 }
@@ -207,7 +204,7 @@ async fn restore_library_backup(
             }
             allow_asset_scope(&scope_app, &db.data_dir.join("thumbs"));
         }
-        Ok(DiskOutcome { cancelled })
+        Ok::<DiskOutcome, String>(DiskOutcome { cancelled })
     })
     .await
     .map_err(|err| err.to_string())??;
