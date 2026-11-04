@@ -363,7 +363,9 @@ export function Sidebar({
         >
           <span className="tree-twist-spacer" aria-hidden />
           <svg className="downloads-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden>
-            <path fill="#3d9a50" d="M8 2v7.2L5.4 6.6 4 8l4 4 4-4-1.4-1.4L8 9.2V2z" />
+            <line x1="8" y1="2" x2="8" y2="12" stroke="#3d9a50" strokeWidth="1.5" strokeLinecap="round" />
+            <path fill="#3d9a50" d="M5.4 6.6L4 8 8 12 7.25 11.25V9.2L5.4 6.6z" />
+            <path fill="#3d9a50" d="M10.6 6.6 12 8 8 12 8.75 11.25V9.2L10.6 6.6z" />
             <path fill="#3d9a50" d="M3 13h10v1H3z" />
           </svg>
           <span className="folder-label">Downloads</span>
