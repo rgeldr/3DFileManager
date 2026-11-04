@@ -65,6 +65,40 @@ describe("folder tree menu", () => {
     expect(onRescan).toHaveBeenCalledWith(3);
   });
 
+  it("draws the downloads icon with a vertical shaft through the arrow", () => {
+    const { container } = render(
+      <Sidebar
+        folders={[toys]}
+        libraryName="3D Print Library"
+        browseKey="root"
+        dropTarget={null}
+        expandHint={null}
+        onBrowse={() => undefined}
+        onNew={() => undefined}
+        onRename={() => undefined}
+        onDelete={() => undefined}
+        onNewInFolder={() => undefined}
+        onRenameFolder={() => undefined}
+        onDeleteFolder={() => undefined}
+        onTagFolder={() => undefined}
+        onSetCreator={() => undefined}
+        onReveal={() => undefined}
+        onRescan={() => undefined}
+        onMoveFolder={() => undefined}
+        pinned
+        onPinnedChange={() => undefined}
+      />,
+    );
+    const icon = container.querySelector("svg.downloads-icon");
+    expect(icon?.getAttribute("width")).toBe("16");
+    const shaft = icon?.querySelector("line");
+    expect(shaft?.getAttribute("x1")).toBe("8");
+    expect(shaft?.getAttribute("x2")).toBe("8");
+    expect(shaft?.getAttribute("stroke")).toBe("#3d9a50");
+    expect(shaft?.getAttribute("stroke-width")).toBe("1.5");
+    expect(icon?.querySelector('path[d="M3 13h10v1H3z"]')).toBeTruthy();
+  });
+
   it("lists Downloads before the library root row", () => {
     const onBrowse = vi.fn();
     const { container } = render(
