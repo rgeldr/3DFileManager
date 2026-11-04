@@ -2,6 +2,7 @@
   "name": "3d-file-library",
   "private": true,
   "version": "26.11.2",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -112,3 +112,7 @@ The catalog and settings are not inside the library folder. They live in `%APPDA
 - `debug.log`
 
 `thumbRetry` records that unavailable PNG and JPG rows were queued once for a new thumbnail pass. Later decode failures stay unavailable and are written to `debug.log`.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE). Third-party libraries and bundled components (including UnRAR) are described in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
