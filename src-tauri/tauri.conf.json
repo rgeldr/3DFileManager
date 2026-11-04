@@ -41,6 +41,9 @@
   },
   "bundle": {
     "active": true,
+    "copyright": "Copyright (c) 2026 Jason McAdams",
+    "license": "MIT",
+    "licenseFile": "../LICENSE",
     "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
