@@ -1,6 +1,6 @@
 # Searching and Filtering
 
-The toolbar narrows the file list. File counts in the File Types and Tags menus follow the current search, creator, and folder scope.
+The toolbar narrows the file list in the library. File counts in the File Types and Tags menus follow the current search, creator, and folder scope. These controls are disabled while **Downloads** is open; use column headers there to sort instead.
 
 ## Search
 

@@ -10,7 +10,9 @@ Right-click a folder in the tree:
 - **Tag contents…** adds tags to every file in that folder and its subfolders. Tags already on those files stay.
 - **Set Creator…** sets the creator on files in that folder. Check **Include subfolders** to include nested folders. The field suggests creators already in the library.
 
-Drag a folder onto another folder, or onto the library root, to move it. You cannot drop a folder onto itself or onto one of its own subfolders.
+Right-click a folder tile or row in the file grid for the same menu (when that folder is shown in the grid).
+
+Drag a folder in the tree or the grid onto another folder, or onto the library root, to move it. You cannot drop a folder onto itself or onto one of its own subfolders. Subfolder tiles and rows are hidden while search or filters are active, so folder moves from the grid are only available with an unfiltered folder view.
 
 The buttons above the tree do the same for the folder that is open. **New folder** on the library root creates a top-level folder. **Rename** and **Delete** do nothing while the library root is selected.
 

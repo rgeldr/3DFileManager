@@ -1,6 +1,6 @@
 # 3D File Library
 
-3D File Library is a Windows app for keeping FDM and resin print files in one folder. You can browse that folder, tag files, preview meshes, and drag a file into a slicer.
+3D File Library is a Windows app for keeping FDM and resin print files in one folder. You can browse that folder, tag files, preview meshes, drag a file into a slicer, and stage files from a Downloads folder before adding them to the library.
 
 Installers are on [GitHub Releases](https://github.com/rgeldr/3DFileManager/releases). Building and publishing a release are described in the [README](https://github.com/rgeldr/3DFileManager#readme).
 
