@@ -3,7 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "./api";
 import { Breadcrumb } from "./components/Breadcrumb";
 import { FileGrid } from "./components/FileGrid";
-import { LibrarySearch } from "./components/LibrarySearch";
+import { LibrarySearch, SearchScope } from "./components/LibrarySearch";
 import { TagFilter } from "./components/TagFilter";
 import { TypeFilter } from "./components/TypeFilter";
 import { MenuBar } from "./components/MenuBar";
@@ -37,7 +37,7 @@ import { useAppUpdate } from "./hooks/useAppUpdate";
 import { useThumbQueueCount } from "./hooks/useThumbQueueCount";
 import { clampInspector, clampSidebar, INSPECTOR_RAIL_WIDTH } from "./lib/paneWidths";
 import { centerSubfolders, gridEmptyMessage, LIBRARY_SEARCH_LIMIT, nextSort, sortFromDropdown, truncatedSearchMessage } from "./lib/tagFilter";
-import type { SearchScope, SortField, ViewMode } from "./types";
+import type { SortField, ViewMode } from "./types";
 
 export function App() {
   const app = useLibrary();
@@ -388,11 +388,6 @@ export function AppShell({ app }: { app: LibraryModel }) {
               selectedTypeIds={selectedTypeIds}
               tags={tagCounts}
               types={typeCounts}
-              scope={settings?.searchScope ?? "library"}
-              onScope={(scope: SearchScope) => {
-                setSettings((current) => (current ? { ...current, searchScope: scope } : current));
-                void api.setSearchScope(scope).catch((err) => setError(String(err)));
-              }}
               onQuery={setQuery}
               onClear={() => {
                 setQuery("");
@@ -419,11 +414,21 @@ export function AppShell({ app }: { app: LibraryModel }) {
                 onMatch={setTagMatch}
               />
             </div>
-            <div className="toolbar-row">
-              <select aria-label="Creator" value={creator} onChange={(event) => setCreator(event.target.value)} disabled={onDownloads}>
-                <option value="">All creators</option>
-                {creatorSelectOptions.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
+            <div className="toolbar-row toolbar-creator-row">
+              <div className="toolbar-creator">
+                <SearchScope
+                  scope={settings?.searchScope ?? "library"}
+                  disabled={onDownloads}
+                  onScope={(scope) => {
+                    setSettings((current) => (current ? { ...current, searchScope: scope } : current));
+                    void api.setSearchScope(scope).catch((err) => setError(String(err)));
+                  }}
+                />
+                <select aria-label="Creator" value={creator} onChange={(event) => setCreator(event.target.value)} disabled={onDownloads}>
+                  <option value="">All creators</option>
+                  {creatorSelectOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </div>
               <select
                 aria-label="Sort"
                 value={sort.field}

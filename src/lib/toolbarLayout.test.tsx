@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import { LibrarySearch } from "../components/LibrarySearch";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import { LibrarySearch, SearchScope } from "../components/LibrarySearch";
 import { TagFilter } from "../components/TagFilter";
 import { TypeFilter } from "../components/TypeFilter";
 import type { TagCount, TypeCount } from "../types";
@@ -11,6 +11,8 @@ import type { TagCount, TypeCount } from "../types";
 const stylesDir = join(dirname(fileURLToPath(import.meta.url)), "../styles");
 const workspaceCss = readFileSync(join(stylesDir, "workspace.css"), "utf8");
 const chipCss = readFileSync(join(stylesDir, "tag-filter.css"), "utf8");
+
+afterEach(cleanup);
 
 const tags: TagCount[] = [
   { id: 1, name: "Humans", fileCount: 4 },
@@ -36,8 +38,6 @@ function Toolbar({ selected, selectedTypes = [] }: { selected: number[]; selecte
         onClear={() => undefined}
         onSelectedTagIds={() => undefined}
         onSelectedTypeIds={() => undefined}
-        scope="library"
-        onScope={() => undefined}
       />
       <div className="toolbar-controls">
         <div className="toolbar-row">
@@ -50,10 +50,13 @@ function Toolbar({ selected, selectedTypes = [] }: { selected: number[]; selecte
             onMatch={() => undefined}
           />
         </div>
-        <div className="toolbar-row">
-          <select aria-label="Creator" defaultValue="">
-            <option value="">All creators</option>
-          </select>
+        <div className="toolbar-row toolbar-creator-row">
+          <div className="toolbar-creator">
+            <SearchScope scope="library" onScope={() => undefined} />
+            <select aria-label="Creator" defaultValue="">
+              <option value="">All creators</option>
+            </select>
+          </div>
           <select aria-label="Sort" defaultValue="name">
             <option value="name">Sort name</option>
           </select>
@@ -67,7 +70,9 @@ describe("toolbar layout", () => {
   it("keeps the tag button, creator, and sort in place when chips appear under search", () => {
     const view = render(<Toolbar selected={[]} />);
     const controls = document.querySelector(".toolbar-controls") as HTMLElement;
-    const creatorRow = screen.getByLabelText("Creator").parentElement;
+    const creator = screen.getByLabelText("Creator");
+    const creatorStack = creator.parentElement;
+    const creatorRow = creator.closest(".toolbar-row");
     const tagsButton = screen.getByRole("button", { name: "Tags" });
     const typesButton = screen.getByRole("button", { name: "File Types" });
     const clearButton = screen.getByRole("button", { name: "Clear filters" });
@@ -81,8 +86,9 @@ describe("toolbar layout", () => {
     expect(controls.contains(tagsButton)).toBe(true);
     expect(controls.contains(screen.getByLabelText("Creator"))).toBe(true);
     expect(controls.contains(screen.getByLabelText("Sort"))).toBe(true);
+    expect(creatorStack?.className).toBe("toolbar-creator");
     expect(creatorRow).toBe(screen.getByLabelText("Sort").parentElement);
-    expect(creatorRow?.className).toBe("toolbar-row");
+    expect(creatorRow?.className).toBe("toolbar-row toolbar-creator-row");
     expect(document.querySelector(".tag-filter-chips")).toBeNull();
 
     view.rerender(<Toolbar selected={[1, 2]} selectedTypes={["stl"]} />);
@@ -94,7 +100,7 @@ describe("toolbar layout", () => {
     expect(search.children[0]?.children[1]).toBe(screen.getByRole("button", { name: "Clear filters" }));
     expect((screen.getByRole("button", { name: "Clear filters" }) as HTMLButtonElement).disabled).toBe(false);
     expect(search.children[1]).toBe(chips);
-    expect(screen.getByLabelText("Creator").parentElement).toBe(creatorRow);
+    expect(screen.getByLabelText("Creator").parentElement).toBe(creatorStack);
     expect(screen.getByRole("button", { name: "Tags (2)" }).parentElement?.closest(".toolbar-controls")).toBe(controls);
     expect(screen.getByRole("button", { name: "File Types (1)" }).closest(".toolbar-row")).toBe(tagsButton.closest(".toolbar-row"));
     expect(chips.textContent).toContain("Humans");
@@ -105,7 +111,37 @@ describe("toolbar layout", () => {
     expect(workspaceCss).toMatch(/\.toolbar\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto/s);
     expect(workspaceCss).toMatch(/\.toolbar-controls\s*\{[^}]*flex-direction:\s*column/s);
     expect(workspaceCss).toMatch(/\.toolbar-row\s*\{[^}]*flex-wrap:\s*nowrap/s);
+    expect(workspaceCss).toMatch(/\.toolbar-search-row input\[type="search"\]\s*\{[^}]*flex:\s*1;/s);
     expect(chipCss).not.toMatch(/flex:\s*1\s*0\s*100%/);
     expect(chipCss).toMatch(/\.tag-filter-chips\s*\{[^}]*flex-wrap:\s*wrap;[^}]*overflow:\s*auto/s);
+  });
+
+  it("renders the search scope above the creator dropdown", () => {
+    const { container } = render(<Toolbar selected={[]} />);
+    const scope = screen.getByRole("radiogroup", { name: "Search scope" });
+    const creator = screen.getByLabelText("Creator");
+    const searchRow = screen.getByLabelText("Search").parentElement;
+    expect(scope.closest(".toolbar-creator")).toBe(creator.parentElement);
+    expect(scope.parentElement?.className).toBe("toolbar-creator");
+    expect(scope.nextElementSibling).toBe(creator);
+    expect(searchRow?.contains(scope)).toBe(false);
+    expect(scope.querySelectorAll('input[name="search-scope"]').length).toBe(2);
+    expect(screen.getByLabelText("Current folder").getAttribute("name")).toBe("search-scope");
+    expect(screen.getByLabelText("Entire library").getAttribute("name")).toBe("search-scope");
+
+    const labels = [...container.querySelectorAll("input, button, select")].map((element) => {
+      const named = element.getAttribute("aria-label") || element.textContent?.trim();
+      return named || element.closest("label")?.textContent?.trim();
+    });
+    expect(labels).toEqual([
+      "Search",
+      "Clear filters",
+      "File Types",
+      "Tags",
+      "Current folder",
+      "Entire library",
+      "Creator",
+      "Sort",
+    ]);
   });
 });
