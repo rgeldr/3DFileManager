@@ -91,11 +91,19 @@ describe("folder tree menu", () => {
     );
     const icon = container.querySelector("svg.downloads-icon");
     expect(icon?.getAttribute("width")).toBe("16");
+    const head = icon?.querySelector("path");
     const shaft = icon?.querySelector("line");
+    expect(head?.getAttribute("d")).toBe("M4.5 7.6 L8 11.4 L11.5 7.6");
+    expect(head?.getAttribute("fill")).toBe("none");
+    expect(head?.getAttribute("stroke")).toBe("#3d9a50");
+    expect(head?.getAttribute("stroke-width")).toBe("1.5");
     expect(shaft?.getAttribute("x1")).toBe("8");
     expect(shaft?.getAttribute("x2")).toBe("8");
+    expect(shaft?.getAttribute("y1")).toBe("2");
+    expect(shaft?.getAttribute("y2")).toBe("11.4");
     expect(shaft?.getAttribute("stroke")).toBe("#3d9a50");
     expect(shaft?.getAttribute("stroke-width")).toBe("1.5");
+    expect(head && shaft && (head.compareDocumentPosition(shaft) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTruthy();
     expect(icon?.querySelector('path[d="M3 13h10v1H3z"]')).toBeTruthy();
   });
 
