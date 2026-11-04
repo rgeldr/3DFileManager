@@ -72,9 +72,13 @@ vi.mock("./components/Breadcrumb", () => ({
   Breadcrumb: () => <div data-testid="breadcrumb" />,
 }));
 
-vi.mock("./components/LibrarySearch", () => ({
-  LibrarySearch: () => <div data-testid="search" />,
-}));
+vi.mock("./components/LibrarySearch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./components/LibrarySearch")>();
+  return {
+    ...actual,
+    LibrarySearch: () => <div data-testid="search" />,
+  };
+});
 
 vi.mock("./components/TagFilter", () => ({
   TagFilter: () => null,
@@ -231,6 +235,13 @@ describe("AppShell", () => {
     expect(screen.getByTestId("sidebar")).toBeTruthy();
     expect(screen.getByTestId("file-grid")).toBeTruthy();
     expect(screen.getByTestId("inspector")).toBeTruthy();
+    const scope = screen.getByRole("radiogroup", { name: "Search scope" });
+    const creator = screen.getByLabelText("Creator");
+    expect(scope.closest(".toolbar-creator")).toBe(creator.parentElement);
+    expect(scope.nextElementSibling).toBe(creator);
+    expect(screen.getByTestId("search").contains(scope)).toBe(false);
+    expect((screen.getByLabelText("Current folder") as HTMLInputElement).disabled).toBe(false);
+    expect((screen.getByLabelText("Entire library") as HTMLInputElement).checked).toBe(true);
   });
 
   it("shows Downloads as a local Details list and does not mount the catalog grid", () => {
@@ -283,6 +294,12 @@ describe("AppShell", () => {
     const filters = toolbar?.querySelector("fieldset.toolbar-filters");
     expect(filters?.contains(screen.getByTestId("search"))).toBe(false);
     expect(filters?.contains(screen.getByLabelText("Creator"))).toBe(true);
+    const scope = screen.getByRole("radiogroup", { name: "Search scope" });
+    expect(filters?.contains(scope)).toBe(true);
+    expect(leading?.contains(scope)).toBe(false);
+    expect(scope.nextElementSibling).toBe(screen.getByLabelText("Creator"));
+    expect((screen.getByLabelText("Current folder") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText("Entire library") as HTMLInputElement).disabled).toBe(true);
   });
 
   it("gives Downloads the library inspector width and the same resize persistence", () => {

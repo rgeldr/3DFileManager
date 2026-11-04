@@ -1,9 +1,44 @@
 import type { KeyboardEvent } from "react";
 import { filtersActive } from "../lib/clearFilters";
-import type { SearchScope, TagCount, TypeCount } from "../types";
+import type { SearchScope as SearchScopeValue, TagCount, TypeCount } from "../types";
 import { FilterChips } from "./TypeFilter";
 
 const CLEAR_TITLE = "Clear search, file types, tags and creator";
+
+export function SearchScope({
+  scope,
+  onScope,
+  disabled = false,
+}: {
+  scope: SearchScopeValue;
+  onScope: (scope: SearchScopeValue) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="search-scope" role="radiogroup" aria-label="Search scope">
+      <label>
+        <input
+          type="radio"
+          name="search-scope"
+          checked={scope === "folder"}
+          disabled={disabled}
+          onChange={() => onScope("folder")}
+        />
+        Current folder
+      </label>
+      <label>
+        <input
+          type="radio"
+          name="search-scope"
+          checked={scope === "library"}
+          disabled={disabled}
+          onChange={() => onScope("library")}
+        />
+        Entire library
+      </label>
+    </div>
+  );
+}
 
 export function LibrarySearch({
   query,
@@ -12,8 +47,6 @@ export function LibrarySearch({
   selectedTypeIds,
   tags,
   types,
-  scope,
-  onScope,
   onQuery,
   onClear,
   onSelectedTagIds,
@@ -26,8 +59,6 @@ export function LibrarySearch({
   selectedTypeIds: string[];
   tags: TagCount[];
   types: TypeCount[];
-  scope: SearchScope;
-  onScope: (scope: SearchScope) => void;
   onQuery: (query: string) => void;
   onClear: () => void;
   onSelectedTagIds: (ids: number[]) => void;
@@ -64,28 +95,6 @@ export function LibrarySearch({
         >
           Clear
         </button>
-        <div className="search-scope" role="radiogroup" aria-label="Search scope">
-          <label>
-            <input
-              type="radio"
-              name="search-scope"
-              checked={scope === "folder"}
-              disabled={disabled}
-              onChange={() => onScope("folder")}
-            />
-            Current folder
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="search-scope"
-              checked={scope === "library"}
-              disabled={disabled}
-              onChange={() => onScope("library")}
-            />
-            Entire library
-          </label>
-        </div>
       </div>
       <FilterChips
         tags={tags}

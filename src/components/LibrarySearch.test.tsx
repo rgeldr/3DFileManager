@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TagCount, TypeCount } from "../types";
-import { LibrarySearch } from "./LibrarySearch";
+import { LibrarySearch, SearchScope } from "./LibrarySearch";
 
 afterEach(() => cleanup());
 
@@ -12,7 +12,6 @@ const types: TypeCount[] = [{ id: "stl", label: "stl", exts: ["stl"], fileCount:
 function renderSearch(overrides: Partial<Parameters<typeof LibrarySearch>[0]> = {}) {
   const onQuery = vi.fn();
   const onClear = vi.fn();
-  const onScope = vi.fn();
   const view = render(
     <LibrarySearch
       query=""
@@ -21,8 +20,6 @@ function renderSearch(overrides: Partial<Parameters<typeof LibrarySearch>[0]> = 
       selectedTypeIds={[]}
       tags={tags}
       types={types}
-      scope="library"
-      onScope={onScope}
       onQuery={onQuery}
       onClear={onClear}
       onSelectedTagIds={() => undefined}
@@ -30,7 +27,7 @@ function renderSearch(overrides: Partial<Parameters<typeof LibrarySearch>[0]> = 
       {...overrides}
     />,
   );
-  return { ...view, onQuery, onClear, onScope };
+  return { ...view, onQuery, onClear };
 }
 
 describe("Clear filters", () => {
@@ -51,8 +48,6 @@ describe("Clear filters", () => {
         selectedTypeIds={[]}
         tags={tags}
         types={types}
-        scope="library"
-        onScope={view.onScope}
         onQuery={view.onQuery}
         onClear={view.onClear}
         onSelectedTagIds={() => undefined}
@@ -94,8 +89,6 @@ describe("Clear filters", () => {
           }}
           onSelectedTagIds={setSelectedTagIds}
           onSelectedTypeIds={setSelectedTypeIds}
-          scope="library"
-          onScope={() => undefined}
         />
       );
     }
@@ -122,18 +115,25 @@ describe("Clear filters", () => {
 });
 
 describe("Downloads filters", () => {
-  it("disables search, scope, and clear while Downloads is open", () => {
+  it("disables search and clear while Downloads is open", () => {
     renderSearch({ disabled: true, query: "lion" });
     expect((screen.getByLabelText("Search") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Clear filters" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("disables the scope radios while Downloads is open", () => {
+    render(<SearchScope scope="library" onScope={() => undefined} disabled />);
     expect((screen.getByLabelText("Current folder") as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByLabelText("Entire library") as HTMLInputElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Clear filters" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("radiogroup", { name: "Search scope" })).toBeTruthy();
   });
 });
 
 describe("Search scope", () => {
   it("calls onScope when the folder radio is selected", () => {
-    const { onScope } = renderSearch({ scope: "library" });
+    const onScope = vi.fn();
+    render(<SearchScope scope="library" onScope={onScope} />);
+    expect((screen.getByLabelText("Entire library") as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByLabelText("Current folder"));
     expect(onScope).toHaveBeenCalledWith("folder");
   });
