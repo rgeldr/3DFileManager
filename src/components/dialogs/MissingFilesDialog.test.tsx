@@ -42,4 +42,24 @@ describe("MissingFilesDialog", () => {
     expect(refreshLists).toHaveBeenCalled();
     expect(setMissingOpen).toHaveBeenCalledWith(false);
   });
+
+  it("closes without removing entries", () => {
+    const setMissingOpen = vi.fn();
+    render(
+      <MissingFilesDialog
+        app={
+          {
+            missingOpen: true,
+            setMissingOpen,
+            missingFiles: [{ id: 1, sortName: "gone.stl" }],
+            refreshLists: vi.fn(),
+            reloadTree: vi.fn(),
+          } as unknown as LibraryModel
+        }
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(setMissingOpen).toHaveBeenCalledWith(false);
+    expect(removeMissing).not.toHaveBeenCalled();
+  });
 });

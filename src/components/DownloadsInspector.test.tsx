@@ -1,5 +1,5 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DownloadsInspector } from "./DownloadsInspector";
 import type { DownloadRow } from "../types";
 
@@ -33,5 +33,15 @@ describe("DownloadsInspector", () => {
     expect(screen.getByRole("button", { name: "Pin details open" })).toBeTruthy();
     expect(screen.queryByText(row.absolutePath)).toBeNull();
     expect(screen.queryByRole("heading", { name: "Details" })).toBeNull();
+  });
+
+  it("toggles pin state and shows the empty selection message", () => {
+    const onPinnedChange = vi.fn();
+    const { rerender } = render(<DownloadsInspector row={null} pinned onPinnedChange={onPinnedChange} />);
+    expect(screen.getByText("Select a downloaded file to see its details.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Unpin details" }));
+    expect(onPinnedChange).toHaveBeenCalledWith(false);
+    rerender(<DownloadsInspector row={{ ...row, relativeDir: "" }} pinned onPinnedChange={onPinnedChange} />);
+    expect(screen.getByText("(Downloads root)")).toBeTruthy();
   });
 });

@@ -59,4 +59,12 @@ describe("Creator dialog", () => {
     expect(setCreatorUnderFolder).toHaveBeenCalledWith(5, "Ada", true);
     expect(applyBulkMeta).not.toHaveBeenCalled();
   });
+
+  it("closes without applying when Cancel is pressed", () => {
+    const model = app();
+    render(<CreatorDialog app={model} />);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(model.setCreatorTarget).toHaveBeenCalledWith(null);
+    expect(applyBulkMeta).not.toHaveBeenCalled();
+  });
 });

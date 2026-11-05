@@ -68,4 +68,27 @@ describe("useAppUpdate", () => {
     expect(result.current.banner).toBeNull();
     expect(result.current.about.canInstall).toBe(false);
   });
+
+  it("installs a pending update from the about dialog", async () => {
+    checkForAppUpdate.mockResolvedValue({ status: "available", version: "26.10.26" });
+    installPendingUpdate.mockResolvedValue({ ok: true });
+    const { result } = renderHook(() => useAppUpdate());
+    await waitFor(() => expect(result.current.about.canInstall).toBe(true));
+    await act(async () => {
+      await result.current.about.onInstall();
+    });
+    expect(installPendingUpdate).toHaveBeenCalled();
+    expect(result.current.about.message).toBe("Installing update…");
+  });
+
+  it("surfaces install failures", async () => {
+    checkForAppUpdate.mockResolvedValue({ status: "available", version: "26.10.26" });
+    installPendingUpdate.mockResolvedValue({ ok: false, message: "blocked" });
+    const { result } = renderHook(() => useAppUpdate());
+    await waitFor(() => expect(result.current.about.canInstall).toBe(true));
+    await act(async () => {
+      await result.current.about.onInstall();
+    });
+    expect(result.current.about.message).toBe("blocked");
+  });
 });

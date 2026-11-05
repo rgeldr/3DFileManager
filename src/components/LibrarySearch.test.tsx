@@ -137,4 +137,11 @@ describe("Search scope", () => {
     fireEvent.click(screen.getByLabelText("Current folder"));
     expect(onScope).toHaveBeenCalledWith("folder");
   });
+
+  it("calls onScope when Entire library is selected from folder scope", () => {
+    const onScope = vi.fn();
+    render(<SearchScope scope="folder" onScope={onScope} />);
+    fireEvent.click(screen.getByLabelText("Entire library"));
+    expect(onScope).toHaveBeenCalledWith("library");
+  });
 });

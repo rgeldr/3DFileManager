@@ -46,4 +46,17 @@ describe("Tag color dialog", () => {
     fireEvent.click(reset);
     await waitFor(() => expect(setTagColor).toHaveBeenCalledWith(4, null));
   });
+
+  it("surfaces API errors when saving a color fails", async () => {
+    listTagColors.mockResolvedValue([
+      { id: 4, name: "FDM", color: "#1f6b4a", autoColor: "#1f6b4a", custom: false },
+    ]);
+    setTagColor.mockRejectedValue(new Error("nope"));
+    const setError = vi.fn();
+    const model = { ...app(), setError };
+    render(<TagColorDialog app={model} />);
+    const picker = await screen.findByLabelText("Color for FDM");
+    fireEvent.change(picker, { target: { value: "#336699" } });
+    await waitFor(() => expect(setError).toHaveBeenCalledWith(expect.stringContaining("nope")));
+  });
 });

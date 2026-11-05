@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "./api";
 import type { LibraryModel } from "./hooks/useLibrary";
 import { clampInspector } from "./lib/paneWidths";
@@ -12,16 +12,22 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 
 vi.mock("./api", () => ({
   api: {
-    setLibraryRoot: vi.fn(),
+    setLibraryRoot: vi.fn(() => Promise.resolve()),
     setPaneWidths: vi.fn(() => Promise.resolve()),
-    setSidebarPinned: vi.fn(),
-    setInspectorPinned: vi.fn(),
-    setPreviewHeight: vi.fn(),
-    setDetailsColumns: vi.fn(),
-    revealFolder: vi.fn(),
-    rescanLibrary: vi.fn(),
-    rescanFolder: vi.fn(),
+    setSidebarPinned: vi.fn(() => Promise.resolve()),
+    setInspectorPinned: vi.fn(() => Promise.resolve()),
+    setPreviewHeight: vi.fn(() => Promise.resolve()),
+    setDetailsColumns: vi.fn(() => Promise.resolve()),
+    openInDefaultApp: vi.fn(() => Promise.resolve()),
+    setSearchScope: vi.fn(() => Promise.resolve()),
+    updateFile: vi.fn(async () => ({ cancelled: false })),
+    setTags: vi.fn(async () => undefined),
+    deleteFiles: vi.fn(async () => ({ cancelled: false })),
+    revealFolder: vi.fn(() => Promise.resolve()),
+    rescanLibrary: vi.fn(async () => ({ cancelled: false })),
+    rescanFolder: vi.fn(async () => ({ cancelled: false })),
     moveFolder: vi.fn(),
+    missingFiles: vi.fn(async () => []),
   },
 }));
 
@@ -38,8 +44,10 @@ vi.mock("./hooks/useAppUpdate", () => ({
   }),
 }));
 
+const thumbQueueCount = vi.fn(() => 0);
+
 vi.mock("./hooks/useThumbQueueCount", () => ({
-  useThumbQueueCount: () => 0,
+  useThumbQueueCount: () => thumbQueueCount(),
 }));
 
 vi.mock("./components/MenuBar", () => ({
@@ -47,29 +55,107 @@ vi.mock("./components/MenuBar", () => ({
 }));
 
 vi.mock("./components/Sidebar", () => ({
-  Sidebar: () => <div data-testid="sidebar" />,
+  Sidebar: (props: {
+    onBrowse: (key: string) => void;
+    onReveal: (id: number | null) => void;
+    onRescan: (id: number | null) => void;
+    onTagFolder: (id: number | null) => void;
+    onSetCreator: (id: number | null) => void;
+    onPinnedChange: (next: boolean) => void;
+  }) => (
+    <div data-testid="sidebar">
+      <button type="button" onClick={() => props.onBrowse("folder:2")}>sb-browse</button>
+      <button type="button" onClick={() => props.onReveal(2)}>sb-reveal</button>
+      <button type="button" onClick={() => props.onRescan(2)}>sb-rescan</button>
+      <button type="button" onClick={() => props.onTagFolder(2)}>sb-tag</button>
+      <button type="button" onClick={() => props.onSetCreator(2)}>sb-creator</button>
+      <button type="button" onClick={() => props.onPinnedChange(false)}>sb-pin</button>
+    </div>
+  ),
 }));
 
 vi.mock("./components/FileGrid", () => ({
-  FileGrid: ({
-    onFolderContextMenu,
-  }: {
+  FileGrid: (props: {
     onFolderContextMenu?: (event: { clientX: number; clientY: number }, folderId: number) => void;
+    onOpen?: (file: { id: number }) => void;
+    onOpenFolder?: (id: number) => void;
+    onSort?: (field: string) => void;
+    onClearFilters?: () => void;
+    onContextMenu?: (event: { clientX: number; clientY: number }, file: { id: number }) => void;
+    onDetailsColumnResizeEnd?: (id: string, width: number) => void;
   }) => (
-    <div
-      data-testid="file-grid"
-      onContextMenu={(event) => onFolderContextMenu?.(event, 4)}
-    />
+    <div data-testid="file-grid">
+      <button type="button" onClick={() => props.onOpen?.({ id: 5 })}>fg-open</button>
+      <button type="button" onClick={() => props.onOpenFolder?.(2)}>fg-folder</button>
+      <button type="button" onClick={() => props.onSort?.("size")}>fg-sort</button>
+      <button type="button" onClick={() => props.onClearFilters?.()}>fg-clear</button>
+      <button
+        type="button"
+        onClick={() =>
+          props.onContextMenu?.({ clientX: 12, clientY: 34 } as unknown as React.MouseEvent, { id: 5 })
+        }
+      >
+        fg-file-menu
+      </button>
+      <button
+        type="button"
+        onClick={() => props.onDetailsColumnResizeEnd?.("name", 280)}
+      >
+        fg-col
+      </button>
+      <div
+        data-testid="folder-context-target"
+        onContextMenu={(event) => props.onFolderContextMenu?.(event, 4)}
+      />
+    </div>
   ),
 }));
 
 vi.mock("./components/Inspector", () => ({
-  Inspector: () => <div data-testid="inspector" />,
+  Inspector: (props: {
+    onPinnedChange: (next: boolean) => void;
+    onPreviewHeight: (height: number) => void;
+    onDelete: (id: number) => void;
+    onSave: (file: { id: number; folderId: number | null; sortName: string; creator: string; notes: string }, tags: string[]) => void;
+  }) => (
+    <div data-testid="inspector">
+      <button type="button" onClick={() => props.onPinnedChange(false)}>in-pin</button>
+      <button type="button" onClick={() => props.onPreviewHeight(300)}>in-height</button>
+      <button type="button" onClick={() => props.onDelete(5)}>in-delete</button>
+      <button
+        type="button"
+        onClick={() =>
+          props.onSave(
+            { id: 5, folderId: 2, sortName: "part", creator: "Ada", notes: "" },
+            ["PLA"],
+          )
+        }
+      >
+        in-save
+      </button>
+    </div>
+  ),
   PinIcon: () => <span data-testid="pin-icon" />,
 }));
 
 vi.mock("./components/Breadcrumb", () => ({
-  Breadcrumb: () => <div data-testid="breadcrumb" />,
+  Breadcrumb: ({
+    onNavigate,
+    browse,
+  }: {
+    onNavigate: (place: { type: string; id?: number }) => void;
+    browse: { type: string; id?: number };
+  }) => (
+    <>
+      <button type="button" onClick={() => onNavigate({ type: "folder", id: 2 })}>
+        bc-same
+      </button>
+      <button type="button" onClick={() => onNavigate({ type: "root" })}>
+        bc-root
+      </button>
+      <span data-testid="browse-type">{browse.type}</span>
+    </>
+  ),
 }));
 
 vi.mock("./components/LibrarySearch", async (importOriginal) => {
@@ -113,6 +199,10 @@ vi.mock("./components/dialogs", () => ({
 }));
 
 afterEach(() => cleanup());
+
+beforeEach(() => {
+  thumbQueueCount.mockReturnValue(0);
+});
 
 const baseSettings: Settings = {
   libraryRoot: null,
@@ -388,7 +478,375 @@ describe("AppShell", () => {
       />,
     );
     expect(screen.queryByRole("menu")).toBeNull();
-    fireEvent.contextMenu(screen.getByTestId("file-grid"));
+    fireEvent.contextMenu(screen.getByTestId("folder-context-target"));
     expect(screen.getByRole("menu").textContent).toBe("folder 4");
   });
+
+  it("shows the missing-files banner and opens the review dialog", async () => {
+    const setMissingOpen = vi.fn();
+    const setMissingFiles = vi.fn();
+    vi.mocked(api.missingFiles).mockResolvedValue([{ id: 1, path: "gone.stl" }]);
+    render(
+      <AppShell
+        app={libraryModel({
+          settings: { ...baseSettings, libraryRoot: "/library" },
+          missingCount: 3,
+          setMissingOpen,
+          setMissingFiles,
+        })}
+      />,
+    );
+    expect(screen.getByText(/3 catalog entries are missing/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    await waitFor(() => expect(setMissingFiles).toHaveBeenCalled());
+    expect(setMissingOpen).toHaveBeenCalledWith(true);
+  });
+
+  it("switches grid size through the footer view toggle", () => {
+    const setGrid = vi.fn();
+    render(
+      <AppShell
+        app={libraryModel({
+          settings: { ...baseSettings, libraryRoot: "/library", gridSize: "large" },
+          actions: { current: { restoreLibrary: () => undefined, setGrid } },
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "List" }));
+    expect(setGrid).toHaveBeenCalledWith("list");
+  });
+
+  it("chooses a library folder on the setup screen", async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    vi.mocked(open).mockResolvedValue("D:\\LibraryRoot");
+    const setChosenRoot = vi.fn();
+    render(<AppShell app={libraryModel({ setChosenRoot })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Choose folder" }));
+    await waitFor(() => expect(setChosenRoot).toHaveBeenCalledWith("D:\\LibraryRoot"));
+  });
+
+  it("wires sidebar, grid, inspector, and breadcrumb handlers", async () => {
+    const runDiskOp = vi.fn(async (opts: { run: () => Promise<{ cancelled: boolean }> }) => {
+      await opts.run();
+    });
+    const setBrowse = vi.fn();
+    const setSelected = vi.fn();
+    const setFolderTagTarget = vi.fn();
+    const setCreatorTarget = vi.fn();
+    const setFileMenu = vi.fn();
+    const onSelect = vi.fn();
+    const setSettings = vi.fn();
+    const setSelectedTagIds = vi.fn();
+    const setSelectedTypeIds = vi.fn();
+    const setSort = vi.fn();
+    const setDetailsColumns = vi.fn((value: unknown) => {
+      if (typeof value === "function") {
+        (value as (current: Settings["detailsColumns"]) => Settings["detailsColumns"])(
+          baseSettings.detailsColumns,
+        );
+      }
+    });
+    render(
+      <AppShell
+        app={libraryModel({
+          settings: { ...baseSettings, libraryRoot: "/library", searchScope: "library" },
+          folders: [{ id: 2, parentId: null, name: "Prints", relpath: "Prints", sortOrder: 0 }],
+          files: [{ id: 5, sortName: "part", folderId: 2 } as never],
+          selectedFile: { id: 5, folderId: 2, sortName: "part" } as never,
+          selectedTagIds: [1],
+          selectedTypeIds: ["stl"],
+          runDiskOp,
+          setBrowse,
+          setSelected,
+          setFolderTagTarget,
+          setCreatorTarget,
+          setFileMenu,
+          setSettings,
+          setSelectedTagIds,
+          setSelectedTypeIds,
+          setSort,
+          setDetailsColumns,
+          onSelect,
+          selected: [],
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "sb-browse" }));
+    expect(setBrowse).toHaveBeenCalledWith({ type: "folder", id: 2 });
+    fireEvent.click(screen.getByRole("button", { name: "sb-reveal" }));
+    expect(api.revealFolder).toHaveBeenCalledWith(2);
+    fireEvent.click(screen.getByRole("button", { name: "sb-rescan" }));
+    expect(runDiskOp).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "sb-tag" }));
+    expect(setFolderTagTarget).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "sb-creator" }));
+    expect(setCreatorTarget).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "sb-pin" }));
+    expect(setSettings).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "bc-root" }));
+    fireEvent.click(screen.getByRole("button", { name: "fg-open" }));
+    expect(api.openInDefaultApp).toHaveBeenCalledWith(5);
+    fireEvent.click(screen.getByRole("button", { name: "fg-folder" }));
+    fireEvent.click(screen.getByRole("button", { name: "fg-sort" }));
+    fireEvent.click(screen.getByRole("button", { name: "fg-clear" }));
+    expect(setSelectedTagIds).toHaveBeenCalledWith([]);
+    fireEvent.click(screen.getByRole("button", { name: "fg-file-menu" }));
+    expect(onSelect).toHaveBeenCalledWith(5, "replace");
+    expect(setFileMenu).toHaveBeenCalledWith({ x: 12, y: 34, fileId: 5 });
+    fireEvent.click(screen.getByRole("button", { name: "fg-col" }));
+    expect(api.setDetailsColumns).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "in-save" }));
+    expect(runDiskOp).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "in-delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "in-height" }));
+    expect(api.setPreviewHeight).toHaveBeenCalledWith(300);
+    fireEvent.click(screen.getByRole("button", { name: "in-pin" }));
+    fireEvent.contextMenu(screen.getByTestId("folder-context-target"));
+    expect(screen.getByRole("menu")).toBeTruthy();
+  });
+
+  it("shows truncated search and updates search scope", () => {
+    const setSettings = vi.fn((value: unknown) => {
+      if (typeof value === "function") {
+        (value as (current: Settings | null) => Settings | null)({
+          ...baseSettings,
+          libraryRoot: "/library",
+          searchScope: "library",
+        });
+      }
+    });
+    render(
+      <AppShell
+        app={libraryModel({
+          settings: { ...baseSettings, libraryRoot: "/library", searchScope: "library" },
+          listTruncated: true,
+          setSettings,
+        })}
+      />,
+    );
+    expect(screen.getByText(/Showing the first/)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Current folder"));
+    expect(setSettings).toHaveBeenCalled();
+    expect(api.setSearchScope).toHaveBeenCalledWith("folder");
+  });
+
+  it("bootstraps the library from the setup continue action", async () => {
+    vi.mocked(api.setLibraryRoot).mockResolvedValue({
+      settings: { ...baseSettings, libraryRoot: "D:\\lib" },
+      folders: [],
+      missingCount: 0,
+    });
+    const refreshLists = vi.fn(async () => undefined);
+    render(
+      <AppShell
+        app={libraryModel({
+          chosenRoot: "D:\\lib",
+          refreshLists,
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(api.setLibraryRoot).toHaveBeenCalledWith("D:\\lib"));
+    expect(refreshLists).toHaveBeenCalled();
+  });
+
+  it("starts backup import from the setup screen", () => {
+    const restoreLibrary = vi.fn();
+    render(
+      <AppShell
+        app={libraryModel({
+          actions: { current: { restoreLibrary } },
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Import backup folder…" }));
+    expect(restoreLibrary).toHaveBeenCalledWith(undefined);
+  });
+
+  it("exercises all footer view toggles", () => {
+    const setGrid = vi.fn();
+    render(
+      <AppShell
+        app={libraryModel({
+          settings: { ...baseSettings, libraryRoot: "/library", gridSize: "large" },
+          actions: { current: { restoreLibrary: () => undefined, setGrid } },
+        })}
+      />,
+    );
+    for (const label of ["Medium", "Extra large", "Details"]) {
+      fireEvent.click(screen.getByRole("button", { name: label }));
+    }
+    expect(setGrid).toHaveBeenCalledWith("medium");
+    expect(setGrid).toHaveBeenCalledWith("extraLarge");
+    expect(setGrid).toHaveBeenCalledWith("details");
+  });
+
+  it("uses a cancellable disk job when inspector save moves a file", () => {
+    const runDiskOp = vi.fn(async (opts: { title: string; cancellable: boolean; run: () => Promise<unknown> }) => {
+      await opts.run();
+    });
+    render(
+      <AppShell
+        app={libraryModel({
+          settings: { ...baseSettings, libraryRoot: "/library" },
+          files: [{ id: 5, sortName: "part", folderId: null } as never],
+          selectedFile: { id: 5, sortName: "part", folderId: null } as never,
+          runDiskOp,
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "in-save" }));
+    const call = runDiskOp.mock.calls.at(-1)?.[0] as { cancellable: boolean; title: string };
+    expect(call.cancellable).toBe(true);
+    expect(call.title).toMatch(/Moving/);
+  });
+
+  it("mentions pending thumbnails in the status bar", () => {
+    thumbQueueCount.mockReturnValue(2);
+    render(
+      <AppShell
+        app={libraryModel({
+          settings: { ...baseSettings, libraryRoot: "/library" },
+          files: [fileStub()],
+        })}
+      />,
+    );
+    expect(screen.getByText(/2 thumbnails still generating/)).toBeTruthy();
+  });
+
+  it("ignores breadcrumb navigation to the current place", () => {
+    const setBrowse = vi.fn();
+    render(
+      <AppShell
+        app={libraryModel({
+          settings: { ...baseSettings, libraryRoot: "/library" },
+          browse: { type: "folder", id: 2 },
+          setBrowse,
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "bc-same" }));
+    expect(setBrowse).not.toHaveBeenCalled();
+  });
+
+  it("shows a banner when the downloads list is truncated", () => {
+    render(
+      <AppShell
+        app={libraryModel({
+          settings: { ...baseSettings, libraryRoot: "/library" },
+          browse: { type: "downloads" },
+          browseKey: "downloads",
+          downloadsList: { status: "ok", rows: [], truncated: false },
+          downloadsTruncated: true,
+          downloadSort: { field: "path", direction: "asc" },
+          setDownloadSort: () => undefined,
+          downloadsSelected: [],
+          setDownloadsSelected: () => undefined,
+          downloadsMenu: null,
+          setDownloadsMenu: () => undefined,
+          refreshDownloads: async () => undefined,
+          applyDownloadsFolder: async () => undefined,
+          selectedDownloadRow: null,
+        })}
+      />,
+    );
+    expect(screen.getByText(/Downloads list is truncated/)).toBeTruthy();
+  });
+
+  it("collapses the sidebar rail when unpinned", () => {
+    render(
+      <AppShell
+        app={libraryModel({
+          settings: { ...baseSettings, libraryRoot: "/library", sidebarPinned: false },
+          sidebarPinned: false,
+        })}
+      />,
+    );
+    expect(document.querySelector(".app-panes.sidebar-collapsed")).toBeTruthy();
+  });
+
+  it("collapses the inspector workspace when unpinned", () => {
+    render(
+      <AppShell
+        app={libraryModel({
+          settings: { ...baseSettings, libraryRoot: "/library", inspectorPinned: false },
+          inspectorPinned: false,
+        })}
+      />,
+    );
+    expect(document.querySelector(".workspace.inspector-collapsed")).toBeTruthy();
+  });
+
+  it("uses singular copy in the status bar for one catalog file", () => {
+    render(
+      <AppShell
+        app={libraryModel({
+          settings: { ...baseSettings, libraryRoot: "/library" },
+          files: [fileStub()],
+        })}
+      />,
+    );
+    expect(screen.getByText("1 file")).toBeTruthy();
+  });
+
+  it("uses singular thumbnail queue copy", () => {
+    thumbQueueCount.mockReturnValue(1);
+    render(
+      <AppShell
+        app={libraryModel({
+          settings: { ...baseSettings, libraryRoot: "/library" },
+          files: [fileStub(), { ...fileStub(), id: 2, sortName: "b" }],
+          selected: [1],
+        })}
+      />,
+    );
+    expect(screen.getByText(/1 thumbnail still generating/)).toBeTruthy();
+    expect(screen.getByText(/1 selected/)).toBeTruthy();
+  });
+
+  it("uses singular copy for one downloaded file in the status bar", () => {
+    render(
+      <AppShell
+        app={libraryModel({
+          settings: { ...baseSettings, libraryRoot: "/library" },
+          browse: { type: "downloads" },
+          browseKey: "downloads",
+          downloadsList: {
+            status: "ok",
+            rows: [
+              {
+                name: "boat.stl",
+                relativeDir: "",
+                ext: "stl",
+                sizeBytes: 4,
+                mtime: 1,
+                absolutePath: "C:\\Users\\me\\Downloads\\boat.stl",
+              },
+            ],
+            truncated: false,
+          },
+          downloadsTruncated: false,
+          downloadSort: { field: "path", direction: "asc" },
+          setDownloadSort: () => undefined,
+          downloadsSelected: [],
+          setDownloadsSelected: () => undefined,
+          downloadsMenu: null,
+          setDownloadsMenu: () => undefined,
+          refreshDownloads: async () => undefined,
+          applyDownloadsFolder: async () => undefined,
+          selectedDownloadRow: null,
+        })}
+      />,
+    );
+    expect(screen.getByText("1 file")).toBeTruthy();
+  });
 });
+
+function fileStub() {
+  return {
+    id: 1,
+    sortName: "a",
+    folderId: null,
+    ext: "stl",
+  } as never;
+}

@@ -368,6 +368,35 @@ describe("inspector folder", () => {
   });
 });
 
+describe("inspector file actions", () => {
+  it("fires Open, Show in Explorer, and Delete", async () => {
+    const { api } = await import("../api");
+    const onDelete = vi.fn();
+    render(
+      <ThemeProvider>
+        <Inspector
+          file={file()}
+          folders={[]}
+          creators={[]}
+          knownTags={[]}
+          previewHeight={240}
+          onPreviewHeight={() => undefined}
+          pinned
+          onPinnedChange={() => undefined}
+          onSave={() => undefined}
+          onDelete={onDelete}
+        />
+      </ThemeProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show in Explorer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(vi.mocked(api.openInDefaultApp)).toHaveBeenCalledWith(3);
+    expect(vi.mocked(api.revealFile)).toHaveBeenCalledWith(3);
+    expect(onDelete).toHaveBeenCalledWith(3);
+  });
+});
+
 describe("PinIcon", () => {
   it("fills the pin when the pane is pinned and leaves it open otherwise", () => {
     const pinned = render(<PinIcon pinned />);

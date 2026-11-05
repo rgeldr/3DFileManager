@@ -123,7 +123,12 @@ describe("MenuBar", () => {
     byText("Tag color…")?.action?.();
     byText("External programs…")?.action?.();
     byText("Dark")?.action?.();
+    byText("Light")?.action?.();
+    byText("Medium")?.action?.();
+    byText("Extra large")?.action?.();
+    byText("Details")?.action?.();
     byText("Large")?.action?.();
+    byText("Set Downloads folder...")?.action?.();
 
     expect(actions.current.importFolder).toHaveBeenCalled();
     expect(actions.current.importArchive).toHaveBeenCalled();
@@ -138,7 +143,10 @@ describe("MenuBar", () => {
     expect(actions.current.openTagColors).toHaveBeenCalled();
     expect(actions.current.openExternalPrograms).toHaveBeenCalled();
     expect(actions.current.setTheme).toHaveBeenCalledWith("dark");
+    expect(actions.current.setTheme).toHaveBeenCalledWith("light");
     expect(actions.current.setGrid).toHaveBeenCalledWith("large");
+    expect(actions.current.setGrid).toHaveBeenCalledWith("medium");
+    expect(actions.current.setDownloadsFolder).toHaveBeenCalled();
 
     view.rerender(
       <MenuBar

@@ -5,17 +5,19 @@ import type { ImportSummary } from "../../types";
 import { ImportSummaryDialog } from "./ImportSummaryDialog";
 
 const applyBulkMeta = vi.fn();
+const recycleLastImport = vi.fn();
 
 vi.mock("../../api", () => ({
   api: {
     applyBulkMeta: (...args: unknown[]) => applyBulkMeta(...args),
-    recycleLastImport: vi.fn(),
+    recycleLastImport: (...args: unknown[]) => recycleLastImport(...args),
   },
 }));
 
 afterEach(() => {
   cleanup();
   applyBulkMeta.mockReset();
+  recycleLastImport.mockReset();
 });
 
 function summary(): ImportSummary {
@@ -103,5 +105,62 @@ describe("Import summary tags", () => {
     fireEvent.click(screen.getByRole("button", { name: "Keep originals" }));
     expect(applyBulkMeta).not.toHaveBeenCalled();
     await waitFor(() => expect(model.setSummary).toHaveBeenCalledWith(null));
+  });
+
+  it("shows failed import paths in the summary", () => {
+    render(
+      <ImportSummaryDialog
+        app={app({
+          summary: {
+            ...summary(),
+            failed: ["bad.stl", "worse.obj"],
+            pendingHashCount: 2,
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText(/bad.stl/)).toBeTruthy();
+    expect(screen.getByText(/Duplicate checking continues/)).toBeTruthy();
+  });
+
+  it("shows Import stopped when the summary was cancelled", () => {
+    render(<ImportSummaryDialog app={app({ summary: { ...summary(), cancelled: true } })} />);
+    expect(screen.getByRole("heading", { name: "Import stopped" })).toBeTruthy();
+  });
+
+  it("omits bulk meta fields when nothing was imported", () => {
+    render(
+      <ImportSummaryDialog
+        app={app({
+          summary: { ...summary(), importedIds: [], importedCount: 0 },
+        })}
+      />,
+    );
+    expect(screen.queryByPlaceholderText("Creator for all imported files")).toBeNull();
+  });
+
+  it("runs recycle through runDiskOp when originals should be removed", async () => {
+    recycleLastImport.mockResolvedValue({ cancelled: false, failed: [] });
+    const runDiskOp = vi.fn(async (opts: { run: () => Promise<unknown> }) => {
+      await opts.run();
+    });
+    const model = app({
+      summary: { ...summary(), recycleCount: 2 },
+      runDiskOp,
+    });
+    render(<ImportSummaryDialog app={model} />);
+    fireEvent.click(screen.getByRole("button", { name: "Undo import of 2 files (Recycle Bin)" }));
+    await waitFor(() => expect(runDiskOp).toHaveBeenCalled());
+    expect(recycleLastImport).toHaveBeenCalled();
+    expect(model.setSummary).toHaveBeenCalledWith(null);
+  });
+
+  it("surfaces applyBulkMeta failures without closing the summary", async () => {
+    applyBulkMeta.mockRejectedValue(new Error("bulk failed"));
+    const model = app();
+    render(<ImportSummaryDialog app={model} />);
+    fireEvent.click(screen.getByRole("button", { name: "Keep originals" }));
+    await waitFor(() => expect(model.setError).toHaveBeenCalledWith(expect.stringContaining("bulk failed")));
+    expect(model.setSummary).not.toHaveBeenCalled();
   });
 });

@@ -651,4 +651,278 @@ describe("useLibrary", () => {
       expect(await first).toBe(true);
     });
   });
+
+  it("ignores runImport with no paths", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await act(async () => {
+      await result.current.runImport([]);
+    });
+    expect(api.importPaths).not.toHaveBeenCalled();
+  });
+
+  it("selects a single imported file id", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    api.importPaths.mockResolvedValue({
+      importedIds: [42],
+      importedCount: 1,
+      duplicateCount: 0,
+      unsupportedCount: 0,
+      failed: [],
+      recycleCount: 0,
+      leftInPlace: 0,
+      cancelled: false,
+      pendingHashCount: 0,
+    });
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await act(async () => {
+      await result.current.runImport(["C:\\imports\\one.stl"]);
+    });
+    expect(result.current.selected).toEqual([42]);
+  });
+
+  it("stores paths for the add-to-library dialog", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => {
+      result.current.openAddToLibrary(["C:\\Users\\me\\Downloads\\a.stl"]);
+    });
+    expect(result.current.addToLibraryPaths).toEqual(["C:\\Users\\me\\Downloads\\a.stl"]);
+  });
+
+  it("navigates folder history forward with Alt+ArrowRight", async () => {
+    const folders = [
+      { id: 2, parentId: null, name: "A", relpath: "A", sortOrder: 0 },
+      { id: 3, parentId: null, name: "B", relpath: "B", sortOrder: 1 },
+    ];
+    api.bootstrap.mockResolvedValue({ settings, folders, missingCount: 0 });
+    mockCatalog();
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => {
+      result.current.setBrowse({ type: "folder", id: 2 });
+      result.current.setBrowse({ type: "folder", id: 3 });
+    });
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", altKey: true }));
+    });
+    expect(result.current.browse).toEqual({ type: "folder", id: 2 });
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", altKey: true }));
+    });
+    expect(result.current.browse).toEqual({ type: "folder", id: 3 });
+  });
+
+  it("opens rename and delete folder prompts for known folders", async () => {
+    const folders = [{ id: 2, parentId: null, name: "Prints", relpath: "Prints", sortOrder: 0 }];
+    api.bootstrap.mockResolvedValue({ settings, folders, missingCount: 0 });
+    mockCatalog();
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => {
+      result.current.openRenameFolderPrompt(2);
+    });
+    expect(result.current.namePrompt?.value).toBe("Prints");
+    act(() => {
+      result.current.openDeleteFolderConfirm(2);
+    });
+    expect(result.current.deleteConfirm).toEqual({ id: 2, name: "Prints" });
+  });
+
+  it("creates a folder from the name prompt", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    api.createFolder.mockResolvedValue(undefined);
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => {
+      result.current.openNewFolderPrompt(null);
+    });
+    await act(async () => {
+      result.current.namePrompt?.onOk("Fresh");
+    });
+    expect(api.createFolder).toHaveBeenCalledWith(null, "Fresh");
+  });
+
+  it("records import API failures", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    api.importPaths.mockRejectedValue(new Error("import failed"));
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await act(async () => {
+      await result.current.runImport(["C:\\bad\\path.stl"]);
+    });
+    expect(result.current.error).toMatch(/import failed/);
+    expect(result.current.busy).toBeNull();
+  });
+
+  it("rejects runImport while a library job is busy", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    vi.useFakeTimers();
+    let release!: () => void;
+    const gate = new Promise<{ cancelled: boolean }>((resolve) => {
+      release = () => resolve({ cancelled: false });
+    });
+    act(() => {
+      void result.current.runDiskOp({
+        title: "Busy",
+        cancellable: false,
+        success: "ok",
+        cancelled: "no",
+        run: () => gate,
+      });
+    });
+    await act(async () => {
+      await result.current.runImport(["C:\\x.stl"]);
+    });
+    expect(result.current.error).toMatch(/already running/);
+    expect(api.importPaths).not.toHaveBeenCalled();
+    release();
+    vi.useRealTimers();
+  });
+
+  it("renames a file through the name prompt and runDiskOp", async () => {
+    const row = {
+      id: 5,
+      originalName: "part.stl",
+      sortName: "part",
+      storedRelpath: "part.stl",
+      ext: "stl",
+      sizeBytes: 1,
+      sha256: "x",
+      folderId: null,
+      creator: "",
+      notes: "",
+      sourceArchive: null,
+      importedAt: 1,
+      mtime: 1,
+      thumbStatus: "ok",
+      missing: false,
+      tags: [],
+      absolutePath: "/library/part.stl",
+      thumbPath: null,
+    };
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    api.listFiles.mockResolvedValue([row]);
+    api.renameFile.mockResolvedValue({ cancelled: false });
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.files.length).toBe(1));
+    act(() => {
+      result.current.openRenameFile(5);
+    });
+    await act(async () => {
+      result.current.namePrompt?.onOk("renamed");
+    });
+    expect(api.renameFile).toHaveBeenCalledWith(5, "renamed");
+  });
+
+  it("navigates with the mouse back button", async () => {
+    const folders = [
+      { id: 2, parentId: null, name: "A", relpath: "A", sortOrder: 0 },
+      { id: 3, parentId: null, name: "B", relpath: "B", sortOrder: 1 },
+    ];
+    api.bootstrap.mockResolvedValue({ settings, folders, missingCount: 0 });
+    mockCatalog();
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => {
+      result.current.setBrowse({ type: "folder", id: 2 });
+      result.current.setBrowse({ type: "folder", id: 3 });
+    });
+    act(() => {
+      window.dispatchEvent(new MouseEvent("mouseup", { button: 3, bubbles: true }));
+    });
+    expect(result.current.browse).toEqual({ type: "folder", id: 2 });
+  });
+
+  it("ignores history navigation while a dialog is open", async () => {
+    const folders = [
+      { id: 2, parentId: null, name: "A", relpath: "A", sortOrder: 0 },
+      { id: 3, parentId: null, name: "B", relpath: "B", sortOrder: 1 },
+    ];
+    api.bootstrap.mockResolvedValue({ settings, folders, missingCount: 0 });
+    mockCatalog();
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => {
+      result.current.setBrowse({ type: "folder", id: 2 });
+      result.current.setBrowse({ type: "folder", id: 3 });
+      result.current.setError("blocked");
+    });
+    act(() => {
+      window.dispatchEvent(new MouseEvent("mouseup", { button: 3, bubbles: true }));
+    });
+    expect(result.current.browse).toEqual({ type: "folder", id: 3 });
+  });
+
+  it("ignores empty add-to-library paths", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => {
+      result.current.openAddToLibrary([]);
+    });
+    expect(result.current.addToLibraryPaths).toBeNull();
+  });
+
+  it("moves a folder through runDiskOp", async () => {
+    const folders = [{ id: 2, parentId: null, name: "Prints", relpath: "Prints", sortOrder: 0 }];
+    api.bootstrap.mockResolvedValue({ settings, folders, missingCount: 0 });
+    mockCatalog();
+    api.moveFolder.mockResolvedValue({ cancelled: false });
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => {
+      result.current.onMoveFolder(2, null);
+    });
+    expect(api.moveFolder).toHaveBeenCalledWith(2, null);
+  });
+
+  it("deletes a folder through runDiskOp", async () => {
+    const folders = [{ id: 2, parentId: null, name: "Prints", relpath: "Prints", sortOrder: 0 }];
+    api.bootstrap.mockResolvedValue({ settings, folders, missingCount: 0 });
+    mockCatalog();
+    api.deleteFolder.mockResolvedValue({ cancelled: false });
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await act(async () => {
+      result.current.performDeleteFolder(2, "Prints");
+    });
+    expect(api.deleteFolder).toHaveBeenCalledWith(2);
+  });
+
+  it("ignores rename prompts for missing folders", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => {
+      result.current.openRenameFolderPrompt(99);
+    });
+    expect(result.current.namePrompt).toBeNull();
+  });
+
+  it("ignores rename file prompts for missing files", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => {
+      result.current.openRenameFile(404);
+    });
+    expect(result.current.namePrompt).toBeNull();
+  });
 });

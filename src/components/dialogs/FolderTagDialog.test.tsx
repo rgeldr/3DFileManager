@@ -67,4 +67,12 @@ describe("Tag dialog", () => {
     expect(addTagsUnderFolder).toHaveBeenCalledWith(5, ["Terrain", "FDM"]);
     expect(addTagsToFiles).not.toHaveBeenCalled();
   });
+
+  it("closes on cancel without calling the API", () => {
+    const model = app();
+    render(<FolderTagDialog app={model} />);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(model.setFolderTagTarget).toHaveBeenCalledWith(null);
+    expect(addTagsToFiles).not.toHaveBeenCalled();
+  });
 });

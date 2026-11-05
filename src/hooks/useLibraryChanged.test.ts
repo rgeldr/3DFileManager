@@ -125,4 +125,198 @@ describe("useLibraryChanged", () => {
     unmount();
     vi.useRealTimers();
   });
+
+  it("applies settings-only changes and refreshes downloads when browsing there", async () => {
+    vi.useFakeTimers();
+    getSettings.mockResolvedValue({
+      libraryRoot: "/lib",
+      theme: "light",
+      gridSize: "medium",
+      sidebarWidth: 200,
+      inspectorWidth: 300,
+      previewHeight: 200,
+      thumbRetry: 0,
+      inspectorPinned: false,
+      sidebarPinned: false,
+      searchScope: "folder",
+      detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      externalPrograms: [],
+      downloadsFolder: null,
+    });
+    const refreshDownloads = vi.fn(async () => undefined);
+    const setSettings = vi.fn();
+    let handler: ((event: { payload: { kind: string; sourceWindow: string } }) => void) | null = null;
+    listen.mockImplementation(async (...args: unknown[]) => {
+      handler = args[1] as typeof handler;
+      return () => undefined;
+    });
+    renderHook(() =>
+      useLibraryChanged({
+        ready: true,
+        browse: { type: "downloads" },
+        query: "",
+        creator: "",
+        sort: { field: "name", direction: "asc" },
+        foldersRef: { current: [] },
+        setFolders: vi.fn(),
+        setMissingCount: vi.fn(),
+        setSettings,
+        setSidebarWidth: vi.fn(),
+        setInspectorWidth: vi.fn(),
+        setInspectorPinned: vi.fn(),
+        setSidebarPinned: vi.fn(),
+        setPreviewHeight: vi.fn(),
+        setDetailsColumns: vi.fn(),
+        setTheme: vi.fn(),
+        setHistory: vi.fn(),
+        setTags: vi.fn(),
+        setCreators: vi.fn(),
+        setCreatorOptions: vi.fn(),
+        setTagCounts: vi.fn(),
+        setTypeCounts: vi.fn(),
+        refreshLists: vi.fn(async () => undefined),
+        refreshDownloads,
+        setThumbNonce: vi.fn(),
+        showToast: vi.fn(),
+      }),
+    );
+    act(() => {
+      handler?.({ payload: { kind: "settings", sourceWindow: "other" } });
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(getSettings).toHaveBeenCalled();
+    expect(setSettings).toHaveBeenCalled();
+    expect(refreshDownloads).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("reloads folders and lists after a folders event from another window", async () => {
+    vi.useFakeTimers();
+    bootstrap.mockResolvedValue({
+      settings: {
+        libraryRoot: "/lib",
+        theme: "dark",
+        gridSize: "large",
+        sidebarWidth: 240,
+        inspectorWidth: 320,
+        previewHeight: 240,
+        thumbRetry: 0,
+        inspectorPinned: true,
+        sidebarPinned: true,
+        searchScope: "library",
+        detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      },
+      folders: [{ id: 1, parentId: null, name: "Root", relpath: "", sortOrder: 0 }],
+      missingCount: 1,
+    });
+    listTags.mockResolvedValue(["tag"]);
+    listCreators.mockResolvedValue(["creator"]);
+    listTypeCounts.mockResolvedValue([]);
+    listTagCounts.mockResolvedValue([]);
+    const refreshLists = vi.fn(async () => undefined);
+    const setFolders = vi.fn();
+    const setMissingCount = vi.fn();
+    let handler: ((event: { payload: { kind: string; sourceWindow: string } }) => void) | null = null;
+    listen.mockImplementation(async (...args: unknown[]) => {
+      handler = args[1] as typeof handler;
+      return () => undefined;
+    });
+    renderHook(() =>
+      useLibraryChanged({
+        ready: true,
+        browse: { type: "root" },
+        query: "",
+        creator: "",
+        sort: { field: "name", direction: "asc" },
+        foldersRef: { current: [] },
+        setFolders,
+        setMissingCount,
+        setSettings: vi.fn(),
+        setSidebarWidth: vi.fn(),
+        setInspectorWidth: vi.fn(),
+        setInspectorPinned: vi.fn(),
+        setSidebarPinned: vi.fn(),
+        setPreviewHeight: vi.fn(),
+        setDetailsColumns: vi.fn(),
+        setTheme: vi.fn(),
+        setHistory: vi.fn(),
+        setTags: vi.fn(),
+        setCreators: vi.fn(),
+        setCreatorOptions: vi.fn(),
+        setTagCounts: vi.fn(),
+        setTypeCounts: vi.fn(),
+        refreshLists,
+        refreshDownloads: vi.fn(async () => undefined),
+        setThumbNonce: vi.fn(),
+        showToast: vi.fn(),
+      }),
+    );
+    act(() => {
+      handler?.({ payload: { kind: "folders", sourceWindow: "other" } });
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(bootstrap).toHaveBeenCalled();
+    expect(setFolders).toHaveBeenCalled();
+    expect(setMissingCount).toHaveBeenCalledWith(1);
+    expect(refreshLists).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("refreshes tag metadata after a tags-only event", async () => {
+    vi.useFakeTimers();
+    listTags.mockResolvedValue(["alpha"]);
+    listCreators.mockResolvedValue(["Ada"]);
+    listTypeCounts.mockResolvedValue([]);
+    listTagCounts.mockResolvedValue([]);
+    const setTags = vi.fn();
+    const refreshLists = vi.fn(async () => undefined);
+    let handler: ((event: { payload: { kind: string; sourceWindow: string } }) => void) | null = null;
+    listen.mockImplementation(async (...args: unknown[]) => {
+      handler = args[1] as typeof handler;
+      return () => undefined;
+    });
+    renderHook(() =>
+      useLibraryChanged({
+        ready: true,
+        browse: { type: "folder", id: 3 },
+        query: "needle",
+        creator: "Ada",
+        sort: { field: "name", direction: "asc" },
+        foldersRef: { current: [] },
+        setFolders: vi.fn(),
+        setMissingCount: vi.fn(),
+        setSettings: vi.fn(),
+        setSidebarWidth: vi.fn(),
+        setInspectorWidth: vi.fn(),
+        setInspectorPinned: vi.fn(),
+        setSidebarPinned: vi.fn(),
+        setPreviewHeight: vi.fn(),
+        setDetailsColumns: vi.fn(),
+        setTheme: vi.fn(),
+        setHistory: vi.fn(),
+        setTags,
+        setCreators: vi.fn(),
+        setCreatorOptions: vi.fn(),
+        setTagCounts: vi.fn(),
+        setTypeCounts: vi.fn(),
+        refreshLists,
+        refreshDownloads: vi.fn(async () => undefined),
+        setThumbNonce: vi.fn(),
+        showToast: vi.fn(),
+      }),
+    );
+    act(() => {
+      handler?.({ payload: { kind: "tags", sourceWindow: "remote" } });
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(setTags).toHaveBeenCalledWith(["alpha"]);
+    expect(refreshLists).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
 });

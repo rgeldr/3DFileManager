@@ -61,6 +61,15 @@ function file(overrides: Partial<FileRow>): FileRow {
 }
 
 describe("Viewer text preview", () => {
+  it("asks for a file when none is selected", () => {
+    render(
+      <ThemeProvider>
+        <Viewer file={null} />
+      </ThemeProvider>,
+    );
+    expect(screen.getByText("Select a file")).toBeTruthy();
+  });
+
   it("shows the cleaned preview in a read-only block", async () => {
     render(
       <ThemeProvider>
