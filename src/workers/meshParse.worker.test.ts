@@ -117,17 +117,18 @@ describe("mesh parse worker", () => {
     self.postMessage = ((msg: unknown) => {
       messages.push(msg);
     }) as typeof self.postMessage;
+    try {
+      self.onmessage!({ data: { id: 3, ext: "stl", buffer: bytes(STL) } } as MessageEvent);
+      expect(messages.at(-1)).toMatchObject({ id: 3, ok: true });
 
-    self.onmessage!({ data: { id: 3, ext: "stl", buffer: bytes(STL) } } as MessageEvent);
-    expect(messages.at(-1)).toMatchObject({ id: 3, ok: true });
+      self.onmessage!({ data: { id: 4, ext: "ply", buffer: bytes("nope") } } as MessageEvent);
+      expect(messages.at(-1)).toMatchObject({ id: 4, ok: false });
 
-    self.onmessage!({ data: { id: 4, ext: "ply", buffer: bytes("nope") } } as MessageEvent);
-    expect(messages.at(-1)).toMatchObject({ id: 4, ok: false });
-
-    self.onmessage!({ data: { id: 9, ext: "obj", buffer: bytes("v 0 0 0\n") } } as MessageEvent);
-    expect(messages.at(-1)).toMatchObject({ id: 9, ok: false, error: expect.stringContaining("No mesh") });
-
-    self.postMessage = previous;
+      self.onmessage!({ data: { id: 9, ext: "obj", buffer: bytes("v 0 0 0\n") } } as MessageEvent);
+      expect(messages.at(-1)).toMatchObject({ id: 9, ok: false, error: expect.stringContaining("No mesh") });
+    } finally {
+      self.postMessage = previous;
+    }
   });
 
   it("onmessage render kind forwards png or errors", async () => {
@@ -136,23 +137,24 @@ describe("mesh parse worker", () => {
     self.postMessage = ((msg: unknown) => {
       messages.push(msg);
     }) as typeof self.postMessage;
-
-    self.onmessage!({
-      data: {
-        kind: "render",
-        id: 5,
-        ext: "stl",
-        buffer: bytes(STL),
-        background: "#111",
-        mesh: "#222",
-        light: "#fff",
-      },
-    } as MessageEvent);
-    await vi.waitFor(() => {
-      expect(messages.some((msg) => (msg as { id?: number }).id === 5)).toBe(true);
-    });
-    expect(messages.at(-1)).toMatchObject({ id: 5, ok: false });
-
-    self.postMessage = previous;
+    try {
+      self.onmessage!({
+        data: {
+          kind: "render",
+          id: 5,
+          ext: "stl",
+          buffer: bytes(STL),
+          background: "#111",
+          mesh: "#222",
+          light: "#fff",
+        },
+      } as MessageEvent);
+      await vi.waitFor(() => {
+        expect(messages.some((msg) => (msg as { id?: number }).id === 5)).toBe(true);
+      });
+      expect(messages.at(-1)).toMatchObject({ id: 5, ok: false });
+    } finally {
+      self.postMessage = previous;
+    }
   });
 });

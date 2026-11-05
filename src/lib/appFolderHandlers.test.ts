@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { folderKey } from "../components/Sidebar";
 import type { FolderRow } from "../types";
 import { browseFromSidebarKey, creatorSelectOptions, folderDisplayName, rescanTitle } from "./appFolderHandlers";
 
@@ -29,6 +30,6 @@ describe("appFolderHandlers", () => {
   it("browseFromSidebarKey maps sidebar keys to browse places", () => {
     expect(browseFromSidebarKey("downloads")).toEqual({ type: "downloads" });
     expect(browseFromSidebarKey("root")).toEqual({ type: "root" });
-    expect(browseFromSidebarKey("folder-12")).toEqual({ type: "folder", id: 12 });
+    expect(browseFromSidebarKey(folderKey(12))).toEqual({ type: "folder", id: 12 });
   });
 });

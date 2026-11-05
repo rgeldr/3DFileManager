@@ -54,26 +54,6 @@ vi.mock("./components/MenuBar", () => ({
   MenuBar: () => null,
 }));
 
-vi.mock("./components/Sidebar", () => ({
-  Sidebar: (props: {
-    onBrowse: (key: string) => void;
-    onReveal: (id: number | null) => void;
-    onRescan: (id: number | null) => void;
-    onTagFolder: (id: number | null) => void;
-    onSetCreator: (id: number | null) => void;
-    onPinnedChange: (next: boolean) => void;
-  }) => (
-    <div data-testid="sidebar">
-      <button type="button" onClick={() => props.onBrowse("folder:2")}>sb-browse</button>
-      <button type="button" onClick={() => props.onReveal(2)}>sb-reveal</button>
-      <button type="button" onClick={() => props.onRescan(2)}>sb-rescan</button>
-      <button type="button" onClick={() => props.onTagFolder(2)}>sb-tag</button>
-      <button type="button" onClick={() => props.onSetCreator(2)}>sb-creator</button>
-      <button type="button" onClick={() => props.onPinnedChange(false)}>sb-pin</button>
-    </div>
-  ),
-}));
-
 vi.mock("./components/FileGrid", () => ({
   FileGrid: (props: {
     onFolderContextMenu?: (event: { clientX: number; clientY: number }, folderId: number) => void;
@@ -322,7 +302,7 @@ describe("AppShell", () => {
       />,
     );
     expect(document.querySelector(".app")).toBeTruthy();
-    expect(screen.getByTestId("sidebar")).toBeTruthy();
+    expect(screen.getByText("Downloads")).toBeTruthy();
     expect(screen.getByTestId("file-grid")).toBeTruthy();
     expect(screen.getByTestId("inspector")).toBeTruthy();
     const scope = screen.getByRole("radiogroup", { name: "Search scope" });
@@ -571,17 +551,24 @@ describe("AppShell", () => {
         })}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "sb-browse" }));
+    fireEvent.click(screen.getByText("Prints"));
     expect(setBrowse).toHaveBeenCalledWith({ type: "folder", id: 2 });
-    fireEvent.click(screen.getByRole("button", { name: "sb-reveal" }));
+    fireEvent.contextMenu(screen.getByText("Prints"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Show in Explorer" }));
     expect(api.revealFolder).toHaveBeenCalledWith(2);
-    fireEvent.click(screen.getByRole("button", { name: "sb-rescan" }));
-    expect(runDiskOp).toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "sb-tag" }));
-    expect(setFolderTagTarget).toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "sb-creator" }));
-    expect(setCreatorTarget).toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "sb-pin" }));
+    fireEvent.contextMenu(screen.getByText("Prints"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Rescan" }));
+    expect(runDiskOp).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Rescanning "Prints"...',
+      cancellable: true,
+    }));
+    fireEvent.contextMenu(screen.getByText("Prints"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Tag contents…" }));
+    expect(setFolderTagTarget).toHaveBeenCalledWith({ folderId: 2, name: "Prints" });
+    fireEvent.contextMenu(screen.getByText("Prints"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Set Creator…" }));
+    expect(setCreatorTarget).toHaveBeenCalledWith({ folderId: 2, name: "Prints" });
+    fireEvent.click(screen.getByRole("button", { name: "Unpin folders" }));
     expect(setSettings).toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "bc-root" }));
     fireEvent.click(screen.getByRole("button", { name: "fg-open" }));
@@ -596,7 +583,10 @@ describe("AppShell", () => {
     fireEvent.click(screen.getByRole("button", { name: "fg-col" }));
     expect(api.setDetailsColumns).toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "in-save" }));
-    expect(runDiskOp).toHaveBeenCalled();
+    expect(runDiskOp).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Saving...",
+      cancellable: false,
+    }));
     fireEvent.click(screen.getByRole("button", { name: "in-delete" }));
     fireEvent.click(screen.getByRole("button", { name: "in-height" }));
     expect(api.setPreviewHeight).toHaveBeenCalledWith(300);

@@ -51,7 +51,7 @@ describe("attachPaneSplitPointer", () => {
     expect(persistWidths).not.toHaveBeenCalled();
   });
 
-  it("shrinks inspector width when dragging left", () => {
+  it("grows the inspector when the handle moves left", () => {
     const inspectorWidthRef = { current: 320 };
     const setInspectorWidth = vi.fn();
     const handle = document.createElement("div");

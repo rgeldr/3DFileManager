@@ -462,7 +462,7 @@ describe("useSessionEffects", () => {
       folders: [],
       missingCount: 0,
     });
-    open.mockResolvedValueOnce("/imports/new");
+    open.mockResolvedValueOnce("C:\\imports\\new");
     const runImport = vi.fn(async () => undefined);
     const state = sessionBag({ runImport });
     renderHook(() => useSessionEffects(state as Parameters<typeof useSessionEffects>[0]));
@@ -470,7 +470,7 @@ describe("useSessionEffects", () => {
     act(() => {
       state.actions.current.importFolder();
     });
-    await waitFor(() => expect(runImport).toHaveBeenCalledWith(["/imports/new"]));
+    await waitFor(() => expect(runImport).toHaveBeenCalledWith(["C:\\imports\\new"]));
   });
 
   it("clears thumbnails and surfaces API errors", async () => {
