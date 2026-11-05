@@ -35,7 +35,9 @@ import { UpdateBanner } from "./components/UpdateBanner";
 import { useLibrary, type LibraryModel } from "./hooks/useLibrary";
 import { useAppUpdate } from "./hooks/useAppUpdate";
 import { useThumbQueueCount } from "./hooks/useThumbQueueCount";
-import { clampInspector, clampSidebar, INSPECTOR_RAIL_WIDTH } from "./lib/paneWidths";
+import { browseFromSidebarKey, creatorSelectOptions, folderDisplayName, rescanTitle } from "./lib/appFolderHandlers";
+import { attachPaneSplitPointer } from "./lib/paneSplitPointer";
+import { INSPECTOR_RAIL_WIDTH } from "./lib/paneWidths";
 import { centerSubfolders, gridEmptyMessage, LIBRARY_SEARCH_LIMIT, nextSort, sortFromDropdown, truncatedSearchMessage } from "./lib/tagFilter";
 import type { SortField, ViewMode } from "./types";
 
@@ -148,39 +150,19 @@ export function AppShell({ app }: { app: LibraryModel }) {
     selectedTagCount: selectedTagIds.length,
     selectedTypeCount: selectedTypeIds.length,
   });
-  const creatorSelectOptions = creatorOptions.includes(creator) || creator === ""
-    ? creatorOptions
-    : [...creatorOptions, creator];
+  const creatorSelectOptionsList = creatorSelectOptions(creatorOptions, creator);
   const onPanePointerDown = (which: "sidebar" | "inspector") => (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    const handle = event.currentTarget;
-    handle.setPointerCapture(event.pointerId);
-    const startX = event.clientX;
-    const origin = which === "sidebar" ? sidebarWidthRef.current : inspectorWidthRef.current;
-    let moved = false;
-    const move = (ev: PointerEvent) => {
-      const dx = ev.clientX - startX;
-      if (dx !== 0) moved = true;
-      if (which === "sidebar") {
-        const next = clampSidebar(origin + dx, window.innerWidth);
-        sidebarWidthRef.current = next;
-        setSidebarWidth(next);
-      } else {
-        const next = clampInspector(origin - dx, window.innerWidth);
-        inspectorWidthRef.current = next;
-        setInspectorWidth(next);
-      }
-    };
-    const up = (ev: PointerEvent) => {
-      handle.removeEventListener("pointermove", move);
-      handle.removeEventListener("pointerup", up);
-      if (handle.hasPointerCapture(ev.pointerId)) handle.releasePointerCapture(ev.pointerId);
-      if (!moved) return;
-      void api.setPaneWidths(sidebarWidthRef.current, inspectorWidthRef.current).catch((err) => setError(String(err)));
-    };
-    handle.addEventListener("pointermove", move);
-    handle.addEventListener("pointerup", up);
+    attachPaneSplitPointer(which, event.currentTarget, event.clientX, event.pointerId, {
+      sidebarWidthRef,
+      inspectorWidthRef,
+      setSidebarWidth,
+      setInspectorWidth,
+      persistWidths: (sidebar, inspector) => {
+        void api.setPaneWidths(sidebar, inspector).catch((err) => setError(String(err)));
+      },
+    });
   };
 
   const paneStyle = {
@@ -257,11 +239,8 @@ export function AppShell({ app }: { app: LibraryModel }) {
     void api.revealFolder(folderId).catch((err) => setError(String(err)));
   };
   const onRescanFolder = (folderId: number | null) => {
-    const name = folderId == null
-      ? libraryName
-      : folders.find((item) => item.id === folderId)?.name ?? "folder";
     void runDiskOp({
-      title: `Rescanning "${name}"...`,
+      title: rescanTitle(folderId, folders, libraryName),
       cancellable: true,
       success: "Rescan finished",
       cancelled: "Rescan cancelled",
@@ -273,21 +252,13 @@ export function AppShell({ app }: { app: LibraryModel }) {
     });
   };
   const onTagFolder = (folderId: number | null) => {
-    const name =
-      folderId === null
-        ? libraryName
-        : folders.find((item) => item.id === folderId)?.name ?? "Folder";
     setFolderTagInput("");
-    setFolderTagTarget({ folderId, name });
+    setFolderTagTarget({ folderId, name: folderDisplayName(folderId, folders, libraryName) });
   };
   const onSetFolderCreator = (folderId: number | null) => {
-    const name =
-      folderId === null
-        ? libraryName
-        : folders.find((item) => item.id === folderId)?.name ?? "Folder";
     setCreatorValue("");
     setIncludeSubfolders(true);
-    setCreatorTarget({ folderId, name });
+    setCreatorTarget({ folderId, name: folderDisplayName(folderId, folders, libraryName) });
   };
 
   return (
@@ -312,9 +283,7 @@ export function AppShell({ app }: { app: LibraryModel }) {
         dropTarget={dropTarget}
         expandHint={folderExpandHint}
         onBrowse={(key) => {
-          if (key === "downloads") setBrowse({ type: "downloads" });
-          else if (key === "root") setBrowse({ type: "root" });
-          else setBrowse({ type: "folder", id: Number(key.slice(7)) });
+          setBrowse(browseFromSidebarKey(key));
           setSelected([]);
         }}
         onNew={() => openNewFolderPrompt(browse.type === "folder" ? browse.id : null)}
@@ -426,7 +395,7 @@ export function AppShell({ app }: { app: LibraryModel }) {
                 />
                 <select aria-label="Creator" value={creator} onChange={(event) => setCreator(event.target.value)} disabled={onDownloads}>
                   <option value="">All creators</option>
-                  {creatorSelectOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+                  {creatorSelectOptionsList.map((item) => <option key={item} value={item}>{item}</option>)}
                 </select>
               </div>
               <select
