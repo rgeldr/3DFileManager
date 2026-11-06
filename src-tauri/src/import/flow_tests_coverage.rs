@@ -297,7 +297,8 @@
         let inside = library.join("Models");
         assert!(path_within(&inside, &library));
         assert!(!path_within(&incoming, &library));
-        assert!(!path_within(Path::new("/tmp/filelib-missing-plan-path"), &library));
+        assert!(!path_within(&incoming.join("no-such-file.stl"), &library));
+        assert!(!path_within(&library, &incoming.join("no-such-root")));
 
         let tree = incoming.join("tree");
         fs::create_dir_all(tree.join("sub")).unwrap();
@@ -398,6 +399,46 @@
         assert!(stopped_summary.cancelled);
         assert_eq!(stopped_summary.imported_count, 0);
         batch.commit(&mut db).unwrap();
+        let _ = fs::remove_dir_all(data.parent().unwrap());
+    }
+
+    #[test]
+    fn a_second_level_archive_is_left_unsupported() {
+        let (data, library, incoming) = scratch();
+        let mut db = open(&data).unwrap();
+        db.set_library_root(&library).unwrap();
+        let tree = incoming.join("pack");
+        fs::create_dir_all(&tree).unwrap();
+        fs::write(tree.join("inner.zip"), b"PK").unwrap();
+        fs::write(tree.join("a.stl"), b"solid a\n").unwrap();
+        let mut cache = FolderCache::new(&db).unwrap();
+        let mut batch = ImportBatch::begin(&mut db).unwrap();
+        let mut summary = blank_summary();
+        let mut progress = ImportProgressCtx {
+            current: 0,
+            total: 2,
+            on_progress: |_: ImportProgress| {},
+            pending_message: None,
+        };
+        import_tree(
+            &mut db,
+            &library,
+            &mut cache,
+            &mut batch,
+            &tree,
+            None,
+            Path::new("Imported"),
+            None,
+            1,
+            &NO_CANCEL,
+            &mut summary,
+            &mut progress,
+        )
+        .unwrap();
+        assert_eq!(summary.unsupported_count, 1);
+        assert_eq!(summary.imported_count, 1);
+        assert_eq!(fs::read(library.join("Imported").join("a.stl")).unwrap(), b"solid a\n");
+        batch.rollback(&mut db);
         let _ = fs::remove_dir_all(data.parent().unwrap());
     }
 

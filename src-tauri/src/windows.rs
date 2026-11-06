@@ -42,16 +42,26 @@ pub fn label_window_config(config: &mut tauri::utils::config::WindowConfig, labe
     config.label = label.to_string();
 }
 
-fn placed_origin(app: &AppHandle, anchor: Option<(i32, i32)>) -> (i32, i32) {
+pub(crate) fn origin_from_anchor(
+    anchor: Option<(i32, i32)>,
+    window_positions: impl IntoIterator<Item = Option<(i32, i32)>>,
+) -> (i32, i32) {
     if let Some(pos) = anchor {
         return offset_position(pos);
     }
-    for window in app.webview_windows().values() {
-        if let Ok(pos) = window.outer_position() {
-            return offset_position((pos.x, pos.y));
-        }
+    for pos in window_positions.into_iter().flatten() {
+        return offset_position(pos);
     }
     (120, 120)
+}
+
+fn placed_origin(app: &AppHandle, anchor: Option<(i32, i32)>) -> (i32, i32) {
+    origin_from_anchor(
+        anchor,
+        app.webview_windows()
+            .values()
+            .map(|window| window.outer_position().ok().map(|pos| (pos.x, pos.y))),
+    )
 }
 
 pub fn open_library_window(
@@ -118,6 +128,16 @@ mod tests {
     }
 
     #[test]
+    fn origin_uses_the_anchor_then_the_first_window_then_the_default() {
+        assert_eq!(origin_from_anchor(Some((10, 20)), [Some((1, 1))]), (42, 52));
+        assert_eq!(
+            origin_from_anchor(None, [None, Some((3, 4)), Some((9, 9))]),
+            (35, 36)
+        );
+        assert_eq!(origin_from_anchor(None, [None]), (120, 120));
+    }
+
+    #[test]
     fn label_window_config_replaces_the_main_label() {
         let mut config: tauri::utils::config::WindowConfig =
             serde_json::from_str(r#"{"label":"main"}"#).unwrap();
@@ -133,7 +153,8 @@ mod tests {
             .expect("open_library_window");
         let body = &source[start..];
         assert!(
-            body.contains("#[cfg(windows)]") && body.contains(".drag_and_drop(config.drag_drop_enabled)"),
+            body.contains("#[cfg(windows)]")
+                && body.contains(".drag_and_drop(config.drag_drop_enabled)"),
             "secondary windows must set the Windows-only drag-and-drop flag from config"
         );
     }

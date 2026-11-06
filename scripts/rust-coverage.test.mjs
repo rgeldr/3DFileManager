@@ -23,22 +23,28 @@ assert.equal(ignore.test("src/main.rs"), false);
 
 const summary = `
 Filename                      Regions    Missed Regions     Cover   Functions  Missed Functions  Executed       Lines      Missed Lines     Cover
-TOTAL                         19732               4429    77.55%        1441               676     53.09%       10728              2428    77.37%
+TOTAL                         21000               4368    79.20%        1510               667     55.80%       11600              2378    79.50%
 `;
 assert.deepEqual(parseLlvmCovSummary(summary), {
-  regions: 77.55,
-  functions: 53.09,
-  lines: 77.37,
+  regions: 79.2,
+  functions: 55.8,
+  lines: 79.5,
 });
 assert.deepEqual(coverageBelowFloor(parseLlvmCovSummary(summary)), []);
 
-const droppedLines = { regions: 77.55, functions: 53.09, lines: 77.36 };
-assert.equal(coverageBelowFloor(droppedLines).length, 1);
-assert.match(coverageBelowFloor(droppedLines)[0], /lines 77.36%/);
+const jason = { regions: 78.95, functions: 55.15, lines: 78.92 };
+assert.equal(coverageBelowFloor(jason).length, 3);
 
-assert.equal(COVERAGE_FLOORS.functions, 53.09);
-assert.equal(COVERAGE_FLOORS.lines, 77.37);
-assert.equal(COVERAGE_FLOORS.regions, 77.55);
+const droppedLines = { regions: 79.2, functions: 55.8, lines: 79.49 };
+assert.equal(coverageBelowFloor(droppedLines).length, 1);
+assert.match(coverageBelowFloor(droppedLines)[0], /lines 79.49%/);
+
+assert.equal(COVERAGE_FLOORS.functions, 55.8);
+assert.equal(COVERAGE_FLOORS.lines, 79.5);
+assert.equal(COVERAGE_FLOORS.regions, 79.2);
 assert.ok(COVERAGE_FLOORS.lines < 80);
 assert.ok(COVERAGE_FLOORS.regions < 80);
 assert.ok(COVERAGE_FLOORS.functions < 80);
+assert.ok(COVERAGE_FLOORS.functions > 55.15);
+assert.ok(COVERAGE_FLOORS.lines > 78.92);
+assert.ok(COVERAGE_FLOORS.regions > 78.95);

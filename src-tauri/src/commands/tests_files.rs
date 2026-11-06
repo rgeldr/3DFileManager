@@ -25,6 +25,28 @@
         let removed = recycle_and_drop_files(&db, &items[1..], &cancel, |_| {}, |_| Ok(()));
         assert!(!removed.unwrap());
         assert!(!db.lock().unwrap().file_row_exists(drop_id).unwrap());
+
+        fs::write(root.join("later.stl"), b"later").unwrap();
+        let later = db.lock().unwrap()
+            .insert_file("later.stl", "later.stl", "stl", 5, "sha-later", 1, None, None)
+            .unwrap();
+        let later_items = db.lock().unwrap().trash_items(&[later]).unwrap();
+        let cancel_now = AtomicBool::new(true);
+        let cancelled = recycle_and_drop_files(&db, &later_items, &cancel_now, |_| {}, |_| Ok(())).unwrap();
+        assert!(cancelled);
+        assert!(db.lock().unwrap().file_row_exists(later).unwrap());
+
+        fs::remove_file(root.join("later.stl")).unwrap();
+        let cancel_off = AtomicBool::new(false);
+        let mut recycled = false;
+        let gone = recycle_and_drop_files(&db, &later_items, &cancel_off, |_| {}, |_| {
+            recycled = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(!gone);
+        assert!(!recycled);
+        assert!(!db.lock().unwrap().file_row_exists(later).unwrap());
         let _ = fs::remove_dir_all(&dir);
     }
 

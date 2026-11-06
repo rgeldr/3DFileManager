@@ -8,10 +8,9 @@
  * use a forward slash, so `/tests_` drops those covered files out of the
  * set R0 counted and the three percentages fall.
  *
- * Floors are that measured production baseline (R0). They are regression
- * gates, not an assumption that lines or regions are already ≥80%.
- * Next ratchet, after a Windows run clears it: functions ≥55%, lines ≥78%, regions ≥78%.
- * Final target for all three: ≥80%.
+ * Floors are regression gates. Jason's Windows run of PR #62 measured
+ * regions 78.95%, functions 55.15%, lines 78.92%. This ratchet sits above
+ * that measurement and still under 80%. The final target for all three is ≥80%.
  */
 import { spawnSync } from "node:child_process";
 import path from "node:path";
@@ -19,11 +18,14 @@ import { fileURLToPath } from "node:url";
 
 export const PRODUCTION_IGNORE = "(\\\\tests_|_tests_|flow_tests_)";
 
-/** Jason, Windows, production filter, after PR #60. */
+/**
+ * Above Jason's Windows measurement (regions 78.95, functions 55.15, lines 78.92).
+ * Still short of the 80% target on every axis.
+ */
 export const COVERAGE_FLOORS = {
-  regions: 77.55,
-  functions: 53.09,
-  lines: 77.37,
+  regions: 79.2,
+  functions: 55.8,
+  lines: 79.5,
 };
 
 export function productionLlvmCovFlags() {
