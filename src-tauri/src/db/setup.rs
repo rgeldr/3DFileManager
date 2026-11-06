@@ -37,7 +37,7 @@ impl AppDb {
             return Err("Pick an existing folder.".into());
         }
         let canonical = path.canonicalize().map_err(|e| e.to_string())?;
-        settings.library_root = Some(canonical.to_string_lossy().to_string());
+        settings.library_root = Some(settings::stored_path(&canonical));
         self.save_settings(&settings)?;
         self.seed_default_folders()?;
         self.bootstrap()
@@ -109,7 +109,7 @@ impl AppDb {
             let _ = std::fs::create_dir_all(&to);
             return Ok(true);
         }
-        let new_root = to.to_string_lossy().to_string();
+        let new_root = settings::stored_path(&to);
         let mut settings = self.settings();
         let previous = settings.library_root.clone();
         settings.library_root = Some(new_root);

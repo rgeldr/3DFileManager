@@ -103,6 +103,28 @@
     }
 
     #[test]
+    fn set_library_root_persists_without_a_verbatim_prefix() {
+        let dir = std::env::temp_dir().join(format!("filelib-root-prefix-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let library = dir.join("library");
+        std::fs::create_dir_all(&library).unwrap();
+        let db = open(&dir).unwrap();
+        db.set_library_root(&library).unwrap();
+        let saved = db.library_root().unwrap();
+        let canonical = library.canonicalize().unwrap();
+        assert_eq!(
+            saved,
+            std::path::PathBuf::from(crate::settings::stored_path(&canonical))
+        );
+        assert!(saved.is_dir());
+        assert!(!saved.to_string_lossy().starts_with(r"\\?\"));
+        let text = std::fs::read_to_string(crate::settings::settings_path(&dir)).unwrap();
+        assert!(!text.contains(r"\\?\"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn seed_default_folders_inserts_three_folders_once() {
         let (dir, db) = scratch_db("seed-defaults");
         db.seed_default_folders().unwrap();

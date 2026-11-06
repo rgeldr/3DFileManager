@@ -639,7 +639,7 @@ mod tests {
 
     #[test]
     fn normalize_rewrites_mixed_separators_on_drive_and_unc_paths() {
-        let saved = normalize_external_programs(vec![
+        let mut input = vec![
             program(
                 "chitu",
                 "CHITUBOX",
@@ -657,9 +657,12 @@ mod tests {
                 "Orca",
                 "C://Program Files//OrcaSlicer/orca-slicer.exe",
             ),
-            program("unix", "Local", "/tmp/orca-slicer.exe"),
-        ])
-        .unwrap();
+        ];
+        // A POSIX absolute path is absolute on Unix and is stored unchanged.
+        // On Windows it has no drive or UNC prefix, so it is not a program path.
+        #[cfg(unix)]
+        input.push(program("unix", "Local", "/tmp/orca-slicer.exe"));
+        let saved = normalize_external_programs(input).unwrap();
         assert_eq!(saved[0].path, r"C:\Program Files\CHITUBOX\CHITUBOX.exe");
         assert_eq!(
             saved[1].path,
@@ -671,11 +674,22 @@ mod tests {
             saved[4].path,
             r"C:\Program Files\OrcaSlicer\orca-slicer.exe"
         );
+        #[cfg(unix)]
         assert_eq!(saved[5].path, "/tmp/orca-slicer.exe");
         assert!(saved
             .iter()
             .take(5)
             .all(|program| !program.path.contains('/')));
+        #[cfg(windows)]
+        {
+            let err = normalize_external_programs(vec![program(
+                "unix",
+                "Local",
+                "/tmp/orca-slicer.exe",
+            )])
+            .unwrap_err();
+            assert!(err.contains(".exe"), "{err}");
+        }
     }
 
     #[test]
@@ -717,25 +731,33 @@ mod tests {
 
     #[test]
     fn launch_reports_a_missing_normalized_windows_executable() {
+        // These must not be real install locations. `is_file` would succeed
+        // on a machine that has CHITUBOX, and the missing-file check would fail.
         let programs = normalize_external_programs(vec![
             program(
                 "chitu",
                 "CHITUBOX",
-                r"C:\Program Files\CHITUBOX/CHITUBOX.exe",
+                r"C:\filelib-not-installed\CHITUBOX/CHITUBOX.exe",
             ),
             program(
                 "unc",
                 "OrcaSlicer",
-                "//server/share/OrcaSlicer/orca-slicer.exe",
+                "//filelib-not-installed/share/OrcaSlicer/orca-slicer.exe",
             ),
         ])
         .unwrap();
         let model = Path::new(r"C:\Models\My Cube.stl");
         let missing = launch_for_program(&programs, "chitu", model).unwrap_err();
-        assert!(missing.contains(r"C:\Program Files\CHITUBOX\CHITUBOX.exe"));
+        assert_eq!(
+            missing,
+            r"Can't find CHITUBOX. It is not at C:\filelib-not-installed\CHITUBOX\CHITUBOX.exe."
+        );
         assert!(!missing.contains('/'));
         let unc = launch_for_program(&programs, "unc", model).unwrap_err();
-        assert!(unc.contains(r"\\server\share\OrcaSlicer\orca-slicer.exe"));
+        assert_eq!(
+            unc,
+            r"Can't find OrcaSlicer. It is not at \\filelib-not-installed\share\OrcaSlicer\orca-slicer.exe."
+        );
         assert!(!unc.contains('/'));
 
         let launch = ProgramLaunch {
@@ -745,7 +767,7 @@ mod tests {
         let command = command_for(&launch);
         assert_eq!(
             command.get_program().to_string_lossy(),
-            r"\\server\share\OrcaSlicer\orca-slicer.exe"
+            r"\\filelib-not-installed\share\OrcaSlicer\orca-slicer.exe"
         );
         let args: Vec<_> = command
             .get_args()

@@ -367,35 +367,56 @@
         }
     }
 
-    #[test]
-    fn write_debug_log_appends_under_the_data_dir_and_keeps_the_tail() {
-        let root = std::env::temp_dir().join(format!("filelib-debuglog-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).unwrap();
-        // data_dir() follows XDG_DATA_HOME, so the log can land in a temp folder.
-        let _env = EnvVarGuard::set("XDG_DATA_HOME", &root);
-        let log_dir = data_dir();
-        assert_eq!(log_dir, root.join("3D File Library"));
-        let path = PathBuf::from(write_debug_log("alpha".into()).unwrap());
-        assert_eq!(path, log_dir.join("debug.log"));
-        assert_eq!(fs::read_to_string(&path).unwrap(), "alpha\n");
-        write_debug_log("beta".into()).unwrap();
-        assert_eq!(fs::read_to_string(&path).unwrap(), "alpha\nbeta\n");
+    fn assert_debug_log_appends_and_keeps_the_tail(path: &std::path::Path, write: impl Fn(&str) -> String) {
+        let written = PathBuf::from(write("alpha"));
+        assert_eq!(written, path);
+        assert_eq!(fs::read_to_string(path).unwrap(), "alpha\n");
+        write("beta");
+        assert_eq!(fs::read_to_string(path).unwrap(), "alpha\nbeta\n");
 
-        fs::write(&path, vec![b'C'; 1_048_576]).unwrap();
-        write_debug_log("edge".into()).unwrap();
-        let exact = fs::read(&path).unwrap();
+        fs::write(path, vec![b'C'; 1_048_576]).unwrap();
+        write("edge");
+        let exact = fs::read(path).unwrap();
         assert_eq!(exact.len(), 1_048_576 + "edge\n".len());
         assert_eq!(exact[0], b'C');
         assert!(exact.ends_with(b"edge\n"));
 
         let mut big = vec![b'B'; 1_048_577];
         big[0] = b'A';
-        fs::write(&path, &big).unwrap();
-        write_debug_log("tail".into()).unwrap();
-        let trimmed = fs::read(&path).unwrap();
+        fs::write(path, &big).unwrap();
+        write("tail");
+        let trimmed = fs::read(path).unwrap();
         assert_eq!(trimmed.len(), 512_000 + "tail\n".len());
         assert!(trimmed[..512_000].iter().all(|byte| *byte == b'B'));
         assert!(trimmed.ends_with(b"tail\n"));
+    }
+
+    #[test]
+    fn write_debug_log_appends_under_the_data_dir_and_keeps_the_tail() {
+        let root = std::env::temp_dir().join(format!("filelib-debuglog-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let log_dir = root.join("3D File Library");
+        let path = log_dir.join("debug.log");
+
+        // Unix `dirs::data_dir` follows XDG_DATA_HOME. Windows uses
+        // FOLDERID_RoamingAppData and ignores that variable, so the byte
+        // checks go through `write_debug_log_in` and stay out of AppData.
+        #[cfg(unix)]
+        {
+            let _env = EnvVarGuard::set("XDG_DATA_HOME", &root);
+            assert_eq!(data_dir(), log_dir);
+            assert_debug_log_appends_and_keeps_the_tail(&path, |line| {
+                write_debug_log(line.into()).unwrap()
+            });
+        }
+        #[cfg(windows)]
+        {
+            assert!(data_dir().ends_with("3D File Library"));
+            assert_ne!(data_dir(), log_dir);
+            assert_debug_log_appends_and_keeps_the_tail(&path, |line| {
+                write_debug_log_in(&log_dir, line.into()).unwrap()
+            });
+        }
         let _ = fs::remove_dir_all(&root);
     }
