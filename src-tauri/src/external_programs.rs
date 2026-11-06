@@ -682,13 +682,16 @@ mod tests {
             .all(|program| !program.path.contains('/')));
         #[cfg(windows)]
         {
+            // Not an existence check. `/tmp/...` has no drive or UNC prefix,
+            // so `is_absolute_program_path` rejects it. The drive and UNC
+            // paths above are normalized without those files existing.
             let err = normalize_external_programs(vec![program(
                 "unix",
                 "Local",
                 "/tmp/orca-slicer.exe",
             )])
             .unwrap_err();
-            assert!(err.contains(".exe"), "{err}");
+            assert_eq!(err, "Choose the full path to an .exe file.");
         }
     }
 
@@ -731,14 +734,16 @@ mod tests {
 
     #[test]
     fn launch_reports_a_missing_normalized_windows_executable() {
-        // These must not be real install locations. `is_file` would succeed
-        // on a machine that has CHITUBOX, and the missing-file check would fail.
+        // A fixed `C:\Program Files\CHITUBOX\...` path is a real file when
+        // CHITUBOX is installed. This directory is created empty.
+        let dir = std::env::temp_dir().join(format!("filelib-missing-exe-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let missing_exe = dir.join("CHITUBOX.exe");
+        assert!(!missing_exe.is_file());
+        let chitu_input = missing_exe.to_string_lossy().replace('\\', "/");
         let programs = normalize_external_programs(vec![
-            program(
-                "chitu",
-                "CHITUBOX",
-                r"C:\filelib-not-installed\CHITUBOX/CHITUBOX.exe",
-            ),
+            program("chitu", "CHITUBOX", &chitu_input),
             program(
                 "unc",
                 "OrcaSlicer",
@@ -748,11 +753,17 @@ mod tests {
         .unwrap();
         let model = Path::new(r"C:\Models\My Cube.stl");
         let missing = launch_for_program(&programs, "chitu", model).unwrap_err();
+        let expected_chitu = if cfg!(windows) {
+            missing_exe.to_string_lossy().replace('/', "\\")
+        } else {
+            chitu_input
+        };
         assert_eq!(
             missing,
-            r"Can't find CHITUBOX. It is not at C:\filelib-not-installed\CHITUBOX\CHITUBOX.exe."
+            format!("Can't find CHITUBOX. It is not at {expected_chitu}.")
         );
-        assert!(!missing.contains('/'));
+        #[cfg(windows)]
+        assert!(!missing.contains('/'), "{missing}");
         let unc = launch_for_program(&programs, "unc", model).unwrap_err();
         assert_eq!(
             unc,
@@ -774,6 +785,7 @@ mod tests {
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect();
         assert_eq!(args, vec![r"C:\Models\My Cube.stl"]);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

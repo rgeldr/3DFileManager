@@ -378,7 +378,18 @@
         let items: Vec<TrashItem> = db.trash_items(&[id, missing]).unwrap();
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].id, id);
-        assert_eq!(items[0].path, root.join("Models/mesh.stl"));
+        // `root.join("Models/mesh.stl")` keeps the `/` on Windows, and
+        // `canonicalize` adds `\\?\`. Compare the canonical file instead.
+        let mesh = root.join("Models").join("mesh.stl");
+        assert_eq!(
+            items[0].path.canonicalize().unwrap(),
+            mesh.canonicalize().unwrap()
+        );
+        assert!(
+            !items[0].path.to_string_lossy().starts_with(r"\\?\"),
+            "{}",
+            items[0].path.display()
+        );
         assert_eq!(items[0].sha256, "sha-mesh");
         assert_eq!(items[0].name, "mesh.stl");
         assert_eq!(items[0].bytes, 4);

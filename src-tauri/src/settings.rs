@@ -128,7 +128,10 @@ pub fn stored_path_os(path: &str, windows: bool) -> String {
 }
 
 pub fn stored_path(path: &Path) -> String {
-    stored_path_os(&path.to_string_lossy(), cfg!(windows))
+    // `dunce` drops a safe `\\?\C:\` prefix and leaves UNC and overlong paths.
+    // `stored_path_os` then turns `\\?\UNC\server\share` into `\\server\share`.
+    let simplified = dunce::simplified(path);
+    stored_path_os(&simplified.to_string_lossy(), cfg!(windows))
 }
 
 pub fn load(data_dir: &Path) -> Settings {
@@ -199,6 +202,18 @@ mod tests {
         assert!(!stored_path_os(r"\\?\C:\Users\Me\Library", true).contains(r"\\?\"));
         assert_eq!(stored_path_os("/tmp/library", false), "/tmp/library");
         assert_eq!(stored_path_os(r"C:\Library", false), "C:/Library");
+
+        let disk = stored_path(std::path::Path::new(r"\\?\C:\Users\Me\Library"));
+        let unc = stored_path(std::path::Path::new(r"\\?\UNC\server\share\Library"));
+        if cfg!(windows) {
+            assert_eq!(disk, r"C:\Users\Me\Library");
+            assert_eq!(unc, r"\\server\share\Library");
+        } else {
+            assert_eq!(disk, "C:/Users/Me/Library");
+            assert_eq!(unc, "//server/share/Library");
+        }
+        assert!(!disk.contains(r"\\?\"));
+        assert!(!unc.contains(r"\\?\"));
     }
 
     #[test]
