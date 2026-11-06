@@ -10,7 +10,7 @@ pub(crate) fn set_library_root_work(db: &AppDb, path: &std::path::Path) -> Resul
     db.set_library_root(path)
 }
 
-pub(crate) fn create_folder_work(
+pub(crate) fn add_library_folder(
     db: &AppDb,
     parent_id: Option<i64>,
     name: &str,
@@ -72,7 +72,7 @@ async fn create_folder(
     let db = app.state::<AppState>().db.clone();
     let row = off_ui("create_folder", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        create_folder_work(&db, parent_id, &name)
+        add_library_folder(&db, parent_id, &name)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Folders, &source);

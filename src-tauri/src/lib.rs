@@ -175,5 +175,4 @@ mod tests {
     include!("commands/tests_library.rs");
     include!("commands/tests_settings.rs");
     include!("commands/tests_import_cmd.rs");
-    include!("commands/tests_windows.rs");
 }

@@ -116,8 +116,11 @@
         assert_eq!(tag_match_mode(" any").unwrap_err(), "Unknown tag match.");
     }
 
-    fn scratch_library() -> (std::path::PathBuf, db::AppDb) {
-        let dir = std::env::temp_dir().join(format!("filelib-query-{}", std::process::id()));
+    fn scratch_query_library(label: &str) -> (std::path::PathBuf, db::AppDb) {
+        let dir = std::env::temp_dir().join(format!(
+            "filelib-query-{label}-{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&dir);
         let db = db::open(&dir).unwrap();
         let root = dir.join("library");
@@ -133,15 +136,75 @@
 
     #[test]
     fn query_files_lists_root_entries_and_counts_scope() {
-        let (dir, db) = scratch_library();
+        let (dir, db) = scratch_query_library("list");
         let args: ListFilesArgs = serde_json::from_str(
             r#"{"folder":"root","query":"","creator":"","tag":"","sort":"name"}"#,
         )
         .unwrap();
         let rows = query_files(&db, &args).unwrap();
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].name, "part.stl");
+        assert_eq!(rows[0].original_name, "part.stl");
         let count = count_files_for_scope_work(&db, None, true).unwrap();
         assert_eq!(count, 1);
+        let bad: ListFilesArgs = serde_json::from_str(
+            r#"{"folder":"nope","query":"","creator":"","tag":"","sort":"name"}"#,
+        )
+        .unwrap();
+        assert_eq!(query_files(&db, &bad).unwrap_err(), "Unknown folder filter.");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn query_tag_and_type_counts_and_creators_follow_the_command_filters() {
+        let (dir, db) = scratch_query_library("counts");
+        let id = db
+            .insert_file("hero.stl", "hero.stl", "stl", 4, "sha-hero", 1, None, None)
+            .unwrap();
+        db.set_tags(id, &["Hero".into()]).unwrap();
+        db.set_creator_under_folder(None, "Ada", true).unwrap();
+        let tags = query_tag_counts(
+            &db,
+            &TagCountArgs {
+                folder: "all".into(),
+                folder_id: None,
+                query: String::new(),
+                creator: String::new(),
+                exts: vec!["stl".into()],
+            },
+        )
+        .unwrap();
+        let hero = tags.iter().find(|tag| tag.name == "Hero").unwrap();
+        assert_eq!(hero.file_count, 1);
+        let types = query_type_counts(
+            &db,
+            &TypeCountArgs {
+                folder: "root".into(),
+                folder_id: None,
+                query: String::new(),
+                creator: "Ada".into(),
+                tag_ids: vec![hero.id],
+                tag_match: "all".into(),
+            },
+        )
+        .unwrap();
+        assert!(types.iter().any(|row| row.id == "stl" && row.file_count == 1));
+        let creators = list_creators_for_args(
+            &db,
+            &ListCreatorsArgs {
+                folder: String::new(),
+                folder_id: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(creators, vec!["Ada".to_string()]);
+        let scoped = list_creators_for_args(
+            &db,
+            &ListCreatorsArgs {
+                folder: "id".into(),
+                folder_id: None,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(scoped, "Missing folder id");
         let _ = fs::remove_dir_all(&dir);
     }

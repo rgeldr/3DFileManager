@@ -4,26 +4,23 @@
         let db = db::open(&dir).unwrap();
         let downloads = dir.join("downloads");
         std::fs::create_dir_all(&downloads).unwrap();
-        let sample = downloads.join("model.stl");
-        std::fs::write(&sample, b"solid").unwrap();
-        let mut settings = Settings::default();
-        settings.downloads_folder = Some(crate::settings::stored_path(&downloads));
-        db.save_settings(&settings).unwrap();
+        std::fs::write(downloads.join("model.stl"), b"solid").unwrap();
+        crate::downloads::set_downloads_folder(&db, Some(downloads.to_string_lossy().to_string()))
+            .unwrap();
         (dir, db)
     }
 
     #[test]
     fn reveal_download_in_folder_resolves_a_file_under_the_saved_root() {
         let (dir, db) = scratch_downloads();
-        let rel = if cfg!(windows) {
-            "model.stl"
-        } else {
-            "model.stl"
-        };
-        let shown = reveal_download_in_folder(&db, rel).unwrap();
+        let sample = dir.join("downloads").join("model.stl");
+        let shown = reveal_download_in_folder(&db, &sample.to_string_lossy()).unwrap();
         assert!(shown.ends_with("model.stl"), "{}", shown.display());
-        let err = reveal_download_in_folder(&db, "../escape.stl").unwrap_err();
-        assert!(err.contains("outside") || err.contains("Downloads"), "{err}");
+        assert!(!shown.starts_with(r"\\?\"));
+        let outside = dir.join("escape.stl");
+        std::fs::write(&outside, b"nope").unwrap();
+        let err = reveal_download_in_folder(&db, &outside.to_string_lossy()).unwrap_err();
+        assert!(err.contains("outside"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
