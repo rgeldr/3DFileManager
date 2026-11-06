@@ -115,3 +115,33 @@
         assert_eq!(tag_match_mode("none").unwrap_err(), "Unknown tag match.");
         assert_eq!(tag_match_mode(" any").unwrap_err(), "Unknown tag match.");
     }
+
+    fn scratch_library() -> (std::path::PathBuf, db::AppDb) {
+        let dir = std::env::temp_dir().join(format!("filelib-query-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        fs::write(root.join("part.stl"), b"solid").unwrap();
+        db.insert_file("part.stl", "part.stl", "stl", 5, "sha-part", 1, None, None)
+            .unwrap();
+        (dir, db)
+    }
+
+    #[test]
+    fn query_files_lists_root_entries_and_counts_scope() {
+        let (dir, db) = scratch_library();
+        let args: ListFilesArgs = serde_json::from_str(
+            r#"{"folder":"root","query":"","creator":"","tag":"","sort":"name"}"#,
+        )
+        .unwrap();
+        let rows = query_files(&db, &args).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "part.stl");
+        let count = count_files_for_scope_work(&db, None, true).unwrap();
+        assert_eq!(count, 1);
+        let _ = fs::remove_dir_all(&dir);
+    }

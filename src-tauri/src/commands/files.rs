@@ -88,28 +88,62 @@ fn tag_match_mode(mode: &str) -> Result<db::TagMatch, String> {
     }
 }
 
+pub(crate) fn query_files(db: &AppDb, args: &ListFilesArgs) -> Result<Vec<db::FileRow>, String> {
+    let filter = folder_filter(&args.folder, args.folder_id)?;
+    let tag_match = tag_match_mode(&args.tag_match)?;
+    let exts = crate::names::ext_filter_values(&args.exts);
+    let ext_refs: Vec<&str> = exts.iter().map(String::as_str).collect();
+    db.query_files(db::FileQuery {
+        folder: filter,
+        query: &args.query,
+        creator: &args.creator,
+        tag: &args.tag,
+        tag_ids: &args.tag_ids,
+        tag_match,
+        exts: &ext_refs,
+        sort: &args.sort,
+        sort_direction: &args.sort_direction,
+        limit: args.limit,
+        offset: args.offset,
+    })
+}
+
+pub(crate) fn query_tag_counts(db: &AppDb, args: &TagCountArgs) -> Result<Vec<db::TagCount>, String> {
+    let filter = folder_filter(&args.folder, args.folder_id)?;
+    let exts = crate::names::ext_filter_values(&args.exts);
+    let ext_refs: Vec<&str> = exts.iter().map(String::as_str).collect();
+    db.tag_counts(filter, &args.query, &args.creator, &ext_refs)
+}
+
+pub(crate) fn query_type_counts(db: &AppDb, args: &TypeCountArgs) -> Result<Vec<db::TypeCount>, String> {
+    let filter = folder_filter(&args.folder, args.folder_id)?;
+    let tag_match = tag_match_mode(&args.tag_match)?;
+    db.type_counts(filter, &args.query, &args.creator, &args.tag_ids, tag_match)
+}
+
+pub(crate) fn list_creators_for_args(db: &AppDb, args: &ListCreatorsArgs) -> Result<Vec<String>, String> {
+    let filter = if args.folder.is_empty() {
+        FolderFilter::All
+    } else {
+        folder_filter(&args.folder, args.folder_id)?
+    };
+    db.list_creators(filter)
+}
+
+pub(crate) fn count_files_for_scope_work(
+    db: &AppDb,
+    folder_id: Option<i64>,
+    include_subfolders: bool,
+) -> Result<i64, String> {
+    Ok(db.file_ids_for_creator_scope(folder_id, include_subfolders)?.len() as i64)
+}
+
 #[tauri::command]
 async fn list_files(app: AppHandle, args: ListFilesArgs) -> Result<Vec<db::FileRow>, String> {
     let db = app.state::<AppState>().db.clone();
     off_ui("list_files", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        let filter = folder_filter(&args.folder, args.folder_id)?;
-        let tag_match = tag_match_mode(&args.tag_match)?;
-        let exts = crate::names::ext_filter_values(&args.exts);
-        let ext_refs: Vec<&str> = exts.iter().map(String::as_str).collect();
-        db.query_files(db::FileQuery {
-            folder: filter,
-            query: &args.query,
-            creator: &args.creator,
-            tag: &args.tag,
-            tag_ids: &args.tag_ids,
-            tag_match,
-            exts: &ext_refs,
-            sort: &args.sort,
-            sort_direction: &args.sort_direction,
-            limit: args.limit,
-            offset: args.offset,
-        })
+        query_files(&db, &args)
     })
     .await
 }
@@ -130,10 +164,7 @@ async fn list_tag_counts(app: AppHandle, args: TagCountArgs) -> Result<Vec<db::T
     let db = app.state::<AppState>().db.clone();
     off_ui("list_tag_counts", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        let filter = folder_filter(&args.folder, args.folder_id)?;
-        let exts = crate::names::ext_filter_values(&args.exts);
-        let ext_refs: Vec<&str> = exts.iter().map(String::as_str).collect();
-        db.tag_counts(filter, &args.query, &args.creator, &ext_refs)
+        query_tag_counts(&db, &args)
     })
     .await
 }
@@ -156,9 +187,7 @@ async fn list_type_counts(app: AppHandle, args: TypeCountArgs) -> Result<Vec<db:
     let db = app.state::<AppState>().db.clone();
     off_ui("list_type_counts", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        let filter = folder_filter(&args.folder, args.folder_id)?;
-        let tag_match = tag_match_mode(&args.tag_match)?;
-        db.type_counts(filter, &args.query, &args.creator, &args.tag_ids, tag_match)
+        query_type_counts(&db, &args)
     })
     .await
 }
@@ -299,7 +328,7 @@ async fn count_files_for_scope(
     let db = app.state::<AppState>().db.clone();
     off_ui("count_files_for_scope", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        Ok(db.file_ids_for_creator_scope(folder_id, include_subfolders)?.len() as i64)
+        count_files_for_scope_work(&db, folder_id, include_subfolders)
     })
     .await
 }
@@ -336,12 +365,7 @@ async fn list_creators(app: AppHandle, args: ListCreatorsArgs) -> Result<Vec<Str
     let db = app.state::<AppState>().db.clone();
     off_ui("list_creators", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        let filter = if args.folder.is_empty() {
-            FolderFilter::All
-        } else {
-            folder_filter(&args.folder, args.folder_id)?
-        };
-        db.list_creators(filter)
+        list_creators_for_args(&db, &args)
     })
     .await
 }

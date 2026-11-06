@@ -1,9 +1,29 @@
+pub(crate) fn library_stats_work(db: &AppDb) -> Result<db::LibraryStats, String> {
+    db.library_stats()
+}
+
+pub(crate) fn bootstrap_work(db: &AppDb) -> Result<db::Bootstrap, String> {
+    db.bootstrap()
+}
+
+pub(crate) fn set_library_root_work(db: &AppDb, path: &std::path::Path) -> Result<db::Bootstrap, String> {
+    db.set_library_root(path)
+}
+
+pub(crate) fn create_folder_work(
+    db: &AppDb,
+    parent_id: Option<i64>,
+    name: &str,
+) -> Result<db::FolderRow, String> {
+    db.create_folder(parent_id, name, 0)
+}
+
 #[tauri::command]
 async fn library_stats(app: AppHandle) -> Result<db::LibraryStats, String> {
     let db = app.state::<AppState>().db.clone();
     off_ui("library_stats", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.library_stats()
+        library_stats_work(&db)
     })
     .await
 }
@@ -13,7 +33,7 @@ async fn bootstrap(app: AppHandle) -> Result<db::Bootstrap, String> {
     let db = app.state::<AppState>().db.clone();
     off_ui("bootstrap", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.bootstrap()
+        bootstrap_work(&db)
     })
     .await
 }
@@ -29,7 +49,7 @@ async fn set_library_root(
     let scope_app = app.clone();
     let result = off_ui("set_library_root", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        let result = db.set_library_root(PathBuf::from(path).as_path())?;
+        let result = set_library_root_work(&db, PathBuf::from(path).as_path())?;
         if let Some(root) = &result.settings.library_root {
             allow_asset_scope(&scope_app, PathBuf::from(root).as_path());
         }
@@ -52,7 +72,7 @@ async fn create_folder(
     let db = app.state::<AppState>().db.clone();
     let row = off_ui("create_folder", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.create_folder(parent_id, &name, 0)
+        create_folder_work(&db, parent_id, &name)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Folders, &source);
