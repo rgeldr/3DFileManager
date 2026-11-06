@@ -33,16 +33,22 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 const countFilesForScope = vi.fn();
 const addTagsUnderFolder = vi.fn();
 const restoreLibraryBackup = vi.fn();
+const clearThumbnailCache = vi.fn();
 
 vi.mock("../api", () => ({
   api: {
     bootstrap: (...args: unknown[]) => bootstrap(...args),
     setTheme: (...args: unknown[]) => setThemeApi(...args),
     dragIconPath: (...args: unknown[]) => dragIconPath(...args),
-    clearThumbnailCache: vi.fn(),
+    clearThumbnailCache: (...args: unknown[]) => clearThumbnailCache(...args),
     countFilesForScope: (...args: unknown[]) => countFilesForScope(...args),
     addTagsUnderFolder: (...args: unknown[]) => addTagsUnderFolder(...args),
     restoreLibraryBackup: (...args: unknown[]) => restoreLibraryBackup(...args),
+    setGridSize: vi.fn(),
+    rescanLibrary: vi.fn(async () => ({ cancelled: false })),
+    moveLibraryRoot: vi.fn(async () => ({ cancelled: false })),
+    exportLibraryBackup: vi.fn(async () => ({ cancelled: false })),
+    openNewWindow: vi.fn(async () => undefined),
   },
 }));
 
@@ -60,6 +66,7 @@ afterEach(() => {
   countFilesForScope.mockReset();
   addTagsUnderFolder.mockReset();
   restoreLibraryBackup.mockReset();
+  clearThumbnailCache.mockReset();
   document.body.innerHTML = "";
   vi.restoreAllMocks();
 });
@@ -435,5 +442,379 @@ describe("useSessionEffects", () => {
     expect(state.libraryBusy.current).toBe(false);
     expect(state.setDiskDialog).toHaveBeenCalledWith(null);
     expect(state.setBusy).toHaveBeenCalledWith(null);
+  });
+
+  it("imports a folder when the dialog returns a path", async () => {
+    bootstrap.mockResolvedValue({
+      settings: {
+        libraryRoot: "/lib",
+        theme: "dark",
+        gridSize: "large",
+        sidebarWidth: 240,
+        inspectorWidth: 320,
+        previewHeight: 240,
+        thumbRetry: 0,
+        inspectorPinned: true,
+        sidebarPinned: true,
+        searchScope: "library",
+        detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      },
+      folders: [],
+      missingCount: 0,
+    });
+    open.mockResolvedValueOnce("C:\\imports\\new");
+    const runImport = vi.fn(async () => undefined);
+    const state = sessionBag({ runImport });
+    renderHook(() => useSessionEffects(state as Parameters<typeof useSessionEffects>[0]));
+    await waitFor(() => expect(bootstrap).toHaveBeenCalled());
+    act(() => {
+      state.actions.current.importFolder();
+    });
+    await waitFor(() => expect(runImport).toHaveBeenCalledWith(["C:\\imports\\new"]));
+  });
+
+  it("clears thumbnails and surfaces API errors", async () => {
+    bootstrap.mockResolvedValue({
+      settings: {
+        libraryRoot: "/lib",
+        theme: "dark",
+        gridSize: "large",
+        sidebarWidth: 240,
+        inspectorWidth: 320,
+        previewHeight: 240,
+        thumbRetry: 0,
+        inspectorPinned: true,
+        sidebarPinned: true,
+        searchScope: "library",
+        detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      },
+      folders: [],
+      missingCount: 0,
+    });
+    clearThumbnailCache.mockRejectedValue(new Error("cache bust"));
+    const setThumbNonce = vi.fn();
+    const state = sessionBag({ setThumbNonce });
+    renderHook(() => useSessionEffects(state as Parameters<typeof useSessionEffects>[0]));
+    await waitFor(() => expect(bootstrap).toHaveBeenCalled());
+    act(() => {
+      state.actions.current.clearThumbs();
+    });
+    await waitFor(() => expect(state.setError).toHaveBeenCalledWith(expect.stringContaining("cache bust")));
+  });
+
+  it("merges disk-progress payloads into the dialog", async () => {
+    bootstrap.mockResolvedValue({
+      settings: {
+        libraryRoot: "/lib",
+        theme: "dark",
+        gridSize: "large",
+        sidebarWidth: 240,
+        inspectorWidth: 320,
+        previewHeight: 240,
+        thumbRetry: 0,
+        inspectorPinned: true,
+        sidebarPinned: true,
+        searchScope: "library",
+        detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      },
+      folders: [],
+      missingCount: 0,
+    });
+    const handlers = new Map<string, (event: { payload?: unknown }) => void>();
+    listen.mockImplementation(async (...args: unknown[]) => {
+      handlers.set(String(args[0]), args[1] as (event: { payload?: unknown }) => void);
+      return () => undefined;
+    });
+    const state = sessionBag();
+    renderHook(() => useSessionEffects(state as Parameters<typeof useSessionEffects>[0]));
+    await waitFor(() => expect(bootstrap).toHaveBeenCalled());
+    act(() => {
+      handlers.get("disk-progress")?.({
+        payload: { current: 1, total: 2, name: "a.stl", bytesDone: 1, bytesTotal: 2, cancellable: true },
+      });
+    });
+    expect(state.libraryBusy.current).toBe(true);
+    expect(state.setDiskDialog).toHaveBeenCalled();
+  });
+
+  it("refreshes after hash-pass-complete", async () => {
+    bootstrap.mockResolvedValue({
+      settings: {
+        libraryRoot: "/lib",
+        theme: "dark",
+        gridSize: "large",
+        sidebarWidth: 240,
+        inspectorWidth: 320,
+        previewHeight: 240,
+        thumbRetry: 0,
+        inspectorPinned: true,
+        sidebarPinned: true,
+        searchScope: "library",
+        detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      },
+      folders: [],
+      missingCount: 0,
+    });
+    const handlers = new Map<string, (event: { payload?: unknown }) => void>();
+    listen.mockImplementation(async (...args: unknown[]) => {
+      handlers.set(String(args[0]), args[1] as (event: { payload?: unknown }) => void);
+      return () => undefined;
+    });
+    const refreshLists = vi.fn(async () => undefined);
+    const setThumbNonce = vi.fn();
+    const state = sessionBag({ refreshLists, setThumbNonce });
+    renderHook(() => useSessionEffects(state as Parameters<typeof useSessionEffects>[0]));
+    await waitFor(() => expect(bootstrap).toHaveBeenCalled());
+    act(() => {
+      handlers.get("hash-pass-complete")?.({});
+    });
+    await waitFor(() => expect(refreshLists).toHaveBeenCalled());
+    expect(setThumbNonce).toHaveBeenCalled();
+  });
+
+  it("persists theme and grid size from menu actions", async () => {
+    bootstrap.mockResolvedValue({
+      settings: {
+        libraryRoot: "/lib",
+        theme: "dark",
+        gridSize: "large",
+        sidebarWidth: 240,
+        inspectorWidth: 320,
+        previewHeight: 240,
+        thumbRetry: 0,
+        inspectorPinned: true,
+        sidebarPinned: true,
+        searchScope: "library",
+        detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      },
+      folders: [],
+      missingCount: 0,
+    });
+    const state = sessionBag();
+    renderHook(() => useSessionEffects(state as Parameters<typeof useSessionEffects>[0]));
+    await waitFor(() => expect(bootstrap).toHaveBeenCalled());
+    act(() => {
+      state.actions.current.setTheme("light");
+      state.actions.current.setGrid("medium");
+    });
+    expect(state.setTheme).toHaveBeenCalledWith("light");
+    expect(setThemeApi).toHaveBeenCalledWith("light");
+    expect(state.setSettings).toHaveBeenCalled();
+  });
+
+  it("closes the file menu on outside pointer down", async () => {
+    bootstrap.mockResolvedValue({
+      settings: {
+        libraryRoot: "/lib",
+        theme: "dark",
+        gridSize: "large",
+        sidebarWidth: 240,
+        inspectorWidth: 320,
+        previewHeight: 240,
+        thumbRetry: 0,
+        inspectorPinned: true,
+        sidebarPinned: true,
+        searchScope: "library",
+        detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      },
+      folders: [],
+      missingCount: 0,
+    });
+    const state = sessionBag({ fileMenu: { x: 0, y: 0, fileId: 1 } });
+    renderHook(() => useSessionEffects(state as Parameters<typeof useSessionEffects>[0]));
+    await waitFor(() => expect(bootstrap).toHaveBeenCalled());
+    act(() => {
+      document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    });
+    expect(state.setFileMenu).toHaveBeenCalledWith(null);
+  });
+
+  it("sets creator file count from explicit file ids", async () => {
+    bootstrap.mockResolvedValue({
+      settings: {
+        libraryRoot: "/lib",
+        theme: "dark",
+        gridSize: "large",
+        sidebarWidth: 240,
+        inspectorWidth: 320,
+        previewHeight: 240,
+        thumbRetry: 0,
+        inspectorPinned: true,
+        sidebarPinned: true,
+        searchScope: "library",
+        detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      },
+      folders: [],
+      missingCount: 0,
+    });
+    const setCreatorFileCount = vi.fn();
+    const state = sessionBag({
+      creatorTarget: { folderId: 2, name: "Prints", fileIds: [1, 2, 3] },
+      setCreatorFileCount,
+    });
+    renderHook(() => useSessionEffects(state as Parameters<typeof useSessionEffects>[0]));
+    await waitFor(() => expect(setCreatorFileCount).toHaveBeenCalledWith(3));
+  });
+
+  it("surfaces bootstrap failures but still marks ready", async () => {
+    bootstrap.mockRejectedValue(new Error("boot fail"));
+    const state = sessionBag();
+    renderHook(() => useSessionEffects(state as Parameters<typeof useSessionEffects>[0]));
+    await waitFor(() => expect(state.setError).toHaveBeenCalledWith(expect.stringContaining("boot fail")));
+    expect(state.setReady).toHaveBeenCalledWith(true);
+  });
+
+  it("tracks import progress events", async () => {
+    bootstrap.mockResolvedValue({
+      settings: {
+        libraryRoot: "/lib",
+        theme: "dark",
+        gridSize: "large",
+        sidebarWidth: 240,
+        inspectorWidth: 320,
+        previewHeight: 240,
+        thumbRetry: 0,
+        inspectorPinned: true,
+        sidebarPinned: true,
+        searchScope: "library",
+        detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      },
+      folders: [],
+      missingCount: 0,
+    });
+    const handlers = new Map<string, (event: { payload?: unknown }) => void>();
+    listen.mockImplementation(async (...args: unknown[]) => {
+      handlers.set(String(args[0]), args[1] as (event: { payload?: unknown }) => void);
+      return () => undefined;
+    });
+    const state = sessionBag();
+    renderHook(() => useSessionEffects(state as Parameters<typeof useSessionEffects>[0]));
+    await waitFor(() => expect(bootstrap).toHaveBeenCalled());
+    act(() => {
+      handlers.get("import-progress")?.({
+        payload: { current: 2, total: 5, message: "Copying" },
+      });
+    });
+    expect(state.setProgress).toHaveBeenCalled();
+    expect(state.setBusy).toHaveBeenCalledWith("Importing…");
+  });
+
+  it("sets folder tag counts from explicit file ids", async () => {
+    bootstrap.mockResolvedValue({
+      settings: {
+        libraryRoot: "/lib",
+        theme: "dark",
+        gridSize: "large",
+        sidebarWidth: 240,
+        inspectorWidth: 320,
+        previewHeight: 240,
+        thumbRetry: 0,
+        inspectorPinned: true,
+        sidebarPinned: true,
+        searchScope: "library",
+        detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      },
+      folders: [],
+      missingCount: 0,
+    });
+    const setFolderTagFileCount = vi.fn();
+    const state = sessionBag({
+      folderTagTarget: { folderId: 2, name: "Prints", fileIds: [4, 5] },
+      setFolderTagFileCount,
+    });
+    renderHook(() => useSessionEffects(state as Parameters<typeof useSessionEffects>[0]));
+    await waitFor(() => expect(setFolderTagFileCount).toHaveBeenCalledWith(2));
+  });
+
+  it("enables preview icons after the startup delay", async () => {
+    vi.useFakeTimers();
+    bootstrap.mockResolvedValue({
+      settings: {
+        libraryRoot: "/lib",
+        theme: "dark",
+        gridSize: "large",
+        sidebarWidth: 240,
+        inspectorWidth: 320,
+        previewHeight: 240,
+        thumbRetry: 0,
+        inspectorPinned: true,
+        sidebarPinned: true,
+        searchScope: "library",
+        detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      },
+      folders: [],
+      missingCount: 0,
+    });
+    const setPreviewIconsEnabled = vi.fn();
+    const settings = {
+      libraryRoot: "/lib",
+      theme: "dark" as const,
+      gridSize: "large" as const,
+      sidebarWidth: 240,
+      inspectorWidth: 320,
+      previewHeight: 240,
+      thumbRetry: 0,
+      inspectorPinned: true,
+      sidebarPinned: true,
+      searchScope: "library" as const,
+      detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      externalPrograms: [],
+      downloadsFolder: null,
+    };
+    const state = sessionBag({ setPreviewIconsEnabled, ready: true, settings });
+    renderHook(() => useSessionEffects(state as Parameters<typeof useSessionEffects>[0]));
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(setPreviewIconsEnabled).toHaveBeenCalledWith(true);
+    vi.useRealTimers();
+  });
+
+  it("loads the about dialog version when opened", async () => {
+    bootstrap.mockResolvedValue({
+      settings: {
+        libraryRoot: "/lib",
+        theme: "dark",
+        gridSize: "large",
+        sidebarWidth: 240,
+        inspectorWidth: 320,
+        previewHeight: 240,
+        thumbRetry: 0,
+        inspectorPinned: true,
+        sidebarPinned: true,
+        searchScope: "library",
+        detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      },
+      folders: [],
+      missingCount: 0,
+    });
+    getVersion.mockResolvedValue("26.11.4");
+    const state = sessionBag({ aboutOpen: true });
+    renderHook(() => useSessionEffects(state as Parameters<typeof useSessionEffects>[0]));
+    await waitFor(() => expect(state.setAboutVersion).toHaveBeenCalledWith("26.11.4"));
+  });
+
+  it("marks the about dialog when version lookup fails", async () => {
+    bootstrap.mockResolvedValue({
+      settings: {
+        libraryRoot: "/lib",
+        theme: "dark",
+        gridSize: "large",
+        sidebarWidth: 240,
+        inspectorWidth: 320,
+        previewHeight: 240,
+        thumbRetry: 0,
+        inspectorPinned: true,
+        sidebarPinned: true,
+        searchScope: "library",
+        detailsColumns: { name: 240, size: 96, modified: 176, added: 176, creator: 128 },
+      },
+      folders: [],
+      missingCount: 0,
+    });
+    getVersion.mockRejectedValue(new Error("nope"));
+    const state = sessionBag({ aboutOpen: true });
+    renderHook(() => useSessionEffects(state as Parameters<typeof useSessionEffects>[0]));
+    await waitFor(() => expect(state.setAboutVersionFailed).toHaveBeenCalledWith(true));
   });
 });

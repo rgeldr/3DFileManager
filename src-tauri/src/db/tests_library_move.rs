@@ -32,7 +32,11 @@
         assert!(!root.exists());
         assert!(dest.join("Models/part.stl").is_file());
         let new_root = db.library_root().unwrap();
-        assert_eq!(new_root, dest.canonicalize().unwrap());
+        assert_eq!(
+            new_root,
+            std::path::PathBuf::from(crate::settings::stored_path(&dest.canonicalize().unwrap()))
+        );
+        assert!(!new_root.to_string_lossy().starts_with(r"\\?\"));
         let files = db
             .list_files(FolderFilter::Id(folder.id), "", "", "", "name", "asc")
             .unwrap();

@@ -639,7 +639,7 @@ mod tests {
 
     #[test]
     fn normalize_rewrites_mixed_separators_on_drive_and_unc_paths() {
-        let saved = normalize_external_programs(vec![
+        let mut input = vec![
             program(
                 "chitu",
                 "CHITUBOX",
@@ -657,9 +657,12 @@ mod tests {
                 "Orca",
                 "C://Program Files//OrcaSlicer/orca-slicer.exe",
             ),
-            program("unix", "Local", "/tmp/orca-slicer.exe"),
-        ])
-        .unwrap();
+        ];
+        // A POSIX absolute path is absolute on Unix and is stored unchanged.
+        // On Windows it has no drive or UNC prefix, so it is not a program path.
+        #[cfg(unix)]
+        input.push(program("unix", "Local", "/tmp/orca-slicer.exe"));
+        let saved = normalize_external_programs(input).unwrap();
         assert_eq!(saved[0].path, r"C:\Program Files\CHITUBOX\CHITUBOX.exe");
         assert_eq!(
             saved[1].path,
@@ -671,11 +674,25 @@ mod tests {
             saved[4].path,
             r"C:\Program Files\OrcaSlicer\orca-slicer.exe"
         );
+        #[cfg(unix)]
         assert_eq!(saved[5].path, "/tmp/orca-slicer.exe");
         assert!(saved
             .iter()
             .take(5)
             .all(|program| !program.path.contains('/')));
+        #[cfg(windows)]
+        {
+            // Not an existence check. `/tmp/...` has no drive or UNC prefix,
+            // so `is_absolute_program_path` rejects it. The drive and UNC
+            // paths above are normalized without those files existing.
+            let err = normalize_external_programs(vec![program(
+                "unix",
+                "Local",
+                "/tmp/orca-slicer.exe",
+            )])
+            .unwrap_err();
+            assert_eq!(err, "Choose the full path to an .exe file.");
+        }
     }
 
     #[test]
@@ -717,25 +734,41 @@ mod tests {
 
     #[test]
     fn launch_reports_a_missing_normalized_windows_executable() {
+        // A fixed `C:\Program Files\CHITUBOX\...` path is a real file when
+        // CHITUBOX is installed. This directory is created empty.
+        let dir = std::env::temp_dir().join(format!("filelib-missing-exe-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let missing_exe = dir.join("CHITUBOX.exe");
+        assert!(!missing_exe.is_file());
+        let chitu_input = missing_exe.to_string_lossy().replace('\\', "/");
         let programs = normalize_external_programs(vec![
-            program(
-                "chitu",
-                "CHITUBOX",
-                r"C:\Program Files\CHITUBOX/CHITUBOX.exe",
-            ),
+            program("chitu", "CHITUBOX", &chitu_input),
             program(
                 "unc",
                 "OrcaSlicer",
-                "//server/share/OrcaSlicer/orca-slicer.exe",
+                "//filelib-not-installed/share/OrcaSlicer/orca-slicer.exe",
             ),
         ])
         .unwrap();
         let model = Path::new(r"C:\Models\My Cube.stl");
         let missing = launch_for_program(&programs, "chitu", model).unwrap_err();
-        assert!(missing.contains(r"C:\Program Files\CHITUBOX\CHITUBOX.exe"));
-        assert!(!missing.contains('/'));
+        let expected_chitu = if cfg!(windows) {
+            missing_exe.to_string_lossy().replace('/', "\\")
+        } else {
+            chitu_input
+        };
+        assert_eq!(
+            missing,
+            format!("Can't find CHITUBOX. It is not at {expected_chitu}.")
+        );
+        #[cfg(windows)]
+        assert!(!missing.contains('/'), "{missing}");
         let unc = launch_for_program(&programs, "unc", model).unwrap_err();
-        assert!(unc.contains(r"\\server\share\OrcaSlicer\orca-slicer.exe"));
+        assert_eq!(
+            unc,
+            r"Can't find OrcaSlicer. It is not at \\filelib-not-installed\share\OrcaSlicer\orca-slicer.exe."
+        );
         assert!(!unc.contains('/'));
 
         let launch = ProgramLaunch {
@@ -745,13 +778,14 @@ mod tests {
         let command = command_for(&launch);
         assert_eq!(
             command.get_program().to_string_lossy(),
-            r"\\server\share\OrcaSlicer\orca-slicer.exe"
+            r"\\filelib-not-installed\share\OrcaSlicer\orca-slicer.exe"
         );
         let args: Vec<_> = command
             .get_args()
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect();
         assert_eq!(args, vec![r"C:\Models\My Cube.stl"]);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -344,4 +344,39 @@ describe("folder tree menu", () => {
       vi.useRealTimers();
     }
   });
+
+  it("invokes sidebar toolbar folder actions", () => {
+    const onNew = vi.fn();
+    const onRename = vi.fn();
+    const onDelete = vi.fn();
+    render(
+      <Sidebar
+        folders={[toys]}
+        libraryName="3D Print Library"
+        browseKey="folder:3"
+        dropTarget={null}
+        expandHint={null}
+        onBrowse={() => undefined}
+        onNew={onNew}
+        onRename={onRename}
+        onDelete={onDelete}
+        onNewInFolder={() => undefined}
+        onRenameFolder={() => undefined}
+        onDeleteFolder={() => undefined}
+        onTagFolder={() => undefined}
+        onSetCreator={() => undefined}
+        onReveal={() => undefined}
+        onRescan={() => undefined}
+        onMoveFolder={() => undefined}
+        pinned
+        onPinnedChange={() => undefined}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "New folder" }));
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(onNew).toHaveBeenCalled();
+    expect(onRename).toHaveBeenCalled();
+    expect(onDelete).toHaveBeenCalled();
+  });
 });

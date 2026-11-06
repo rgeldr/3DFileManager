@@ -34,6 +34,17 @@ describe("libraryChanged", () => {
     vi.advanceTimersByTime(50);
     expect(run).toHaveBeenCalledTimes(1);
     expect(run).toHaveBeenCalledWith("all");
+    debounced.cancel();
     vi.useRealTimers();
+  });
+
+  it("merges settings and tag bursts toward all", () => {
+    expect(mergeLibraryChangeKinds("settings", "files")).toBe("all");
+    expect(mergeLibraryChangeKinds("files", "settings")).toBe("all");
+    expect(mergeLibraryChangeKinds("settings", "settings")).toBe("settings");
+    expect(mergeLibraryChangeKinds("tags", "files")).toBe("all");
+    expect(mergeLibraryChangeKinds("folders", "tags")).toBe("all");
+    expect(mergeLibraryChangeKinds("files", "settings")).toBe("all");
+    expect(mergeLibraryChangeKinds("files", "files")).toBe("files");
   });
 });

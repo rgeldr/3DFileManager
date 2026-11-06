@@ -19,6 +19,14 @@ vi.mock("../debugLog", () => ({
   debugLog: vi.fn(),
 }));
 
+const renderMeshInWorker = vi.fn();
+const parseMeshInWorker = vi.fn();
+
+vi.mock("./meshParseClient", () => ({
+  renderMeshInWorker: (...args: unknown[]) => renderMeshInWorker(...args),
+  parseMeshInWorker: (...args: unknown[]) => parseMeshInWorker(...args),
+}));
+
 function themeTokens() {
   document.documentElement.style.setProperty("--viewer-bg", "#112233");
   document.documentElement.style.setProperty("--viewer-mesh", "#b0b3b6");
@@ -143,6 +151,26 @@ describe("thumbnail helpers", () => {
       expectWebglFailure(error);
       return true;
     });
+    vi.unstubAllGlobals();
+  });
+
+  it("falls back to the main thread when worker rendering is unavailable", async () => {
+    themeTokens();
+    vi.stubGlobal("OffscreenCanvas", class {} as typeof OffscreenCanvas);
+    renderMeshInWorker.mockRejectedValue(new Error("webgl-unavailable"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        arrayBuffer: async () => new ArrayBuffer(16),
+      })),
+    );
+    await expect(renderMeshStillInner("https://example.test/part.stl", "stl")).rejects.toSatisfy(
+      (error: unknown) => {
+        expectWebglFailure(error);
+        return true;
+      },
+    );
     vi.unstubAllGlobals();
   });
 });

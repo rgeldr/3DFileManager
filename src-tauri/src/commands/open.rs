@@ -215,8 +215,11 @@ async fn debug_log(line: String) -> Result<String, String> {
 }
 
 pub(crate) fn write_debug_log(line: String) -> Result<String, String> {
-    let dir = data_dir();
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    write_debug_log_in(&data_dir(), line)
+}
+
+pub(crate) fn write_debug_log_in(dir: &std::path::Path, line: String) -> Result<String, String> {
+    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let path = dir.join("debug.log");
     let _guard = DEBUG_LOG_LOCK.lock().map_err(|e| e.to_string())?;
     if path.exists() {

@@ -335,7 +335,10 @@ impl AppDb {
             let loc = self.file_location(*id)?;
             let joined = root.join(&loc.stored_relpath);
             let path = if joined.exists() {
-                crate::contained_library_file(&root, &loc.stored_relpath)?
+                // The check returns the canonical path. On Windows that adds
+                // `\\?\`, which is not the path stored for the library root.
+                crate::contained_library_file(&root, &loc.stored_relpath)?;
+                joined
             } else if joined.starts_with(&root) {
                 joined
             } else {

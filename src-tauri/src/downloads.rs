@@ -54,14 +54,7 @@ pub enum ListDownloadsResult {
 
 /// `\\?\` and `\\?\UNC\` forms from `Path::canonicalize` on Windows.
 fn strip_verbatim_str(path: &str) -> String {
-    let rest = path.strip_prefix(r"\\?\").unwrap_or(path);
-    if let Some(unc) = rest.strip_prefix(r"UNC\") {
-        return format!(r"\\{unc}");
-    }
-    if let Some(unc) = rest.strip_prefix("UNC/") {
-        return format!("//{unc}");
-    }
-    rest.to_string()
+    crate::settings::strip_verbatim_prefix(path)
 }
 
 /// Windows containment is case-insensitive and ignores the verbatim prefix.
@@ -83,12 +76,7 @@ fn path_contained(path: &Path, root: &Path) -> bool {
 }
 
 fn display_path_os(path: &str, windows: bool) -> String {
-    let stripped = strip_verbatim_str(path);
-    if windows {
-        stripped.replace('/', "\\")
-    } else {
-        stripped.replace('\\', "/")
-    }
+    crate::settings::stored_path_os(path, windows)
 }
 
 fn display_path(path: &Path) -> String {

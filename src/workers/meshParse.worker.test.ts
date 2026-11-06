@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   collectMeshes,
   copyAttribute,
@@ -109,5 +109,52 @@ describe("mesh parse worker", () => {
     await expect(
       renderThumbnail("stl", bytes(STL), { background: "#111111", mesh: "#b0b3b6", light: "#ffffff" }),
     ).rejects.toThrow("webgl-unavailable");
+  });
+
+  it("onmessage posts parsed meshes and parse errors", () => {
+    const messages: unknown[] = [];
+    const previous = self.postMessage.bind(self);
+    self.postMessage = ((msg: unknown) => {
+      messages.push(msg);
+    }) as typeof self.postMessage;
+    try {
+      self.onmessage!({ data: { id: 3, ext: "stl", buffer: bytes(STL) } } as MessageEvent);
+      expect(messages.at(-1)).toMatchObject({ id: 3, ok: true });
+
+      self.onmessage!({ data: { id: 4, ext: "ply", buffer: bytes("nope") } } as MessageEvent);
+      expect(messages.at(-1)).toMatchObject({ id: 4, ok: false });
+
+      self.onmessage!({ data: { id: 9, ext: "obj", buffer: bytes("v 0 0 0\n") } } as MessageEvent);
+      expect(messages.at(-1)).toMatchObject({ id: 9, ok: false, error: expect.stringContaining("No mesh") });
+    } finally {
+      self.postMessage = previous;
+    }
+  });
+
+  it("onmessage render kind forwards png or errors", async () => {
+    const messages: unknown[] = [];
+    const previous = self.postMessage.bind(self);
+    self.postMessage = ((msg: unknown) => {
+      messages.push(msg);
+    }) as typeof self.postMessage;
+    try {
+      self.onmessage!({
+        data: {
+          kind: "render",
+          id: 5,
+          ext: "stl",
+          buffer: bytes(STL),
+          background: "#111",
+          mesh: "#222",
+          light: "#fff",
+        },
+      } as MessageEvent);
+      await vi.waitFor(() => {
+        expect(messages.some((msg) => (msg as { id?: number }).id === 5)).toBe(true);
+      });
+      expect(messages.at(-1)).toMatchObject({ id: 5, ok: false });
+    } finally {
+      self.postMessage = previous;
+    }
   });
 });
