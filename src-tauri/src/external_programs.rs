@@ -639,7 +639,7 @@ mod tests {
 
     #[test]
     fn normalize_rewrites_mixed_separators_on_drive_and_unc_paths() {
-        let mut input = vec![
+        let input = vec![
             program(
                 "chitu",
                 "CHITUBOX",
