@@ -340,11 +340,24 @@ mod tests {
         let data = HdropData::new(paths.clone());
         let format = hdrop_format();
 
-        assert!(IDataObject_Impl::GetData(&data, std::ptr::null()).is_err());
+        assert_eq!(
+            IDataObject_Impl::GetData(&data, std::ptr::null())
+                .unwrap_err()
+                .code(),
+            E_INVALIDARG
+        );
         let mut wrong = format;
         wrong.cfFormat = 0;
-        assert!(IDataObject_Impl::GetData(&data, &wrong).is_err());
-        assert!(IDataObject_Impl::GetDataHere(&data, &format, std::ptr::null_mut()).is_err());
+        assert_eq!(
+            IDataObject_Impl::GetData(&data, &wrong).unwrap_err().code(),
+            DV_E_FORMATETC
+        );
+        assert_eq!(
+            IDataObject_Impl::GetDataHere(&data, &format, std::ptr::null_mut())
+                .unwrap_err()
+                .code(),
+            DV_E_FORMATETC
+        );
         assert_eq!(IDataObject_Impl::QueryGetData(&data, &format), S_OK);
         assert_eq!(
             IDataObject_Impl::QueryGetData(&data, std::ptr::null()),
@@ -366,12 +379,31 @@ mod tests {
             IDataObject_Impl::GetCanonicalFormatEtc(&data, &format, std::ptr::null_mut()),
             E_NOTIMPL
         );
-        assert!(IDataObject_Impl::SetData(&data, &format, std::ptr::null(), false.into()).is_err());
-        assert!(IDataObject_Impl::EnumFormatEtc(&data, 0).is_err());
+        assert_eq!(
+            IDataObject_Impl::SetData(&data, &format, std::ptr::null(), false.into())
+                .unwrap_err()
+                .code(),
+            E_NOTIMPL
+        );
+        assert_eq!(
+            IDataObject_Impl::EnumFormatEtc(&data, 0).unwrap_err().code(),
+            E_NOTIMPL
+        );
         assert!(IDataObject_Impl::EnumFormatEtc(&data, 1).is_ok());
-        assert!(IDataObject_Impl::DAdvise(&data, &format, 0, None).is_err());
-        assert!(IDataObject_Impl::DUnadvise(&data, 1).is_err());
-        assert!(IDataObject_Impl::EnumDAdvise(&data).is_err());
+        assert_eq!(
+            IDataObject_Impl::DAdvise(&data, &format, 0, None)
+                .unwrap_err()
+                .code(),
+            OLE_E_ADVISENOTSUPPORTED
+        );
+        assert_eq!(
+            IDataObject_Impl::DUnadvise(&data, 1).unwrap_err().code(),
+            OLE_E_ADVISENOTSUPPORTED
+        );
+        assert_eq!(
+            IDataObject_Impl::EnumDAdvise(&data).unwrap_err().code(),
+            OLE_E_ADVISENOTSUPPORTED
+        );
 
         let medium = IDataObject_Impl::GetData(&data, &format).unwrap();
         let expected = crate::drag_out::hdrop_bytes(&paths);
@@ -394,10 +426,17 @@ mod tests {
             lindex: 0,
             tymed: 0,
         };
-        assert!(IEnumFORMATETC_Impl::Next(&formats, 0, &mut slot, std::ptr::null_mut()).is_err());
-        assert!(
+        assert_eq!(
+            IEnumFORMATETC_Impl::Next(&formats, 0, &mut slot, std::ptr::null_mut())
+                .unwrap_err()
+                .code(),
+            E_INVALIDARG
+        );
+        assert_eq!(
             IEnumFORMATETC_Impl::Next(&formats, 1, std::ptr::null_mut(), std::ptr::null_mut())
-                .is_err()
+                .unwrap_err()
+                .code(),
+            E_INVALIDARG
         );
         let mut fetched = 0u32;
         assert!(IEnumFORMATETC_Impl::Next(&formats, 1, &mut slot, &mut fetched).is_ok());
@@ -405,11 +444,23 @@ mod tests {
         assert_eq!(slot.cfFormat, CF_HDROP.0);
         assert_eq!(slot.tymed, TYMED_HGLOBAL.0 as u32);
         fetched = 9;
-        assert!(IEnumFORMATETC_Impl::Next(&formats, 1, &mut slot, &mut fetched).is_err());
+        assert_eq!(
+            IEnumFORMATETC_Impl::Next(&formats, 1, &mut slot, &mut fetched)
+                .unwrap_err()
+                .code(),
+            S_FALSE
+        );
         assert_eq!(fetched, 0);
 
         let again = HdropFormats::new(0);
-        assert!(IEnumFORMATETC_Impl::Next(&again, 2, &mut slot, std::ptr::null_mut()).is_err());
+        slot.cfFormat = 0;
+        assert_eq!(
+            IEnumFORMATETC_Impl::Next(&again, 2, &mut slot, std::ptr::null_mut())
+                .unwrap_err()
+                .code(),
+            S_FALSE
+        );
+        assert_eq!(slot.cfFormat, CF_HDROP.0);
         assert!(IEnumFORMATETC_Impl::Skip(&again, 0).is_ok());
         assert!(IEnumFORMATETC_Impl::Skip(&again, 4).is_ok());
         assert!(IEnumFORMATETC_Impl::Reset(&again).is_ok());

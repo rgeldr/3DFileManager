@@ -439,6 +439,8 @@
         assert_eq!(summary.imported_count, 1);
         assert_eq!(fs::read(library.join("Imported").join("a.stl")).unwrap(), b"solid a\n");
         batch.rollback(&mut db);
+        drop(batch);
+        drop(db);
         let _ = fs::remove_dir_all(data.parent().unwrap());
     }
 

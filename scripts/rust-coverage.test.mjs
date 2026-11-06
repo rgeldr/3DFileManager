@@ -37,7 +37,7 @@ assert.equal(coverageBelowFloor(jason).length, 3);
 
 const droppedLines = { regions: 79.2, functions: 55.8, lines: 79.49 };
 assert.equal(coverageBelowFloor(droppedLines).length, 1);
-assert.match(coverageBelowFloor(droppedLines)[0], /lines 79.49%/);
+assert.match(coverageBelowFloor(droppedLines)[0], /lines 79.49% is below the floor 79.5%/);
 
 assert.equal(COVERAGE_FLOORS.functions, 55.8);
 assert.equal(COVERAGE_FLOORS.lines, 79.5);

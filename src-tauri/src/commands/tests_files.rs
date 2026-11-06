@@ -32,21 +32,44 @@
             .unwrap();
         let later_items = db.lock().unwrap().trash_items(&[later]).unwrap();
         let cancel_now = AtomicBool::new(true);
-        let cancelled = recycle_and_drop_files(&db, &later_items, &cancel_now, |_| {}, |_| Ok(())).unwrap();
+        let mut cancel_progress = 0u32;
+        let mut cancel_recycled = false;
+        let cancelled = recycle_and_drop_files(
+            &db,
+            &later_items,
+            &cancel_now,
+            |_| cancel_progress += 1,
+            |_| {
+                cancel_recycled = true;
+                Ok(())
+            },
+        )
+        .unwrap();
         assert!(cancelled);
+        assert_eq!(cancel_progress, 0);
+        assert!(!cancel_recycled);
         assert!(db.lock().unwrap().file_row_exists(later).unwrap());
 
         fs::remove_file(root.join("later.stl")).unwrap();
         let cancel_off = AtomicBool::new(false);
+        let mut reported = false;
         let mut recycled = false;
-        let gone = recycle_and_drop_files(&db, &later_items, &cancel_off, |_| {}, |_| {
-            recycled = true;
-            Ok(())
-        })
+        let gone = recycle_and_drop_files(
+            &db,
+            &later_items,
+            &cancel_off,
+            |_| reported = true,
+            |_| {
+                recycled = true;
+                Ok(())
+            },
+        )
         .unwrap();
         assert!(!gone);
+        assert!(reported);
         assert!(!recycled);
         assert!(!db.lock().unwrap().file_row_exists(later).unwrap());
+        drop(db);
         let _ = fs::remove_dir_all(&dir);
     }
 

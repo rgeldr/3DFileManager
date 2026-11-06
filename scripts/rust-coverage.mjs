@@ -45,7 +45,7 @@ export function coverageBelowFloor(measured, floors = COVERAGE_FLOORS) {
   const misses = [];
   for (const key of ["regions", "functions", "lines"]) {
     if (measured[key] < floors[key]) {
-      misses.push(`${key} ${measured[key]}% is below the R0 floor ${floors[key]}%`);
+      misses.push(`${key} ${measured[key]}% is below the floor ${floors[key]}%`);
     }
   }
   return misses;

@@ -239,6 +239,7 @@
         assert!(matches!(classify_thumb(&root, &mesh), ThumbAction::Render));
         mesh.size_bytes = 150 * 1024 * 1024 + 1;
         assert!(matches!(classify_thumb(&root, &mesh), ThumbAction::Unavailable));
+        drop(db);
         let _ = fs::remove_dir_all(&dir);
     }
 
