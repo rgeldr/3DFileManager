@@ -52,3 +52,33 @@
         assert_eq!(get_settings_work(&db).external_programs[0].id, "orca");
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn layout_helpers_persist_panes_and_reject_a_narrow_sidebar() {
+        let (dir, db) = scratch_db("layout");
+        store_pane_widths(&db, 220, 320).unwrap();
+        store_preview_height(&db, 180).unwrap();
+        store_inspector_pinned(&db, false).unwrap();
+        store_sidebar_pinned(&db, false).unwrap();
+        store_details_columns(
+            &db,
+            settings::DetailsColumns {
+                name: 220,
+                size: 80,
+                modified: 140,
+                added: 140,
+                creator: 120,
+            },
+        )
+        .unwrap();
+        let saved = get_settings_work(&db);
+        assert_eq!(saved.sidebar_width, 220);
+        assert_eq!(saved.inspector_width, 320);
+        assert_eq!(saved.preview_height, 180);
+        assert!(!saved.inspector_pinned);
+        assert!(!saved.sidebar_pinned);
+        assert_eq!(saved.details_columns.name, 220);
+        assert!(store_pane_widths(&db, 10, 320).unwrap_err().contains("Sidebar"));
+        assert_eq!(get_settings_work(&db).sidebar_width, 220);
+        let _ = std::fs::remove_dir_all(&dir);
+    }

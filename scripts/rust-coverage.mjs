@@ -2,11 +2,11 @@
 /**
  * Production-only Rust coverage.
  *
- * Ignore regex is Jason's Windows pattern, plus `/tests_` so the same
- * test files are ignored when llvm-cov prints forward-slash paths:
- *   (\tests_|/tests_|_tests_|flow_tests_)
- * On Windows, `\tests_` already matches `tests_*.rs`. `/tests_` adds no
- * extra Windows paths, so the production totals stay comparable to R0.
+ * Ignore regex is exactly Jason's Windows measurement:
+ *   (\tests_|_tests_|flow_tests_)
+ * Do not add `/tests_`. `include!` paths such as `commands/tests_files.rs`
+ * use a forward slash, so `/tests_` drops those covered files out of the
+ * set R0 counted and the three percentages fall.
  *
  * Floors are that measured production baseline (R0). They are regression
  * gates, not an assumption that lines or regions are already ≥80%.
@@ -17,7 +17,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const PRODUCTION_IGNORE = "(\\\\tests_|/tests_|_tests_|flow_tests_)";
+export const PRODUCTION_IGNORE = "(\\\\tests_|_tests_|flow_tests_)";
 
 /** Jason, Windows, production filter, after PR #60. */
 export const COVERAGE_FLOORS = {

@@ -208,3 +208,32 @@
         assert_eq!(scoped, "Missing folder id");
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn tag_helpers_update_rows_and_drop_absent_files() {
+        let (dir, db) = scratch_query_library("tags");
+        let id = db
+            .conn
+            .query_row("SELECT id FROM files WHERE stored_relpath = 'part.stl'", [], |row| row.get(0))
+            .unwrap();
+        replace_file_tags(&db, id, &["Hero".into()]).unwrap();
+        assert!(catalog_tags(&db).unwrap().iter().any(|name| name == "Hero"));
+        assert_eq!(tags_on_files(&db, &[id], &["Villain".into()]).unwrap(), 1);
+        assert!(tags_under_folder(&db, None, &["Extra".into()]).unwrap() >= 1);
+        assign_creator(&db, None, "Ada", true).unwrap();
+        bulk_file_meta(&db, &[id], Some("Bea"), None).unwrap();
+        let hero = tag_color_rows(&db)
+            .unwrap()
+            .into_iter()
+            .find(|row| row.name == "Hero")
+            .unwrap();
+        paint_tag(&db, hero.id, Some("#112233")).unwrap();
+        paint_tag(&db, hero.id, None).unwrap();
+        db.conn
+            .execute("UPDATE files SET missing = 1 WHERE id = ?1", [id])
+            .unwrap();
+        assert_eq!(absent_files(&db).unwrap().len(), 1);
+        drop_absent_files(&db).unwrap();
+        assert!(absent_files(&db).unwrap().is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }

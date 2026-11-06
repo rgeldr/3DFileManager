@@ -7,18 +7,17 @@ import {
   PRODUCTION_IGNORE,
 } from "./rust-coverage.mjs";
 
-        assert.equal(PRODUCTION_IGNORE, "(\\\\tests_|/tests_|_tests_|flow_tests_)");
+assert.equal(PRODUCTION_IGNORE, "(\\\\tests_|_tests_|flow_tests_)");
 assert.equal(
   productionLlvmCovFlags(),
-  "--ignore-filename-regex=(\\\\tests_|/tests_|_tests_|flow_tests_)",
+  "--ignore-filename-regex=(\\\\tests_|_tests_|flow_tests_)",
 );
 
 const ignore = new RegExp(PRODUCTION_IGNORE);
 assert.match(String.raw`src\commands\tests_files.rs`, ignore);
 assert.match(String.raw`src\db\tests_library_move.rs`, ignore);
-assert.match("src/commands/tests_files.rs", ignore);
-assert.match("src/db/tests_library_move.rs", ignore);
 assert.match("src/import/flow_tests_plan.rs", ignore);
+assert.equal(ignore.test("commands/tests_files.rs"), false);
 assert.equal(ignore.test("src/commands/files.rs"), false);
 assert.equal(ignore.test("src/main.rs"), false);
 
