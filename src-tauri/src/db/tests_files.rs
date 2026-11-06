@@ -119,6 +119,19 @@
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// File symlink used to prove a link to the source is not a second name.
+    /// Windows returns false when symlink creation is denied (no Developer Mode or admin).
+    fn try_symlink_file(original: &str, link: &std::path::Path) -> bool {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(original, link).is_ok()
+        }
+        #[cfg(windows)]
+        {
+            std::os::windows::fs::symlink_file(original, link).is_ok()
+        }
+    }
+
     #[test]
     fn directory_has_other_name_matches_case_and_skips_the_source() {
         let dir = std::env::temp_dir().join(format!("filelib-dirname-{}", std::process::id()));
@@ -128,16 +141,25 @@
         let other = dir.join("other.stl");
         std::fs::write(&taken, b"taken").unwrap();
         std::fs::write(&other, b"other").unwrap();
-        std::os::unix::fs::symlink("Taken.STL", dir.join("alias.stl")).unwrap();
+        let alias = dir.join("alias.stl");
+        let linked = try_symlink_file("Taken.STL", &alias);
 
         assert!(super::directory_has_other_name(&dir, "taken.stl", &other).unwrap());
         assert!(!super::directory_has_other_name(&dir, "other.stl", &other).unwrap());
         assert!(!super::directory_has_other_name(&dir, "nope.stl", &other).unwrap());
-        assert!(!super::directory_has_other_name(&dir, "alias.stl", &taken).unwrap());
+        if linked {
+            assert!(!super::directory_has_other_name(&dir, "alias.stl", &taken).unwrap());
+        }
         assert!(!super::directory_has_other_name(&dir, "TAKEN.stl", &taken).unwrap());
 
         let err = super::directory_has_other_name(&other, "x.stl", &other).unwrap_err();
+        #[cfg(unix)]
         assert_eq!(err, "Not a directory (os error 20)");
+        #[cfg(windows)]
+        assert!(
+            err.contains("os error"),
+            "reading a file as a directory should fail, got {err}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
