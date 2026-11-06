@@ -1,3 +1,11 @@
+pub(crate) fn store_import_cancel(cancel: &AtomicBool) {
+    cancel.store(true, Ordering::SeqCst);
+}
+
+pub(crate) fn store_disk_cancel(cancel: &AtomicBool) {
+    request_disk_cancel(cancel);
+}
+
 #[tauri::command]
 async fn import_paths(
     app: AppHandle,
@@ -42,10 +50,10 @@ async fn import_paths(
 
 #[tauri::command]
 fn cancel_import(state: State<AppState>) {
-    state.import_cancel.store(true, Ordering::SeqCst);
+    store_import_cancel(&state.import_cancel);
 }
 
 #[tauri::command]
 fn cancel_disk_op(state: State<AppState>) {
-    request_disk_cancel(&state.disk_cancel);
+    store_disk_cancel(&state.disk_cancel);
 }

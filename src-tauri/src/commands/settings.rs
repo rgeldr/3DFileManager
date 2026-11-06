@@ -22,16 +22,38 @@ fn validate_search_scope(search_scope: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub(crate) fn apply_theme(db: &AppDb, theme: String) -> Result<(), String> {
+    validate_theme(&theme)?;
+    let mut settings = db.settings();
+    settings.theme = theme;
+    db.save_settings(&settings)
+}
+
+pub(crate) fn apply_grid_size(db: &AppDb, grid_size: String) -> Result<(), String> {
+    validate_grid_size(&grid_size)?;
+    let mut settings = db.settings();
+    settings.grid_size = grid_size;
+    db.save_settings(&settings)
+}
+
+pub(crate) fn apply_search_scope(db: &AppDb, search_scope: String) -> Result<(), String> {
+    validate_search_scope(&search_scope)?;
+    let mut settings = db.settings();
+    settings.search_scope = search_scope;
+    db.save_settings(&settings)
+}
+
+pub(crate) fn get_settings_work(db: &AppDb) -> Settings {
+    db.settings()
+}
+
 #[tauri::command]
 async fn set_theme(app: AppHandle, window: WebviewWindow, theme: String) -> Result<(), String> {
     let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
     off_ui("set_theme", move || {
-        validate_theme(&theme)?;
         let db = db.lock().map_err(|e| e.to_string())?;
-        let mut settings = db.settings();
-        settings.theme = theme;
-        db.save_settings(&settings)
+        apply_theme(&db, theme)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Settings, &source);
@@ -43,11 +65,8 @@ async fn set_grid_size(app: AppHandle, window: WebviewWindow, grid_size: String)
     let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
     off_ui("set_grid_size", move || {
-        validate_grid_size(&grid_size)?;
         let db = db.lock().map_err(|e| e.to_string())?;
-        let mut settings = db.settings();
-        settings.grid_size = grid_size;
-        db.save_settings(&settings)
+        apply_grid_size(&db, grid_size)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Settings, &source);
@@ -133,18 +152,15 @@ async fn set_search_scope(app: AppHandle, window: WebviewWindow, search_scope: S
     let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
     off_ui("set_search_scope", move || {
-        validate_search_scope(&search_scope)?;
         let db = db.lock().map_err(|e| e.to_string())?;
-        let mut settings = db.settings();
-        settings.search_scope = search_scope;
-        db.save_settings(&settings)
+        apply_search_scope(&db, search_scope)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Settings, &source);
     Ok(())
 }
 
-fn save_external_programs(
+pub(crate) fn save_external_programs(
     db: &AppDb,
     programs: Vec<crate::external_programs::ExternalProgram>,
 ) -> Result<(), String> {
@@ -184,7 +200,7 @@ async fn get_settings(app: AppHandle) -> Result<Settings, String> {
     let db = app.state::<AppState>().db.clone();
     off_ui("get_settings", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        Ok(db.settings())
+        Ok(get_settings_work(&db))
     })
     .await
 }

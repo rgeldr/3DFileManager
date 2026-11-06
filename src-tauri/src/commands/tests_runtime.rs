@@ -1,4 +1,12 @@
     #[test]
+    fn command_log_line_and_slow_threshold() {
+        assert_eq!(command_log_line("list_files", 120), "command list_files 120ms");
+        assert!(!command_should_log(10));
+        assert!(command_should_log(50));
+        assert!(command_should_log(100));
+    }
+
+    #[test]
     fn off_ui_returns_the_worker_value_and_its_error() {
         let value = tauri::async_runtime::block_on(off_ui("off_ui_ok", || Ok::<i32, String>(2 + 2))).unwrap();
         assert_eq!(value, 4);
