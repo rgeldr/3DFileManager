@@ -247,3 +247,46 @@ impl IDropSource_Impl for HdropSource {
         DRAGDROP_S_USEDEFAULTCURSORS
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wants_hdrop_accepts_content_and_global_tymed() {
+        let format = FORMATETC {
+            cfFormat: CF_HDROP.0,
+            ptd: std::ptr::null_mut(),
+            dwAspect: DVASPECT_CONTENT.0,
+            lindex: -1,
+            tymed: TYMED_HGLOBAL.0 as u32,
+        };
+        assert!(wants_hdrop(&format));
+        let any_tymed = FORMATETC {
+            tymed: 0,
+            ..format
+        };
+        assert!(wants_hdrop(&any_tymed));
+        let wrong = FORMATETC {
+            cfFormat: 0,
+            ..format
+        };
+        assert!(!wants_hdrop(&wrong));
+    }
+
+    #[test]
+    fn outcome_from_maps_drop_cancel_and_effect_bits() {
+        let drop = outcome_from(DRAGDROP_S_DROP, DROPEFFECT_COPY);
+        assert_eq!(drop.result, "drop");
+        assert_eq!(drop.effect, "copy");
+        assert!(drop.finished);
+        let cancel = outcome_from(DRAGDROP_S_CANCEL, DROPEFFECT_MOVE);
+        assert_eq!(cancel.result, "cancel");
+        assert_eq!(cancel.effect, "move");
+        let link = outcome_from(S_OK, DROPEFFECT_LINK);
+        assert_eq!(link.result, "error");
+        assert_eq!(link.effect, "link");
+        let none = outcome_from(S_OK, DROPEFFECT(0));
+        assert_eq!(none.effect, "none");
+    }
+}
