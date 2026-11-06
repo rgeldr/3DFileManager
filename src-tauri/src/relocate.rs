@@ -269,11 +269,12 @@ mod tests {
     use super::*;
 
     fn scratch() -> (PathBuf, PathBuf) {
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
-        let base = std::env::temp_dir().join(format!("3dfl-move-{}-{stamp}", std::process::id()));
+        use std::sync::atomic::AtomicU64;
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        // Windows file times are coarse, so a millisecond stamp collides when
+        // these tests start together and one `remove_dir_all` deletes the other.
+        let n = NEXT.fetch_add(1, Ordering::SeqCst);
+        let base = std::env::temp_dir().join(format!("3dfl-move-{}-{n}", std::process::id()));
         let from = base.join("from");
         fs::create_dir_all(from.join("nested")).unwrap();
         fs::write(from.join("a.stl"), b"aaa").unwrap();
@@ -390,7 +391,7 @@ mod tests {
         assert!(!removed.exists());
         assert_eq!(untouched, 0);
         let err = copy_file(
-            Path::new("/tmp/filelib-no-such-copy-src"),
+            &base.join("no-such-copy-src"),
             &base.join("nope.stl"),
             &cancel,
             &mut untouched,

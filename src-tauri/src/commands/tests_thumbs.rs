@@ -231,6 +231,15 @@
         .unwrap();
         assert_eq!(skipped.kind, "skip");
         assert!(!db::thumb_path(&dir, "sha-gone-act").exists());
+
+        let missing = thumb_candidate(id, "missing.stl", "stl", "sha-act");
+        assert!(matches!(classify_thumb(&root, &missing), ThumbAction::Unavailable));
+        fs::write(root.join("mesh.stl"), b"solid mesh").unwrap();
+        let mut mesh = thumb_candidate(id, "mesh.stl", "stl", "sha-act");
+        assert!(matches!(classify_thumb(&root, &mesh), ThumbAction::Render));
+        mesh.size_bytes = 150 * 1024 * 1024 + 1;
+        assert!(matches!(classify_thumb(&root, &mesh), ThumbAction::Unavailable));
+        drop(db);
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -639,6 +639,7 @@ mod tests {
 
     #[test]
     fn normalize_rewrites_mixed_separators_on_drive_and_unc_paths() {
+        #[cfg_attr(windows, allow(unused_mut))]
         let mut input = vec![
             program(
                 "chitu",

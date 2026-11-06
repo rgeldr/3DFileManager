@@ -25,6 +25,51 @@
         let removed = recycle_and_drop_files(&db, &items[1..], &cancel, |_| {}, |_| Ok(()));
         assert!(!removed.unwrap());
         assert!(!db.lock().unwrap().file_row_exists(drop_id).unwrap());
+
+        fs::write(root.join("later.stl"), b"later").unwrap();
+        let later = db.lock().unwrap()
+            .insert_file("later.stl", "later.stl", "stl", 5, "sha-later", 1, None, None)
+            .unwrap();
+        let later_items = db.lock().unwrap().trash_items(&[later]).unwrap();
+        let cancel_now = AtomicBool::new(true);
+        let mut cancel_progress = 0u32;
+        let mut cancel_recycled = false;
+        let cancelled = recycle_and_drop_files(
+            &db,
+            &later_items,
+            &cancel_now,
+            |_| cancel_progress += 1,
+            |_| {
+                cancel_recycled = true;
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(cancelled);
+        assert_eq!(cancel_progress, 0);
+        assert!(!cancel_recycled);
+        assert!(db.lock().unwrap().file_row_exists(later).unwrap());
+
+        fs::remove_file(root.join("later.stl")).unwrap();
+        let cancel_off = AtomicBool::new(false);
+        let mut reported = false;
+        let mut recycled = false;
+        let gone = recycle_and_drop_files(
+            &db,
+            &later_items,
+            &cancel_off,
+            |_| reported = true,
+            |_| {
+                recycled = true;
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(!gone);
+        assert!(reported);
+        assert!(!recycled);
+        assert!(!db.lock().unwrap().file_row_exists(later).unwrap());
+        drop(db);
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -114,4 +159,126 @@
         assert_eq!(tag_match_mode("All").unwrap(), db::TagMatch::All);
         assert_eq!(tag_match_mode("none").unwrap_err(), "Unknown tag match.");
         assert_eq!(tag_match_mode(" any").unwrap_err(), "Unknown tag match.");
+    }
+
+    fn scratch_query_library(label: &str) -> (std::path::PathBuf, db::AppDb) {
+        let dir = std::env::temp_dir().join(format!(
+            "filelib-query-{label}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        fs::write(root.join("part.stl"), b"solid").unwrap();
+        db.insert_file("part.stl", "part.stl", "stl", 5, "sha-part", 1, None, None)
+            .unwrap();
+        (dir, db)
+    }
+
+    #[test]
+    fn query_files_lists_root_entries_and_counts_scope() {
+        let (dir, db) = scratch_query_library("list");
+        let args: ListFilesArgs = serde_json::from_str(
+            r#"{"folder":"root","query":"","creator":"","tag":"","sort":"name"}"#,
+        )
+        .unwrap();
+        let rows = query_files(&db, &args).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].original_name, "part.stl");
+        let count = count_files_for_scope_work(&db, None, true).unwrap();
+        assert_eq!(count, 1);
+        let bad: ListFilesArgs = serde_json::from_str(
+            r#"{"folder":"nope","query":"","creator":"","tag":"","sort":"name"}"#,
+        )
+        .unwrap();
+        assert_eq!(query_files(&db, &bad).unwrap_err(), "Unknown folder filter.");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn query_tag_and_type_counts_and_creators_follow_the_command_filters() {
+        let (dir, db) = scratch_query_library("counts");
+        let id = db
+            .insert_file("hero.stl", "hero.stl", "stl", 4, "sha-hero", 1, None, None)
+            .unwrap();
+        db.set_tags(id, &["Hero".into()]).unwrap();
+        db.set_creator_under_folder(None, "Ada", true).unwrap();
+        let tags = query_tag_counts(
+            &db,
+            &TagCountArgs {
+                folder: "all".into(),
+                folder_id: None,
+                query: String::new(),
+                creator: String::new(),
+                exts: vec!["stl".into()],
+            },
+        )
+        .unwrap();
+        let hero = tags.iter().find(|tag| tag.name == "Hero").unwrap();
+        assert_eq!(hero.file_count, 1);
+        let types = query_type_counts(
+            &db,
+            &TypeCountArgs {
+                folder: "root".into(),
+                folder_id: None,
+                query: String::new(),
+                creator: "Ada".into(),
+                tag_ids: vec![hero.id],
+                tag_match: "all".into(),
+            },
+        )
+        .unwrap();
+        assert!(types.iter().any(|row| row.id == "stl" && row.file_count == 1));
+        let creators = list_creators_for_args(
+            &db,
+            &ListCreatorsArgs {
+                folder: String::new(),
+                folder_id: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(creators, vec!["Ada".to_string()]);
+        let scoped = list_creators_for_args(
+            &db,
+            &ListCreatorsArgs {
+                folder: "id".into(),
+                folder_id: None,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(scoped, "Missing folder id");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tag_helpers_update_rows_and_drop_absent_files() {
+        let (dir, db) = scratch_query_library("tags");
+        let id = db
+            .conn
+            .query_row("SELECT id FROM files WHERE stored_relpath = 'part.stl'", [], |row| row.get(0))
+            .unwrap();
+        replace_file_tags(&db, id, &["Hero".into()]).unwrap();
+        assert!(catalog_tags(&db).unwrap().iter().any(|name| name == "Hero"));
+        assert_eq!(tags_on_files(&db, &[id], &["Villain".into()]).unwrap(), 1);
+        assert!(tags_under_folder(&db, None, &["Extra".into()]).unwrap() >= 1);
+        assign_creator(&db, None, "Ada", true).unwrap();
+        bulk_file_meta(&db, &[id], Some("Bea"), None).unwrap();
+        let hero = tag_color_rows(&db)
+            .unwrap()
+            .into_iter()
+            .find(|row| row.name == "Hero")
+            .unwrap();
+        paint_tag(&db, hero.id, Some("#112233")).unwrap();
+        paint_tag(&db, hero.id, None).unwrap();
+        db.conn
+            .execute("UPDATE files SET missing = 1 WHERE id = ?1", [id])
+            .unwrap();
+        assert_eq!(absent_files(&db).unwrap().len(), 1);
+        drop_absent_files(&db).unwrap();
+        assert!(absent_files(&db).unwrap().is_empty());
+        let _ = fs::remove_dir_all(&dir);
     }

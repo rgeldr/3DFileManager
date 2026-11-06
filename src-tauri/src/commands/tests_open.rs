@@ -344,11 +344,13 @@
         let _ = fs::remove_dir_all(&dir);
     }
 
+    #[cfg(unix)]
     struct EnvVarGuard {
         key: &'static str,
         prev: Option<std::ffi::OsString>,
     }
 
+    #[cfg(unix)]
     impl EnvVarGuard {
         fn set(key: &'static str, value: &std::path::Path) -> Self {
             let prev = std::env::var_os(key);
@@ -357,6 +359,7 @@
         }
     }
 
+    #[cfg(unix)]
     impl Drop for EnvVarGuard {
         fn drop(&mut self) {
             if let Some(prev) = self.prev.take() {

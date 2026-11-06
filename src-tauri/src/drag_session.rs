@@ -12,10 +12,15 @@ pub struct NativeDrag {
     pub detail: String,
 }
 
-pub fn start(window: &tauri::WebviewWindow, paths: &[String], icon_path: &str) -> Result<NativeDrag, String> {
+pub fn validate_drag_paths(paths: &[String]) -> Result<(), String> {
     if paths.is_empty() {
         return Err("No files to drag.".into());
     }
+    Ok(())
+}
+
+pub fn start(window: &tauri::WebviewWindow, paths: &[String], icon_path: &str) -> Result<NativeDrag, String> {
+    validate_drag_paths(paths)?;
     #[cfg(windows)]
     {
         let _ = (window, icon_path);
@@ -86,6 +91,15 @@ const FALLBACK_PNG: &[u8] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validate_drag_paths_rejects_an_empty_list() {
+        assert_eq!(
+            validate_drag_paths(&[]).unwrap_err(),
+            "No files to drag."
+        );
+        assert!(validate_drag_paths(&["C:\\models\\part.stl".into()]).is_ok());
+    }
 
     #[test]
     fn native_drag_records_a_started_copy() {
