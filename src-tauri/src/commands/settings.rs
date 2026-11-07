@@ -1,11 +1,11 @@
-fn validate_theme(theme: &str) -> Result<(), String> {
+pub(crate) fn validate_theme(theme: &str) -> Result<(), String> {
     if theme != "dark" && theme != "light" {
         return Err("Unknown theme.".into());
     }
     Ok(())
 }
 
-fn validate_grid_size(grid_size: &str) -> Result<(), String> {
+pub(crate) fn validate_grid_size(grid_size: &str) -> Result<(), String> {
     if !matches!(
         grid_size,
         "medium" | "large" | "extraLarge" | "list" | "details"
@@ -15,7 +15,7 @@ fn validate_grid_size(grid_size: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_search_scope(search_scope: &str) -> Result<(), String> {
+pub(crate) fn validate_search_scope(search_scope: &str) -> Result<(), String> {
     if !matches!(search_scope, "library" | "folder") {
         return Err("Unknown search scope.".into());
     }

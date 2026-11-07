@@ -68,6 +68,10 @@ AFTER UPDATE OF sort_name, original_name, creator, notes, tags_text ON files BEG
 END;
 ";
 
+pub(crate) fn schema_column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool, String> {
+    column_exists(conn, table, column)
+}
+
 fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool, String> {
     let mut stmt = conn
         .prepare(&format!("PRAGMA table_info({table})"))

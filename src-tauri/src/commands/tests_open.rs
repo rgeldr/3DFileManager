@@ -272,6 +272,32 @@
     }
 
     #[test]
+    fn prepare_drag_paths_work_lists_catalog_paths_and_reveal_folder_path_opens_the_root() {
+        let dir = std::env::temp_dir().join(format!("filelib-drag-work-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        fs::write(root.join("Hero.stl"), b"solid").unwrap();
+        let id = db
+            .insert_file("Hero.STL", "Hero.stl", "stl", 5, "sha-hero", 1, None, None)
+            .unwrap();
+        let prepared = prepare_drag_paths_work(&db, &[id], "");
+        assert!(!prepared.paths.is_empty());
+        assert!(prepared.paths[0].ends_with("Hero.stl"));
+        let shown = reveal_folder_path(&db, None).unwrap();
+        assert!(shown.is_dir());
+        let folder = add_library_folder(&db, None, "Tray").unwrap();
+        let tray = reveal_folder_path(&db, Some(folder.id)).unwrap();
+        assert!(tray.ends_with("Tray"));
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn drag_source_for_id_uses_the_catalog_name_and_stays_inside_the_library() {
         let dir = std::env::temp_dir().join(format!("filelib-drag-one-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);

@@ -1,3 +1,14 @@
+pub(crate) fn list_downloads_work(db: &AppDb) -> Result<crate::downloads::ListDownloadsResult, String> {
+    crate::downloads::list_downloads(db)
+}
+
+pub(crate) fn set_downloads_folder_work(
+    db: &AppDb,
+    path: Option<String>,
+) -> Result<Settings, String> {
+    crate::downloads::set_downloads_folder(db, path)
+}
+
 pub(crate) fn reveal_download_in_folder(db: &AppDb, path: &str) -> Result<std::path::PathBuf, String> {
     let saved = db
         .settings()
@@ -16,7 +27,7 @@ async fn set_downloads_folder(
     let db = app.state::<AppState>().db.clone();
     let settings = off_ui("set_downloads_folder", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        crate::downloads::set_downloads_folder(&db, path)
+        set_downloads_folder_work(&db, path)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Settings, &source);
@@ -28,7 +39,7 @@ async fn list_downloads(app: AppHandle) -> Result<crate::downloads::ListDownload
     let db = app.state::<AppState>().db.clone();
     off_ui("list_downloads", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        crate::downloads::list_downloads(&db)
+        list_downloads_work(&db)
     })
     .await
 }

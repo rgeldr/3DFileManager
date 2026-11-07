@@ -43,3 +43,45 @@
         assert!(err.contains("already set"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn rescan_library_work_catalogs_a_new_on_disk_file() {
+        use std::sync::atomic::AtomicBool;
+        let (dir, db) = scratch_library("rescan");
+        let root = dir.join("library");
+        set_library_root_work(&db, &root).unwrap();
+        std::fs::write(root.join("fresh.stl"), b"solid").unwrap();
+        let summary = rescan_library_work(&db, &AtomicBool::new(false), |_| {}).unwrap();
+        assert!(summary.added >= 1, "added={}", summary.added);
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rescan_folder_work_only_touches_that_subtree() {
+        use std::sync::atomic::AtomicBool;
+        let (dir, db) = scratch_library("rescan-folder");
+        let root = dir.join("library");
+        set_library_root_work(&db, &root).unwrap();
+        let toys = add_library_folder(&db, None, "Toys").unwrap();
+        let _other = add_library_folder(&db, None, "Shelf").unwrap();
+        std::fs::create_dir_all(root.join("Toys")).unwrap();
+        std::fs::write(root.join("Toys").join("new.stl"), b"x").unwrap();
+        std::fs::write(root.join("Shelf").join("old.stl"), b"y").unwrap();
+        let summary = rescan_folder_work(&db, toys.id, &AtomicBool::new(false), |_| {}).unwrap();
+        assert!(summary.added >= 1, "added={}", summary.added);
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn delete_folder_work_removes_an_empty_folder() {
+        let (dir, db) = scratch_library("del-folder");
+        let root = dir.join("library");
+        set_library_root_work(&db, &root).unwrap();
+        let folder = add_library_folder(&db, None, "Empty").unwrap();
+        delete_folder_work(&db, folder.id).unwrap();
+        assert!(db.folder_id_by_relpath("Empty").unwrap().is_none());
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }

@@ -62,7 +62,7 @@ fn read_text_preview(path: &std::path::Path) -> Result<String, String> {
 }
 
 /// Extension gate plus the 4KB read. `text_preview` only adds the app-state lock.
-fn catalog_text_preview(db: &AppDb, file_id: i64) -> Result<String, String> {
+pub(crate) fn catalog_text_preview(db: &AppDb, file_id: i64) -> Result<String, String> {
     let loc = db.file_location(file_id)?;
     let ext = names::extension_of(&loc.stored_relpath);
     if !matches!(ext.as_str(), "txt" | "md" | "scad") {
@@ -73,13 +73,13 @@ fn catalog_text_preview(db: &AppDb, file_id: i64) -> Result<String, String> {
     read_text_preview(&path)
 }
 
-fn catalog_file_path(db: &AppDb, file_id: i64) -> Result<PathBuf, String> {
+pub(crate) fn catalog_file_path(db: &AppDb, file_id: i64) -> Result<PathBuf, String> {
     let loc = db.file_location(file_id)?;
     let root = db.library_root()?;
     contained_library_file(&root, &loc.stored_relpath)
 }
 
-fn drag_source_for_id(db: &AppDb, id: i64) -> Result<drag_out::DragSource, String> {
+pub(crate) fn drag_source_for_id(db: &AppDb, id: i64) -> Result<drag_out::DragSource, String> {
     let loc = db.file_location(id)?;
     let root = db.library_root()?;
     let path = contained_library_file(&root, &loc.stored_relpath)?;
@@ -91,7 +91,7 @@ fn drag_source_for_id(db: &AppDb, id: i64) -> Result<drag_out::DragSource, Strin
 }
 
 /// Catalog ids only. A path the page invented never becomes a drag source.
-fn drag_sources_for_ids(db: &AppDb, ids: &[i64]) -> (Vec<drag_out::DragSource>, Vec<String>) {
+pub(crate) fn drag_sources_for_ids(db: &AppDb, ids: &[i64]) -> (Vec<drag_out::DragSource>, Vec<String>) {
     let mut sources = Vec::new();
     let mut skipped = Vec::new();
     for id in ids {
@@ -101,6 +101,23 @@ fn drag_sources_for_ids(db: &AppDb, ids: &[i64]) -> (Vec<drag_out::DragSource>, 
         }
     }
     (sources, skipped)
+}
+
+pub(crate) fn prepare_drag_paths_work(db: &AppDb, ids: &[i64], icon_path: &str) -> drag_out::PreparedDrag {
+    let (sources, mut skipped) = drag_sources_for_ids(db, ids);
+    let mut prepared = drag_out::prepare_drag_paths(&sources, icon_path);
+    skipped.append(&mut prepared.skipped);
+    prepared.skipped = skipped;
+    prepared
+}
+
+pub(crate) fn reveal_folder_path(db: &AppDb, folder_id: Option<i64>) -> Result<PathBuf, String> {
+    let root = db.library_root()?;
+    let rel = match folder_id {
+        Some(id) => db.folder_relpath(id)?,
+        None => String::new(),
+    };
+    contained_library_dir(&root, &rel)
 }
 
 #[tauri::command]
@@ -116,11 +133,7 @@ async fn prepare_drag_paths(app: AppHandle, ids: Vec<i64>, icon_path: String) ->
                 icon_bytes: 0,
             };
         };
-        let (sources, mut skipped) = drag_sources_for_ids(&db, &ids);
-        let mut prepared = drag_out::prepare_drag_paths(&sources, &icon_path);
-        skipped.append(&mut prepared.skipped);
-        prepared.skipped = skipped;
-        prepared
+        prepare_drag_paths_work(&db, &ids, &icon_path)
     })
     .await
     .unwrap_or_else(|err| drag_out::PreparedDrag {
@@ -147,14 +160,9 @@ fn start_file_drag(app: AppHandle, ids: Vec<i64>, icon_path: String) -> Result<D
     let db = app.state::<AppState>().db.clone();
     let paths = {
         let db = db.lock().map_err(|err| err.to_string())?;
-        let (sources, skipped) = drag_sources_for_ids(&db, &ids);
-        let prepared = drag_out::prepare_drag_paths(&sources, &icon_path);
+        let prepared = prepare_drag_paths_work(&db, &ids, &icon_path);
         if prepared.paths.is_empty() {
-            let message = if skipped.is_empty() {
-                prepared.skipped.join(", ")
-            } else {
-                skipped.join(", ")
-            };
+            let message = prepared.skipped.join(", ");
             return Err(if message.is_empty() {
                 "Could not drag these files.".into()
             } else {
@@ -242,7 +250,7 @@ pub(crate) fn write_debug_log_in(dir: &std::path::Path, line: String) -> Result<
 }
 
 /// The executable comes from saved settings. The argument is the catalog file, not a path from the page.
-fn launch_catalog_file(db: &AppDb, file_id: i64, program_id: &str) -> Result<(), String> {
+pub(crate) fn launch_catalog_file(db: &AppDb, file_id: i64, program_id: &str) -> Result<(), String> {
     let programs = db.settings().external_programs;
     let file_path = catalog_file_path(db, file_id)?;
     let launch = crate::external_programs::launch_for_program(&programs, program_id, &file_path)?;
@@ -298,12 +306,7 @@ async fn reveal_folder(app: AppHandle, folder_id: Option<i64>) -> Result<(), Str
     tauri::async_runtime::spawn_blocking(move || {
         let path = {
             let db = db.lock().map_err(|err| err.to_string())?;
-            let root = db.library_root()?;
-            let rel = match folder_id {
-                Some(id) => db.folder_relpath(id)?,
-                None => String::new(),
-            };
-            contained_library_dir(&root, &rel)?
+            reveal_folder_path(&db, folder_id)?
         };
         app.opener()
             .reveal_item_in_dir(&path)

@@ -242,6 +242,47 @@ pub(crate) fn paint_tag(db: &AppDb, id: i64, color: Option<&str>) -> Result<(), 
     db.set_tag_color(id, color)
 }
 
+pub(crate) fn rename_file_work(db: &AppDb, id: i64, name: &str) -> Result<(), String> {
+    db.rename_library_file(id, name)
+}
+
+pub(crate) fn update_file_work(
+    db: &AppDb,
+    id: i64,
+    sort_name: &str,
+    creator: &str,
+    notes: &str,
+    folder_id: Option<i64>,
+    cancel: &AtomicBool,
+    mut progress: impl FnMut(relocate::DiskProgress),
+) -> Result<bool, String> {
+    db.update_file_with(id, sort_name, creator, notes, folder_id, cancel, progress)
+}
+
+pub(crate) fn move_files_work(
+    db: &AppDb,
+    ids: &[i64],
+    folder_id: Option<i64>,
+    cancel: &AtomicBool,
+    mut progress: impl FnMut(relocate::DiskProgress),
+) -> Result<bool, String> {
+    db.move_files_with(ids, folder_id, cancel, progress)
+}
+
+pub(crate) fn delete_files_work(
+    db: &Mutex<AppDb>,
+    ids: &[i64],
+    cancel: &AtomicBool,
+    mut progress: impl FnMut(relocate::DiskProgress),
+    mut recycle: impl FnMut(&std::path::Path) -> Result<(), String>,
+) -> Result<bool, String> {
+    let items = {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.trash_items(ids)?
+    };
+    recycle_and_drop_files(db, &items, cancel, progress, recycle)
+}
+
 #[tauri::command]
 async fn missing_files(app: AppHandle) -> Result<Vec<db::FileRow>, String> {
     let db = app.state::<AppState>().db.clone();
@@ -278,9 +319,16 @@ async fn update_file(
     let source = window.label().to_string();
     let _timer = CommandTimer::start("update_file");
     let result = block_on_disk(&app, move |db, cancel, handle| {
-        let cancelled = db.update_file_with(id, &sort_name, &creator, &notes, folder_id, cancel, |progress| {
-            emit_disk(&handle, &progress)
-        })?;
+        let cancelled = update_file_work(
+            db,
+            id,
+            &sort_name,
+            &creator,
+            &notes,
+            folder_id,
+            cancel,
+            |progress| emit_disk(&handle, &progress),
+        )?;
         Ok::<DiskOutcome, String>(DiskOutcome { cancelled })
     })
     .await?;
@@ -293,7 +341,7 @@ async fn rename_file(app: AppHandle, window: WebviewWindow, id: i64, name: Strin
     let source = window.label().to_string();
     let _timer = CommandTimer::start("rename_file");
     let result = block_on_disk(&app, move |db, _cancel, _handle| {
-        db.rename_library_file(id, &name)?;
+        rename_file_work(db, id, &name)?;
         Ok(DiskOutcome { cancelled: false })
     })
     .await?;
@@ -465,6 +513,16 @@ struct RecycleOutcome {
     cancelled: bool,
 }
 
+pub(crate) fn recycle_paths_work(
+    paths: &[String],
+    roots: &[String],
+    cancel: &AtomicBool,
+    mut progress: impl FnMut(relocate::DiskProgress),
+) -> Result<RecycleOutcome, String> {
+    let (failed, cancelled) = import::recycle_paths_with(paths, roots, cancel, progress)?;
+    Ok(RecycleOutcome { failed, cancelled })
+}
+
 #[tauri::command]
 async fn recycle_paths(app: AppHandle, window: WebviewWindow, paths: Vec<String>) -> Result<RecycleOutcome, String> {
     let source = window.label().to_string();
@@ -473,9 +531,7 @@ async fn recycle_paths(app: AppHandle, window: WebviewWindow, paths: Vec<String>
     let cancel = app.state::<AppState>().disk_cancel.clone();
     let handle = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let (failed, cancelled) =
-            import::recycle_paths_with(&paths, &[], &cancel, |progress| emit_disk(&handle, &progress))?;
-        Ok::<RecycleOutcome, String>(RecycleOutcome { failed, cancelled })
+        recycle_paths_work(&paths, &[], &cancel, |progress| emit_disk(&handle, &progress))
     })
     .await
     .map_err(|err| err.to_string())??;
@@ -503,9 +559,7 @@ async fn recycle_last_import(app: AppHandle, window: WebviewWindow) -> Result<Re
     let cancel = app.state::<AppState>().disk_cancel.clone();
     let handle = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let (failed, cancelled) =
-            import::recycle_paths_with(&paths, &roots, &cancel, |progress| emit_disk(&handle, &progress))?;
-        Ok::<RecycleOutcome, String>(RecycleOutcome { failed, cancelled })
+        recycle_paths_work(&paths, &roots, &cancel, |progress| emit_disk(&handle, &progress))
     })
     .await
     .map_err(|err| err.to_string())??;
@@ -523,7 +577,7 @@ async fn move_files(
     let source = window.label().to_string();
     let _timer = CommandTimer::start("move_files");
     let result = block_on_disk(&app, move |db, cancel, handle| {
-        let cancelled = db.move_files_with(&ids, folder_id, cancel, |progress| emit_disk(&handle, &progress))?;
+        let cancelled = move_files_work(db, &ids, folder_id, cancel, |progress| emit_disk(&handle, &progress))?;
         Ok::<DiskOutcome, String>(DiskOutcome { cancelled })
     })
     .await?;
@@ -540,11 +594,7 @@ async fn delete_files(app: AppHandle, window: WebviewWindow, ids: Vec<i64>) -> R
     let db = app.state::<AppState>().db.clone();
     let handle = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let items = {
-            let db = db.lock().map_err(|e| e.to_string())?;
-            db.trash_items(&ids)?
-        };
-        let cancelled = recycle_and_drop_files(&db, &items, &cancel, |progress| emit_disk(&handle, &progress), |path| {
+        let cancelled = delete_files_work(&db, &ids, &cancel, |progress| emit_disk(&handle, &progress), |path| {
             trash::delete(path).map_err(|err| err.to_string())
         })?;
         Ok::<DiskOutcome, String>(DiskOutcome { cancelled })

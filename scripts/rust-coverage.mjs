@@ -9,8 +9,8 @@
  * set R0 counted and the three percentages fall.
  *
  * Floors are regression gates. Jason's Windows run of PR #62 measured
- * regions 78.95%, functions 55.15%, lines 78.92%. This ratchet sits above
- * that measurement and still under 80%. The final target for all three is ≥80%.
+ * Jason (Nov 7, 2026): regions 80.02%, functions 56.37%, lines 80.34%.
+ * Floors sit at or below those verified totals with a small anti-flake buffer.
  */
 import { spawnSync } from "node:child_process";
 import path from "node:path";
@@ -18,14 +18,11 @@ import { fileURLToPath } from "node:url";
 
 export const PRODUCTION_IGNORE = "(\\\\tests_|_tests_|flow_tests_)";
 
-/**
- * Above Jason's Windows measurement (regions 78.95, functions 55.15, lines 78.92).
- * Still short of the 80% target on every axis.
- */
+/** Jason Nov 7 verified; floors are at or below his totals. */
 export const COVERAGE_FLOORS = {
-  regions: 79.2,
-  functions: 55.8,
-  lines: 79.5,
+  regions: 80.0,
+  functions: 56.3,
+  lines: 80.2,
 };
 
 export function productionLlvmCovFlags() {

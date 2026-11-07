@@ -18,6 +18,66 @@ pub(crate) fn add_library_folder(
     db.create_folder(parent_id, name, 0)
 }
 
+pub(crate) fn rescan_library_work(
+    db: &AppDb,
+    cancel: &AtomicBool,
+    mut progress: impl FnMut(relocate::DiskProgress),
+) -> Result<rescan::RescanSummary, String> {
+    rescan::rescan_with(db, cancel, None, progress)
+}
+
+pub(crate) fn rescan_folder_work(
+    db: &AppDb,
+    folder_id: i64,
+    cancel: &AtomicBool,
+    mut progress: impl FnMut(relocate::DiskProgress),
+) -> Result<rescan::RescanSummary, String> {
+    let rel = db.folder_relpath(folder_id)?;
+    rescan::rescan_with(db, cancel, Some(&rel), progress)
+}
+
+pub(crate) fn delete_folder_work(db: &AppDb, id: i64) -> Result<(), String> {
+    db.delete_folder(id)
+}
+
+pub(crate) fn rename_folder_work(
+    db: &AppDb,
+    id: i64,
+    name: &str,
+    cancel: &AtomicBool,
+    mut progress: impl FnMut(relocate::DiskProgress),
+) -> Result<bool, String> {
+    db.rename_folder_with(id, name, cancel, progress)
+}
+
+pub(crate) fn move_folder_work(
+    db: &AppDb,
+    id: i64,
+    parent_id: Option<i64>,
+    cancel: &AtomicBool,
+    mut progress: impl FnMut(relocate::DiskProgress),
+) -> Result<bool, String> {
+    db.move_folder_with(id, parent_id, cancel, false, progress)
+}
+
+pub(crate) fn move_library_root_work(
+    db: &AppDb,
+    path: &std::path::Path,
+    cancel: &AtomicBool,
+    mut progress: impl FnMut(relocate::DiskProgress),
+) -> Result<bool, String> {
+    db.move_library_root(path, cancel, progress)
+}
+
+pub(crate) fn export_library_backup_work(
+    db: &AppDb,
+    path: &std::path::Path,
+    cancel: &AtomicBool,
+    mut progress: impl FnMut(relocate::DiskProgress),
+) -> Result<bool, String> {
+    backup::export_library(db, path, cancel, progress)
+}
+
 #[tauri::command]
 async fn library_stats(app: AppHandle) -> Result<db::LibraryStats, String> {
     let db = app.state::<AppState>().db.clone();
@@ -89,7 +149,7 @@ async fn rename_folder(
     let source = window.label().to_string();
     let _timer = CommandTimer::start("rename_folder");
     let result = block_on_disk(&app, move |db, cancel, app| {
-        let cancelled = db.rename_folder_with(id, &name, cancel, |progress| emit_disk(&app, &progress))?;
+        let cancelled = rename_folder_work(db, id, &name, cancel, |progress| emit_disk(&app, &progress))?;
         Ok::<DiskOutcome, String>(DiskOutcome { cancelled })
     })
     .await?;
@@ -102,7 +162,7 @@ async fn delete_folder(app: AppHandle, window: WebviewWindow, id: i64) -> Result
     let source = window.label().to_string();
     let _timer = CommandTimer::start("delete_folder");
     let result = block_on_disk(&app, move |db, _cancel, _app| {
-        db.delete_folder(id)?;
+        delete_folder_work(db, id)?;
         Ok(DiskOutcome { cancelled: false })
     })
     .await?;
@@ -120,9 +180,7 @@ async fn move_folder(
     let source = window.label().to_string();
     let _timer = CommandTimer::start("move_folder");
     let result = block_on_disk(&app, move |db, cancel, app| {
-        let cancelled = db.move_folder_with(id, parent_id, cancel, false, |progress| {
-            emit_disk(&app, &progress)
-        })?;
+        let cancelled = move_folder_work(db, id, parent_id, cancel, |progress| emit_disk(&app, &progress))?;
         Ok::<DiskOutcome, String>(DiskOutcome { cancelled })
     })
     .await?;
@@ -135,7 +193,7 @@ async fn rescan_library(app: AppHandle, window: WebviewWindow) -> Result<rescan:
     let source = window.label().to_string();
     let _timer = CommandTimer::start("rescan_library");
     let result = block_on_disk(&app, move |db, cancel, handle| {
-        rescan::rescan_with(db, cancel, None, |progress| emit_disk(&handle, &progress))
+        rescan_library_work(db, cancel, |progress| emit_disk(&handle, &progress))
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::All, &source);
@@ -151,8 +209,7 @@ async fn rescan_folder(
     let source = window.label().to_string();
     let _timer = CommandTimer::start("rescan_folder");
     let result = block_on_disk(&app, move |db, cancel, handle| {
-        let rel = db.folder_relpath(folder_id)?;
-        rescan::rescan_with(db, cancel, Some(&rel), |progress| emit_disk(&handle, &progress))
+        rescan_folder_work(db, folder_id, cancel, |progress| emit_disk(&handle, &progress))
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::All, &source);
@@ -165,7 +222,7 @@ async fn move_library_root(app: AppHandle, window: WebviewWindow, path: String) 
     let _timer = CommandTimer::start("move_library_root");
     let scope_app = app.clone();
     let result = block_on_disk(&app, move |db, cancel, handle| {
-        let cancelled = db.move_library_root(PathBuf::from(path).as_path(), cancel, |progress| {
+        let cancelled = move_library_root_work(db, PathBuf::from(path).as_path(), cancel, |progress| {
             emit_disk(&handle, &progress)
         })?;
         if !cancelled {
@@ -184,7 +241,7 @@ async fn move_library_root(app: AppHandle, window: WebviewWindow, path: String) 
 async fn export_library_backup(app: AppHandle, path: String) -> Result<DiskOutcome, String> {
     let _timer = CommandTimer::start("export_library_backup");
     block_on_disk(&app, move |db, cancel, handle| {
-        let cancelled = backup::export_library(db, PathBuf::from(path).as_path(), cancel, |progress| {
+        let cancelled = export_library_backup_work(db, PathBuf::from(path).as_path(), cancel, |progress| {
             emit_disk(&handle, &progress)
         })?;
         Ok::<DiskOutcome, String>(DiskOutcome { cancelled })

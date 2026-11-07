@@ -35,18 +35,22 @@
     }
 
     #[test]
-    fn list_downloads_command_reads_settings_and_reveal_stays_inside() {
-        let commands = include_str!("downloads.rs");
-        let list = commands
-            .find("async fn list_downloads")
-            .map(|start| &commands[start..commands.len().min(start + 90)])
-            .expect("list_downloads");
-        assert!(list.starts_with("async fn list_downloads(app: AppHandle)"));
-        assert!(!list.contains("path:"));
-        assert!(commands.contains("allowed_reveal_target"));
-        assert!(commands.contains("crate::downloads::list_downloads(&db)"));
-        let lib = include_str!("../lib.rs");
-        assert!(lib.contains("reveal_path"));
-        assert!(lib.contains("list_downloads"));
-        assert!(lib.contains("set_downloads_folder"));
+    fn list_and_set_downloads_work_use_the_saved_folder() {
+        let (dir, db) = scratch_downloads();
+        let listed = list_downloads_work(&db).unwrap();
+        let crate::downloads::ListDownloadsResult::Ok { rows, .. } = listed else {
+            panic!("expected Ok downloads list");
+        };
+        assert!(rows.iter().any(|row| row.name == "model.stl"));
+        let other = dir.join("downloads2");
+        std::fs::create_dir_all(&other).unwrap();
+        let settings = set_downloads_folder_work(&db, Some(other.to_string_lossy().to_string())).unwrap();
+        assert!(settings.downloads_folder.as_ref().is_some_and(|p| p.contains("downloads2")));
+        let empty = list_downloads_work(&db).unwrap();
+        let crate::downloads::ListDownloadsResult::Ok { rows, .. } = empty else {
+            panic!("expected Ok empty list");
+        };
+        assert!(rows.is_empty());
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
     }

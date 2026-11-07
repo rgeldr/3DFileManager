@@ -138,4 +138,5 @@ mod tests {
     include!("tests_library_move.rs");
     include!("tests_support.rs");
     include!("tests_setup.rs");
+    include!("tests_schema.rs");
 }

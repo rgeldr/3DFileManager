@@ -6,6 +6,19 @@ pub(crate) fn store_disk_cancel(cancel: &AtomicBool) {
     request_disk_cancel(cancel);
 }
 
+pub(crate) fn record_import_recycle_targets(
+    paths: &Mutex<Vec<String>>,
+    roots: &Mutex<Vec<String>>,
+    outcome: &import::ImportOutcome,
+) {
+    if let Ok(mut stored) = paths.lock() {
+        *stored = outcome.recycle_paths.clone();
+    }
+    if let Ok(mut stored) = roots.lock() {
+        *stored = outcome.recycle_roots.clone();
+    }
+}
+
 #[tauri::command]
 async fn import_paths(
     app: AppHandle,
@@ -37,12 +50,8 @@ async fn import_paths(
     })
     .await
     .map_err(|err| err.to_string())??;
-    if let Ok(mut stored) = app.state::<AppState>().last_recycle_paths.lock() {
-        *stored = outcome.recycle_paths.clone();
-    }
-    if let Ok(mut stored) = app.state::<AppState>().last_recycle_roots.lock() {
-        *stored = outcome.recycle_roots.clone();
-    }
+    let state = app.state::<AppState>();
+    record_import_recycle_targets(&state.last_recycle_paths, &state.last_recycle_roots, &outcome);
     hash_pass::spawn_hash_pass_if_needed(app.clone(), app.state::<AppState>().db.clone());
     emit_library_changed(&app, crate::library_events::LibraryChangeKind::All, &source);
     Ok(import::summary_for_api(&outcome))

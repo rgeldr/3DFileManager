@@ -255,6 +255,63 @@
     }
 
     #[test]
+    fn rename_move_and_update_file_work_touch_disk_and_catalog() {
+        use std::sync::atomic::AtomicBool;
+        let (dir, db) = scratch_query_library("file-work");
+        let root = dir.join("library");
+        let id = db
+            .conn
+            .query_row("SELECT id FROM files WHERE stored_relpath = 'part.stl'", [], |row| row.get(0))
+            .unwrap();
+        rename_file_work(&db, id, "Renamed.stl").unwrap();
+        assert!(root.join("Renamed.stl").is_file());
+        let tray = add_library_folder(&db, None, "Tray").unwrap();
+        let cancel = AtomicBool::new(false);
+        move_files_work(&db, &[id], Some(tray.id), &cancel, |_| {}).unwrap();
+        assert!(root.join("Tray").join("Renamed.stl").is_file());
+        update_file_work(&db, id, "Renamed.stl", "Ada", "bench", Some(tray.id), &cancel, |_| {}).unwrap();
+        let notes: String = db
+            .conn
+            .query_row("SELECT notes FROM files WHERE id = ?1", [id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(notes, "bench");
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn delete_files_work_drops_the_catalog_when_recycle_succeeds() {
+        use std::sync::atomic::AtomicBool;
+        use std::sync::Mutex;
+        let (dir, db) = scratch_query_library("delete-work");
+        let id = db
+            .conn
+            .query_row("SELECT id FROM files WHERE stored_relpath = 'part.stl'", [], |row| row.get(0))
+            .unwrap();
+        let wrapped = Mutex::new(db);
+        let cancel = AtomicBool::new(false);
+        delete_files_work(&wrapped, &[id], &cancel, |_| {}, |_| Ok(())).unwrap();
+        assert!(!wrapped.lock().unwrap().file_row_exists(id).unwrap());
+        drop(wrapped);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn recycle_paths_work_reports_missing_paths_without_cancel() {
+        use std::sync::atomic::AtomicBool;
+        let cancel = AtomicBool::new(false);
+        let outcome = recycle_paths_work(
+            &[String::from("definitely-missing-part.stl")],
+            &[],
+            &cancel,
+            |_| {},
+        )
+        .unwrap();
+        assert!(!outcome.cancelled);
+        assert!(!outcome.failed.is_empty());
+    }
+
+    #[test]
     fn tag_helpers_update_rows_and_drop_absent_files() {
         let (dir, db) = scratch_query_library("tags");
         let id = db
