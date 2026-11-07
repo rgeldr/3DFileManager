@@ -19,6 +19,7 @@
     }
 
     fn command_body(source: &str, name: &str) -> String {
+        let marker = format!("fn {name}");
         let start = command_fn_start(source, name);
         let rest = &source[start..];
         let mut end = rest.len();
@@ -83,6 +84,25 @@ async fn delete_folder(app: AppHandle) {}
 ";
         assert!(sample[command_fn_start(sample, "rename_folder")..].starts_with("async fn rename_folder"));
         assert!(sample[command_fn_start(sample, "delete_folder")..].starts_with("async fn delete_folder"));
+
+        let with_emit = "\
+pub(crate) fn rename_folder_work() {}\n\
+#[tauri::command]\n\
+async fn rename_folder() {\n\
+    emit_library_changed(&app, LibraryChangeKind::Folders, &source);\n\
+}\n\
+#[tauri::command]\n\
+async fn delete_folder() {\n\
+    emit_library_changed(&app, LibraryChangeKind::All, &source);\n\
+}\n\
+";
+        let rename = command_body(with_emit, "rename_folder");
+        assert_eq!(rename.matches("emit_library_changed").count(), 1);
+        assert_eq!(emit_kind(&rename), Some("folders"));
+        assert!(!rename.contains("rename_folder_work"));
+        let delete = command_body(with_emit, "delete_folder");
+        assert_eq!(delete.matches("emit_library_changed").count(), 1);
+        assert_eq!(emit_kind(&delete), Some("all"));
     }
 
     #[test]
