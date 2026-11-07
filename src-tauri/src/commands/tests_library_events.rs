@@ -73,6 +73,25 @@
         assert!(lib.contains("use tauri::WebviewWindow"));
     }
 
+    fn assert_command_fn_start(source: &str, name: &str) {
+        let start = command_fn_start(source, name);
+        let slice = &source[start..];
+        assert!(
+            slice.starts_with(&format!("fn {name}")),
+            "slice should begin at the command name, got {:?}",
+            &slice[..slice.len().min(40)]
+        );
+        assert!(
+            !slice.starts_with(&format!("fn {name}_work")),
+            "{name} should not resolve to a *_work helper"
+        );
+        let work_marker = format!("fn {name}_work");
+        assert!(
+            source.find(&work_marker).is_none_or(|pos| pos != start),
+            "{name} should not point at the *_work helper"
+        );
+    }
+
     #[test]
     fn command_fn_start_skips_work_helpers_with_the_same_prefix() {
         let sample = "\
@@ -82,8 +101,16 @@ async fn rename_folder(app: AppHandle) {}
 pub(crate) fn delete_folder_work(db: &AppDb) {}
 async fn delete_folder(app: AppHandle) {}
 ";
-        assert!(sample[command_fn_start(sample, "rename_folder")..].starts_with("async fn rename_folder"));
-        assert!(sample[command_fn_start(sample, "delete_folder")..].starts_with("async fn delete_folder"));
+        for name in ["rename_folder", "delete_folder"] {
+            let start = command_fn_start(sample, name);
+            assert_command_fn_start(sample, name);
+            assert!(sample[..start].ends_with("async "));
+        }
+
+        let lib = include_str!("library.rs");
+        assert_command_fn_start(lib, "rename_folder");
+        assert_command_fn_start(lib, "move_folder");
+        assert!(lib[command_fn_start(lib, "rename_folder")..].contains("emit_library_changed"));
 
         let with_emit = "\
 pub(crate) fn rename_folder_work() {}\n\
