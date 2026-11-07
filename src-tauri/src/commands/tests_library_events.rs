@@ -1,8 +1,25 @@
-    fn command_body(source: &str, name: &str) -> String {
+    /// Match `fn {name}` but not `fn {name}_work` or other longer identifiers.
+    fn command_fn_start(source: &str, name: &str) -> usize {
         let marker = format!("fn {name}");
-        let start = source
-            .find(&marker)
-            .unwrap_or_else(|| panic!("missing {name}"));
+        let mut pos = 0usize;
+        while let Some(rel) = source[pos..].find(&marker) {
+            let start = pos + rel;
+            let after = start + marker.len();
+            let next = source.as_bytes().get(after).copied();
+            let ident_continues = matches!(
+                next,
+                Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')
+            );
+            if !ident_continues {
+                return start;
+            }
+            pos = after;
+        }
+        panic!("missing fn {name}");
+    }
+
+    fn command_body(source: &str, name: &str) -> String {
+        let start = command_fn_start(source, name);
         let rest = &source[start..];
         let mut end = rest.len();
         if let Some(pos) = rest.find("\n#[tauri::command]") {
@@ -53,6 +70,19 @@
         let lib = include_str!("../lib.rs");
         assert!(lib.contains("use crate::library_events"));
         assert!(lib.contains("use tauri::WebviewWindow"));
+    }
+
+    #[test]
+    fn command_fn_start_skips_work_helpers_with_the_same_prefix() {
+        let sample = "\
+pub(crate) fn rename_folder_work(db: &AppDb) -> () {}
+#[tauri::command]
+async fn rename_folder(app: AppHandle) {}
+pub(crate) fn delete_folder_work(db: &AppDb) {}
+async fn delete_folder(app: AppHandle) {}
+";
+        assert!(sample[command_fn_start(sample, "rename_folder")..].starts_with("async fn rename_folder"));
+        assert!(sample[command_fn_start(sample, "delete_folder")..].starts_with("async fn delete_folder"));
     }
 
     #[test]
