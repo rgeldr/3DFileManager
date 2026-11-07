@@ -1,6 +1,3 @@
-    use std::sync::atomic::AtomicBool;
-    use std::sync::Mutex;
-
     #[test]
     fn record_import_recycle_targets_copies_paths_and_roots() {
         let paths = Mutex::new(Vec::new());

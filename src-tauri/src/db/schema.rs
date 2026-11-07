@@ -69,10 +69,6 @@ END;
 ";
 
 pub(crate) fn schema_column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool, String> {
-    column_exists(conn, table, column)
-}
-
-fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool, String> {
     let mut stmt = conn
         .prepare(&format!("PRAGMA table_info({table})"))
         .map_err(|e| e.to_string())?;
@@ -116,14 +112,14 @@ fn migrate(conn: &Connection) -> Result<(), String> {
         version = 3;
     }
     if version < 4 {
-        if !column_exists(conn, "tags", "auto_color")? {
+        if !schema_column_exists(conn, "tags", "auto_color")? {
             conn.execute(
                 "ALTER TABLE tags ADD COLUMN auto_color TEXT NOT NULL DEFAULT ''",
                 [],
             )
             .map_err(|e| e.to_string())?;
         }
-        if !column_exists(conn, "tags", "custom_color")? {
+        if !schema_column_exists(conn, "tags", "custom_color")? {
             conn.execute("ALTER TABLE tags ADD COLUMN custom_color TEXT", [])
                 .map_err(|e| e.to_string())?;
         }

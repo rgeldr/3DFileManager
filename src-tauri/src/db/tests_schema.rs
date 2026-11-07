@@ -1,5 +1,3 @@
-    use rusqlite::Connection;
-
     #[test]
     fn schema_column_exists_reflects_pragma_table_info() {
         let dir = std::env::temp_dir().join(format!("filelib-schema-col-{}", std::process::id()));
