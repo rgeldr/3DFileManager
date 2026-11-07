@@ -75,20 +75,21 @@
 
     fn assert_command_fn_start(source: &str, name: &str) {
         let start = command_fn_start(source, name);
+        let marker = format!("fn {name}");
         let slice = &source[start..];
         assert!(
-            slice.starts_with(&format!("fn {name}")),
+            slice.starts_with(&marker),
             "slice should begin at the command name, got {:?}",
             &slice[..slice.len().min(40)]
         );
-        assert!(
-            !slice.starts_with(&format!("fn {name}_work")),
-            "{name} should not resolve to a *_work helper"
+        let next = slice.as_bytes().get(marker.len()).copied();
+        let ident_continues = matches!(
+            next,
+            Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')
         );
-        let work_marker = format!("fn {name}_work");
         assert!(
-            source.find(&work_marker).is_none_or(|pos| pos != start),
-            "{name} should not point at the *_work helper"
+            !ident_continues,
+            "{name} resolved to a longer name such as {name}_work"
         );
     }
 
@@ -108,9 +109,18 @@ async fn delete_folder(app: AppHandle) {}
         }
 
         let lib = include_str!("library.rs");
-        assert_command_fn_start(lib, "rename_folder");
-        assert_command_fn_start(lib, "move_folder");
-        assert!(lib[command_fn_start(lib, "rename_folder")..].contains("emit_library_changed"));
+        for name in ["rename_folder", "move_folder"] {
+            let start = command_fn_start(lib, name);
+            assert_command_fn_start(lib, name);
+            assert!(
+                lib[..start].ends_with("async "),
+                "{name} should be the async command, not a helper"
+            );
+        }
+        let rename = command_body(lib, "rename_folder");
+        assert_eq!(rename.matches("emit_library_changed").count(), 1);
+        assert_eq!(emit_kind(&rename), Some("folders"));
+        assert!(rename.starts_with("fn rename_folder"));
 
         let with_emit = "\
 pub(crate) fn rename_folder_work() {}\n\
