@@ -272,6 +272,12 @@ impl IDropSource_Impl for HdropSource {
 mod tests {
     use super::*;
 
+    /// `Result::unwrap_err` needs `T: Debug`. COM success values such as
+    /// `STGMEDIUM` and `IEnumFORMATETC` do not implement `Debug`.
+    fn expect_com_err<T>(result: windows::core::Result<T>) -> windows::core::Error {
+        result.err().unwrap_or_else(|| panic!("expected COM call to fail"))
+    }
+
     #[test]
     fn wants_hdrop_accepts_content_and_global_tymed() {
         let format = FORMATETC {
@@ -341,21 +347,22 @@ mod tests {
         let format = hdrop_format();
 
         assert_eq!(
-            IDataObject_Impl::GetData(&data, std::ptr::null())
-                .unwrap_err()
-                .code(),
+            expect_com_err(IDataObject_Impl::GetData(&data, std::ptr::null())).code(),
             E_INVALIDARG
         );
         let mut wrong = format;
         wrong.cfFormat = 0;
         assert_eq!(
-            IDataObject_Impl::GetData(&data, &wrong).unwrap_err().code(),
+            expect_com_err(IDataObject_Impl::GetData(&data, &wrong)).code(),
             DV_E_FORMATETC
         );
         assert_eq!(
-            IDataObject_Impl::GetDataHere(&data, &format, std::ptr::null_mut())
-                .unwrap_err()
-                .code(),
+            expect_com_err(IDataObject_Impl::GetDataHere(
+                &data,
+                &format,
+                std::ptr::null_mut()
+            ))
+            .code(),
             DV_E_FORMATETC
         );
         assert_eq!(IDataObject_Impl::QueryGetData(&data, &format), S_OK);
@@ -380,28 +387,30 @@ mod tests {
             E_NOTIMPL
         );
         assert_eq!(
-            IDataObject_Impl::SetData(&data, &format, std::ptr::null(), false.into())
-                .unwrap_err()
-                .code(),
+            expect_com_err(IDataObject_Impl::SetData(
+                &data,
+                &format,
+                std::ptr::null(),
+                false.into()
+            ))
+            .code(),
             E_NOTIMPL
         );
         assert_eq!(
-            IDataObject_Impl::EnumFormatEtc(&data, 0).unwrap_err().code(),
+            expect_com_err(IDataObject_Impl::EnumFormatEtc(&data, 0)).code(),
             E_NOTIMPL
         );
         assert!(IDataObject_Impl::EnumFormatEtc(&data, 1).is_ok());
         assert_eq!(
-            IDataObject_Impl::DAdvise(&data, &format, 0, None)
-                .unwrap_err()
-                .code(),
+            expect_com_err(IDataObject_Impl::DAdvise(&data, &format, 0, None)).code(),
             OLE_E_ADVISENOTSUPPORTED
         );
         assert_eq!(
-            IDataObject_Impl::DUnadvise(&data, 1).unwrap_err().code(),
+            expect_com_err(IDataObject_Impl::DUnadvise(&data, 1)).code(),
             OLE_E_ADVISENOTSUPPORTED
         );
         assert_eq!(
-            IDataObject_Impl::EnumDAdvise(&data).unwrap_err().code(),
+            expect_com_err(IDataObject_Impl::EnumDAdvise(&data)).code(),
             OLE_E_ADVISENOTSUPPORTED
         );
 
@@ -427,15 +436,23 @@ mod tests {
             tymed: 0,
         };
         assert_eq!(
-            IEnumFORMATETC_Impl::Next(&formats, 0, &mut slot, std::ptr::null_mut())
-                .unwrap_err()
-                .code(),
+            expect_com_err(IEnumFORMATETC_Impl::Next(
+                &formats,
+                0,
+                &mut slot,
+                std::ptr::null_mut()
+            ))
+            .code(),
             E_INVALIDARG
         );
         assert_eq!(
-            IEnumFORMATETC_Impl::Next(&formats, 1, std::ptr::null_mut(), std::ptr::null_mut())
-                .unwrap_err()
-                .code(),
+            expect_com_err(IEnumFORMATETC_Impl::Next(
+                &formats,
+                1,
+                std::ptr::null_mut(),
+                std::ptr::null_mut()
+            ))
+            .code(),
             E_INVALIDARG
         );
         let mut fetched = 0u32;
@@ -445,9 +462,13 @@ mod tests {
         assert_eq!(slot.tymed, TYMED_HGLOBAL.0 as u32);
         fetched = 9;
         assert_eq!(
-            IEnumFORMATETC_Impl::Next(&formats, 1, &mut slot, &mut fetched)
-                .unwrap_err()
-                .code(),
+            expect_com_err(IEnumFORMATETC_Impl::Next(
+                &formats,
+                1,
+                &mut slot,
+                &mut fetched
+            ))
+            .code(),
             S_FALSE
         );
         assert_eq!(fetched, 0);
@@ -455,9 +476,13 @@ mod tests {
         let again = HdropFormats::new(0);
         slot.cfFormat = 0;
         assert_eq!(
-            IEnumFORMATETC_Impl::Next(&again, 2, &mut slot, std::ptr::null_mut())
-                .unwrap_err()
-                .code(),
+            expect_com_err(IEnumFORMATETC_Impl::Next(
+                &again,
+                2,
+                &mut slot,
+                std::ptr::null_mut()
+            ))
+            .code(),
             S_FALSE
         );
         assert_eq!(slot.cfFormat, CF_HDROP.0);
