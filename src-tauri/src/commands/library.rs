@@ -21,7 +21,7 @@ pub(crate) fn add_library_folder(
 pub(crate) fn rescan_library_work(
     db: &AppDb,
     cancel: &AtomicBool,
-    mut progress: impl FnMut(relocate::DiskProgress),
+    progress: impl FnMut(relocate::DiskProgress),
 ) -> Result<rescan::RescanSummary, String> {
     rescan::rescan_with(db, cancel, None, progress)
 }
@@ -30,7 +30,7 @@ pub(crate) fn rescan_folder_work(
     db: &AppDb,
     folder_id: i64,
     cancel: &AtomicBool,
-    mut progress: impl FnMut(relocate::DiskProgress),
+    progress: impl FnMut(relocate::DiskProgress),
 ) -> Result<rescan::RescanSummary, String> {
     let rel = db.folder_relpath(folder_id)?;
     rescan::rescan_with(db, cancel, Some(&rel), progress)
@@ -45,7 +45,7 @@ pub(crate) fn rename_folder_work(
     id: i64,
     name: &str,
     cancel: &AtomicBool,
-    mut progress: impl FnMut(relocate::DiskProgress),
+    progress: impl FnMut(relocate::DiskProgress),
 ) -> Result<bool, String> {
     db.rename_folder_with(id, name, cancel, progress)
 }
@@ -55,7 +55,7 @@ pub(crate) fn move_folder_work(
     id: i64,
     parent_id: Option<i64>,
     cancel: &AtomicBool,
-    mut progress: impl FnMut(relocate::DiskProgress),
+    progress: impl FnMut(relocate::DiskProgress),
 ) -> Result<bool, String> {
     db.move_folder_with(id, parent_id, cancel, false, progress)
 }
@@ -64,7 +64,7 @@ pub(crate) fn move_library_root_work(
     db: &AppDb,
     path: &std::path::Path,
     cancel: &AtomicBool,
-    mut progress: impl FnMut(relocate::DiskProgress),
+    progress: impl FnMut(relocate::DiskProgress),
 ) -> Result<bool, String> {
     db.move_library_root(path, cancel, progress)
 }
@@ -73,7 +73,7 @@ pub(crate) fn export_library_backup_work(
     db: &AppDb,
     path: &std::path::Path,
     cancel: &AtomicBool,
-    mut progress: impl FnMut(relocate::DiskProgress),
+    progress: impl FnMut(relocate::DiskProgress),
 ) -> Result<bool, String> {
     backup::export_library(db, path, cancel, progress)
 }

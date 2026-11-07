@@ -254,7 +254,7 @@ pub(crate) fn update_file_work(
     notes: &str,
     folder_id: Option<i64>,
     cancel: &AtomicBool,
-    mut progress: impl FnMut(relocate::DiskProgress),
+    progress: impl FnMut(relocate::DiskProgress),
 ) -> Result<bool, String> {
     db.update_file_with(id, sort_name, creator, notes, folder_id, cancel, progress)
 }
@@ -264,7 +264,7 @@ pub(crate) fn move_files_work(
     ids: &[i64],
     folder_id: Option<i64>,
     cancel: &AtomicBool,
-    mut progress: impl FnMut(relocate::DiskProgress),
+    progress: impl FnMut(relocate::DiskProgress),
 ) -> Result<bool, String> {
     db.move_files_with(ids, folder_id, cancel, progress)
 }
@@ -273,8 +273,8 @@ pub(crate) fn delete_files_work(
     db: &Mutex<AppDb>,
     ids: &[i64],
     cancel: &AtomicBool,
-    mut progress: impl FnMut(relocate::DiskProgress),
-    mut recycle: impl FnMut(&std::path::Path) -> Result<(), String>,
+    progress: impl FnMut(relocate::DiskProgress),
+    recycle: impl FnMut(&std::path::Path) -> Result<(), String>,
 ) -> Result<bool, String> {
     let items = {
         let db = db.lock().map_err(|e| e.to_string())?;
@@ -517,7 +517,7 @@ pub(crate) fn recycle_paths_work(
     paths: &[String],
     roots: &[String],
     cancel: &AtomicBool,
-    mut progress: impl FnMut(relocate::DiskProgress),
+    progress: impl FnMut(relocate::DiskProgress),
 ) -> Result<RecycleOutcome, String> {
     let (failed, cancelled) = import::recycle_paths_with(paths, roots, cancel, progress)?;
     Ok(RecycleOutcome { failed, cancelled })

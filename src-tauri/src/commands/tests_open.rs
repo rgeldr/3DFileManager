@@ -272,6 +272,55 @@
     }
 
     #[test]
+    fn drag_failure_message_prefers_catalog_skips() {
+        assert_eq!(
+            drag_failure_message(&["That file is outside the library.".into()], &["Hero.stl".into()]),
+            "That file is outside the library."
+        );
+        assert_eq!(drag_failure_message(&[], &["Hero.stl".into()]), "Hero.stl");
+        assert_eq!(
+            drag_failure_message(&[], &[]),
+            "Could not drag these files."
+        );
+    }
+
+    #[test]
+    fn paths_for_file_drag_uses_catalog_errors_ahead_of_prepare_skips() {
+        let dir = std::env::temp_dir().join(format!("filelib-drag-start-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        fs::write(root.join("Hero.stl"), b"solid").unwrap();
+        fs::write(dir.join("secret.stl"), b"secret").unwrap();
+        let id = db
+            .insert_file("Hero.STL", "Hero.stl", "stl", 5, "sha-hero", 1, None, None)
+            .unwrap();
+        let outside = db
+            .insert_file("secret.stl", "../secret.stl", "stl", 6, "sha-secret", 1, None, None)
+            .unwrap();
+        let paths = paths_for_file_drag(&db, &[id], "").unwrap();
+        assert!(paths[0].ends_with("Hero.stl"));
+        let err = match paths_for_file_drag(&db, &[outside], "") {
+            Err(err) => err,
+            Ok(_) => panic!("an outside path was accepted"),
+        };
+        let (sources, skipped) = drag_sources_for_ids(&db, &[outside]);
+        let prepared = drag_out::prepare_drag_paths(&sources, "");
+        assert_eq!(err, drag_failure_message(&skipped, &prepared.skipped));
+        assert!(err.contains("outside"), "{err}");
+        let merged = prepare_drag_paths_work(&db, &[outside], "");
+        if !skipped.is_empty() && !prepared.skipped.is_empty() {
+            assert_ne!(err, merged.skipped.join(", "));
+        }
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn prepare_drag_paths_work_lists_catalog_paths_and_reveal_folder_path_opens_the_root() {
         let dir = std::env::temp_dir().join(format!("filelib-drag-work-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);

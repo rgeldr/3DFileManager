@@ -8,8 +8,8 @@
  * use a forward slash, so `/tests_` drops those covered files out of the
  * set R0 counted and the three percentages fall.
  *
- * Floors are regression gates. Jason's Windows run of PR #62 measured
- * Jason (Nov 7, 2026): regions 80.02%, functions 56.37%, lines 80.34%.
+ * Floors are regression gates. Jason (Nov 7, 2026) measured
+ * regions 80.02%, functions 56.37%, lines 80.34%.
  * Floors sit at or below those verified totals with a small anti-flake buffer.
  */
 import { spawnSync } from "node:child_process";

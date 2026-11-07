@@ -162,8 +162,11 @@
     }
 
     fn scratch_query_library(label: &str) -> (std::path::PathBuf, db::AppDb) {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!(
-            "filelib-query-{label}-{}",
+            "filelib-query-{label}-{}-{n}",
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&dir);
@@ -196,6 +199,7 @@
         )
         .unwrap();
         assert_eq!(query_files(&db, &bad).unwrap_err(), "Unknown folder filter.");
+        drop(db);
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -251,6 +255,7 @@
         )
         .unwrap_err();
         assert_eq!(scoped, "Missing folder id");
+        drop(db);
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -297,18 +302,54 @@
     }
 
     #[test]
-    fn recycle_paths_work_reports_missing_paths_without_cancel() {
+    fn delete_files_work_keeps_the_row_when_recycle_fails() {
+        use std::sync::atomic::AtomicBool;
+        use std::sync::Mutex;
+        let (dir, db) = scratch_query_library("delete-fail");
+        let id = db
+            .conn
+            .query_row("SELECT id FROM files WHERE stored_relpath = 'part.stl'", [], |row| row.get(0))
+            .unwrap();
+        let wrapped = Mutex::new(db);
+        let err = delete_files_work(&wrapped, &[id], &AtomicBool::new(false), |_| {}, |_| Err("denied".into()));
+        let message = match err {
+            Err(message) => message,
+            Ok(_) => panic!("recycle failure was ignored"),
+        };
+        assert!(message.contains("denied"), "{message}");
+        assert!(wrapped.lock().unwrap().file_row_exists(id).unwrap());
+        drop(wrapped);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn recycle_paths_work_skips_a_missing_file_and_stops_when_cancelled() {
         use std::sync::atomic::AtomicBool;
         let cancel = AtomicBool::new(false);
+        let mut seen = 0u32;
         let outcome = recycle_paths_work(
             &[String::from("definitely-missing-part.stl")],
             &[],
             &cancel,
-            |_| {},
+            |_| seen += 1,
         )
         .unwrap();
         assert!(!outcome.cancelled);
-        assert!(!outcome.failed.is_empty());
+        assert!(outcome.failed.is_empty());
+        assert!(seen >= 1);
+
+        let cancel_now = AtomicBool::new(true);
+        let mut seen_cancel = 0u32;
+        let cancelled = recycle_paths_work(
+            &[String::from("definitely-missing-part.stl")],
+            &[],
+            &cancel_now,
+            |_| seen_cancel += 1,
+        )
+        .unwrap();
+        assert!(cancelled.cancelled);
+        assert!(cancelled.failed.is_empty());
+        assert_eq!(seen_cancel, 0);
     }
 
     #[test]
@@ -337,5 +378,6 @@
         assert_eq!(absent_files(&db).unwrap().len(), 1);
         drop_absent_files(&db).unwrap();
         assert!(absent_files(&db).unwrap().is_empty());
+        drop(db);
         let _ = fs::remove_dir_all(&dir);
     }

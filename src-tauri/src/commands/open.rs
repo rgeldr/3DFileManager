@@ -111,6 +111,30 @@ pub(crate) fn prepare_drag_paths_work(db: &AppDb, ids: &[i64], icon_path: &str) 
     prepared
 }
 
+/// `start_file_drag` prefers catalog failures. A prepare-time skip is shown
+/// only when every requested id resolved to a library file.
+pub(crate) fn drag_failure_message(catalog_skipped: &[String], prepared_skipped: &[String]) -> String {
+    let message = if catalog_skipped.is_empty() {
+        prepared_skipped.join(", ")
+    } else {
+        catalog_skipped.join(", ")
+    };
+    if message.is_empty() {
+        "Could not drag these files.".into()
+    } else {
+        message
+    }
+}
+
+pub(crate) fn paths_for_file_drag(db: &AppDb, ids: &[i64], icon_path: &str) -> Result<Vec<String>, String> {
+    let (sources, skipped) = drag_sources_for_ids(db, ids);
+    let prepared = drag_out::prepare_drag_paths(&sources, icon_path);
+    if prepared.paths.is_empty() {
+        return Err(drag_failure_message(&skipped, &prepared.skipped));
+    }
+    Ok(prepared.paths)
+}
+
 pub(crate) fn reveal_folder_path(db: &AppDb, folder_id: Option<i64>) -> Result<PathBuf, String> {
     let root = db.library_root()?;
     let rel = match folder_id {
@@ -160,16 +184,7 @@ fn start_file_drag(app: AppHandle, ids: Vec<i64>, icon_path: String) -> Result<D
     let db = app.state::<AppState>().db.clone();
     let paths = {
         let db = db.lock().map_err(|err| err.to_string())?;
-        let prepared = prepare_drag_paths_work(&db, &ids, &icon_path);
-        if prepared.paths.is_empty() {
-            let message = prepared.skipped.join(", ");
-            return Err(if message.is_empty() {
-                "Could not drag these files.".into()
-            } else {
-                message
-            });
-        }
-        prepared.paths
+        paths_for_file_drag(&db, &ids, &icon_path)?
     };
     let _ = write_debug_log(drag_out::drag_start_line(&paths, &icon_path));
     let window = app
