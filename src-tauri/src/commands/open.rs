@@ -264,7 +264,6 @@ pub(crate) fn write_debug_log_in(dir: &std::path::Path, line: String) -> Result<
     Ok(path.to_string_lossy().to_string())
 }
 
-/// The executable comes from saved settings. The argument is the catalog file, not a path from the page.
 pub(crate) fn text_preview_work(db: &AppDb, file_id: i64) -> Result<String, String> {
     catalog_text_preview(db, file_id)
 }
@@ -285,6 +284,7 @@ pub(crate) fn reveal_folder_path_work(db: &AppDb, folder_id: Option<i64>) -> Res
     reveal_folder_path(db, folder_id)
 }
 
+/// The executable comes from saved settings. The argument is the catalog file, not a path from the page.
 pub(crate) fn launch_catalog_file(db: &AppDb, file_id: i64, program_id: &str) -> Result<(), String> {
     let programs = db.settings().external_programs;
     let file_path = catalog_file_path(db, file_id)?;

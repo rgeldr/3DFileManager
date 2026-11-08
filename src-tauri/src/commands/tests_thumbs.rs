@@ -294,7 +294,13 @@
 
     #[test]
     fn thumbnail_work_helpers_manage_the_queue() {
-        let dir = std::env::temp_dir().join(format!("filelib-thumb-work-{}", std::process::id()));
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!(
+            "filelib-thumb-work-{}-{n}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&dir);
         let db = db::open(&dir).unwrap();
         let root = dir.join("library");

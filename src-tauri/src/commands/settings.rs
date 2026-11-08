@@ -86,8 +86,7 @@ pub(crate) fn set_external_programs_work(
     save_external_programs(db, programs)
 }
 
-pub(crate) fn detect_external_programs_work(
-) -> Result<Vec<crate::external_programs::ProgramSuggestion>, String> {
+pub(crate) fn detect_external_programs_work() -> Result<Vec<crate::external_programs::ProgramSuggestion>, String> {
     Ok(crate::external_programs::detect_installed_programs())
 }
 

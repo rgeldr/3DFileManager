@@ -114,13 +114,32 @@ fn apply_thumb_action(db: &AppDb, candidate: &db::ThumbCandidate, action: ThumbA
     }
 }
 
-pub(crate) fn next_thumbnail_work(db: &AppDb) -> Result<Option<ThumbJob>, String> {
+/// Claim the next row and resolve the library root. The command drops the
+/// database lock before `classify_thumb` reads the file.
+pub(crate) fn claim_thumbnail_for_classify(
+    db: &AppDb,
+) -> Result<Option<(db::ThumbCandidate, std::path::PathBuf)>, String> {
     let Some(candidate) = db.claim_next_pending_thumb()? else {
         return Ok(None);
     };
     let root = db.library_root()?;
+    Ok(Some((candidate, root)))
+}
+
+pub(crate) fn complete_thumbnail(
+    db: &AppDb,
+    candidate: &db::ThumbCandidate,
+    action: ThumbAction,
+) -> Result<ThumbJob, String> {
+    apply_thumb_action(db, candidate, action)
+}
+
+pub(crate) fn next_thumbnail_work(db: &AppDb) -> Result<Option<ThumbJob>, String> {
+    let Some((candidate, root)) = claim_thumbnail_for_classify(db)? else {
+        return Ok(None);
+    };
     let action = classify_thumb(&root, &candidate);
-    Ok(Some(apply_thumb_action(db, &candidate, action)?))
+    complete_thumbnail(db, &candidate, action).map(Some)
 }
 
 pub(crate) fn save_rendered_thumb_work(db: &AppDb, id: i64, png: &[u8]) -> Result<(), String> {
@@ -147,8 +166,16 @@ pub(crate) fn clear_thumbnail_cache_work(db: &AppDb) -> Result<(), String> {
 async fn next_thumbnail(app: AppHandle) -> Result<Option<ThumbJob>, String> {
     let thumbs = app.state::<AppState>().thumbs.clone();
     off_ui("next_thumbnail", move || {
+        let claimed = {
+            let db = thumbs.lock().map_err(|e| e.to_string())?;
+            claim_thumbnail_for_classify(&db)?
+        };
+        let Some((candidate, root)) = claimed else {
+            return Ok(None);
+        };
+        let action = classify_thumb(&root, &candidate);
         let db = thumbs.lock().map_err(|e| e.to_string())?;
-        next_thumbnail_work(&db)
+        Ok(Some(complete_thumbnail(&db, &candidate, action)?))
     })
     .await
 }

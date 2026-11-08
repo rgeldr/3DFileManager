@@ -418,6 +418,10 @@
         assert!(text_preview_work(&db, 999_999).unwrap_err().contains("not found"));
         let opened = reveal_file_path_work(&db, txt).unwrap();
         assert!(opened.ends_with("readme.TXT"));
+        let same = open_in_default_app_path(&db, txt).unwrap();
+        assert_eq!(same, opened);
+        let err = open_in_program_work(&db, txt, "not-configured").unwrap_err();
+        assert!(err.contains("External programs"), "{err}");
         let folder_path = reveal_folder_path_work(&db, None).unwrap();
         assert!(folder_path.is_dir());
         let _ = fs::remove_dir_all(&dir);

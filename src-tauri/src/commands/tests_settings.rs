@@ -1,6 +1,9 @@
     fn scratch_db(label: &str) -> (std::path::PathBuf, db::AppDb) {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::SeqCst);
         let dir = std::env::temp_dir().join(format!(
-            "filelib-settings-{label}-{}",
+            "filelib-settings-{label}-{}-{n}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&dir);
@@ -28,6 +31,7 @@
         assert_eq!(kept.theme, "light");
         assert_eq!(kept.grid_size, "details");
         assert_eq!(kept.search_scope, "folder");
+        drop(db);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -50,6 +54,7 @@
         .unwrap();
         assert_eq!(get_settings_work(&db).external_programs.len(), 1);
         assert_eq!(get_settings_work(&db).external_programs[0].id, "orca");
+        drop(db);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -80,6 +85,7 @@
         assert_eq!(saved.details_columns.name, 220);
         assert!(set_pane_widths_work(&db, 10, 320).unwrap_err().contains("Sidebar"));
         assert_eq!(get_settings_work(&db).sidebar_width, 220);
+        drop(db);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
