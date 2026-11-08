@@ -129,8 +129,8 @@ pub(crate) fn start_file_drag_paths_work(
     paths_for_file_drag(db, ids, icon_path)
 }
 
-pub(crate) fn debug_log_work(line: String) -> Result<String, String> {
-    write_debug_log(line)
+pub(crate) fn debug_log_work(dir: &std::path::Path, line: String) -> Result<String, String> {
+    write_debug_log_in(dir, line)
 }
 
 pub(crate) fn prepare_drag_paths_work(db: &AppDb, ids: &[i64], icon_path: &str) -> drag_out::PreparedDrag {
@@ -252,7 +252,8 @@ async fn drag_icon_path(app: AppHandle) -> Result<String, String> {
 
 #[tauri::command]
 async fn debug_log(line: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || debug_log_work(line))
+    let dir = data_dir();
+    tauri::async_runtime::spawn_blocking(move || debug_log_work(&dir, line))
         .await
         .map_err(|err| err.to_string())?
 }

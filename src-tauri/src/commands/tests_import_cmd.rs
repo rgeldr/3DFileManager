@@ -68,8 +68,13 @@
 
     #[test]
     fn import_paths_work_imports_a_supported_file() {
-        let label = format!("filelib-importcmd-{}", std::process::id());
-        let dir = std::env::temp_dir().join(&label);
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!(
+            "filelib-importcmd-{}-{n}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let mut db = db::open(&dir).unwrap();

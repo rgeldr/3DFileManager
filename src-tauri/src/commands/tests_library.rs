@@ -210,21 +210,33 @@
         assert_eq!(paths[1], data.join("thumbs"));
         let empty_root = catalog_asset_scope_paths(&data, None);
         assert_eq!(empty_root, vec![data.join("thumbs")]);
+        let blank = catalog_asset_scope_paths(&data, Some(""));
+        assert_eq!(blank, vec![std::path::PathBuf::from(""), data.join("thumbs")]);
         let _ = std::fs::remove_dir_all(&data);
     }
 
     #[test]
     fn asset_scope_helpers_follow_bootstrap_and_db_root() {
         let (dir, db) = scratch_library("scope-boot");
+        let before = asset_scope_paths_after_uncancelled_job(&db);
+        assert_eq!(before, vec![db.data_dir.join("thumbs")]);
+        let missing = match asset_scope_library_root_path(&db) {
+            Err(err) => err,
+            Ok(path) => panic!("library root was set: {}", path.display()),
+        };
+        assert!(missing.contains("library"), "{missing}");
         let root = dir.join("library");
         let boot = set_library_root_work(&db, &root).unwrap();
+        let stored = boot.settings.library_root.clone().expect("root stored");
+        assert!(!stored.starts_with(r"\\?\"));
         let from_boot = asset_scope_paths_after_set_library_root(&boot, &db.data_dir);
-        assert!(from_boot.iter().any(|p| *p == root));
-        assert!(from_boot.iter().any(|p| *p == db.data_dir.join("thumbs")));
-        let from_db = asset_scope_paths_after_uncancelled_job(&db).unwrap();
+        assert_eq!(from_boot[0].to_string_lossy(), stored);
+        assert_eq!(from_boot[1], db.data_dir.join("thumbs"));
+        let from_db = asset_scope_paths_after_uncancelled_job(&db);
         assert_eq!(from_db, from_boot);
         let only_root = asset_scope_library_root_path(&db).unwrap();
-        assert_eq!(only_root, root);
+        assert_eq!(only_root.to_string_lossy(), stored);
+        assert!(!only_root.to_string_lossy().starts_with(r"\\?\"));
         drop(db);
         let _ = std::fs::remove_dir_all(&dir);
     }

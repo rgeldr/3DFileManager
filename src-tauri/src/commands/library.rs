@@ -102,7 +102,7 @@ pub(crate) fn catalog_asset_scope_paths(
     library_root: Option<&str>,
 ) -> Vec<PathBuf> {
     let mut paths = Vec::new();
-    if let Some(root) = library_root.filter(|s| !s.is_empty()) {
+    if let Some(root) = library_root {
         paths.push(PathBuf::from(root));
     }
     paths.push(data_dir.join("thumbs"));
@@ -116,9 +116,17 @@ pub(crate) fn asset_scope_paths_after_set_library_root(
     catalog_asset_scope_paths(data_dir, boot.settings.library_root.as_deref())
 }
 
-pub(crate) fn asset_scope_paths_after_uncancelled_job(db: &AppDb) -> Result<Vec<PathBuf>, String> {
-    let root = db.library_root().ok().map(|p| p.to_string_lossy().into_owned());
-    Ok(catalog_asset_scope_paths(&db.data_dir, root.as_deref()))
+/// Same paths `restore_library_backup` used to scope: the stored library root
+/// when one is set, then the thumbnail directory. A missing root is skipped.
+/// The `PathBuf` from `library_root` is kept as-is so `\\?\` handling stays
+/// inside `allow_asset_scope`'s canonicalize.
+pub(crate) fn asset_scope_paths_after_uncancelled_job(db: &AppDb) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Ok(root) = db.library_root() {
+        paths.push(root);
+    }
+    paths.push(db.data_dir.join("thumbs"));
+    paths
 }
 
 pub(crate) fn asset_scope_library_root_path(db: &AppDb) -> Result<PathBuf, String> {
@@ -322,7 +330,7 @@ async fn restore_library_backup(
             |progress| emit_disk(&worker, &progress),
         )?;
         if !cancelled {
-            for scope_path in asset_scope_paths_after_uncancelled_job(&db)? {
+            for scope_path in asset_scope_paths_after_uncancelled_job(&db) {
                 allow_asset_scope(&scope_app, &scope_path);
             }
         }

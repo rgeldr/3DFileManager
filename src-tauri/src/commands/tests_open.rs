@@ -281,18 +281,24 @@
     }
 
     #[test]
-    fn debug_log_work_matches_write_debug_log_in_for_a_scratch_dir() {
-        let dir = std::env::temp_dir().join(format!("filelib-debuglog-{}", std::process::id()));
+    fn debug_log_work_appends_in_a_scratch_dir_not_appdata() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!(
+            "filelib-debugwork-{}-{n}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        let path = write_debug_log_in(&dir, "first".into()).unwrap();
+        assert_ne!(dir, data_dir());
+        let path = debug_log_work(&dir, "first".into()).unwrap();
         assert!(std::path::Path::new(&path).starts_with(&dir));
-        let log_path = dir.join("debug.log");
-        let body = fs::read_to_string(&log_path).unwrap();
+        let again = debug_log_work(&dir, "second".into()).unwrap();
+        assert_eq!(path, again);
+        let body = fs::read_to_string(dir.join("debug.log")).unwrap();
         assert!(body.contains("first"));
-        let second = write_debug_log_in(&dir, "second".into()).unwrap();
-        assert_eq!(path, second);
-        assert!(fs::read_to_string(&log_path).unwrap().contains("second"));
+        assert!(body.contains("second"));
         let _ = fs::remove_dir_all(&dir);
     }
 

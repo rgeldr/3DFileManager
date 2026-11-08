@@ -353,6 +353,21 @@
     }
 
     #[test]
+    fn last_import_recycle_stash_reports_a_poisoned_lock() {
+        let paths = Mutex::new(vec!["a.stl".into()]);
+        let roots = Mutex::new(vec!["dir".into()]);
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = paths.lock().expect("lock");
+            panic!("poison paths");
+        }));
+        let err = match last_import_recycle_stash(&paths, &roots) {
+            Err(err) => err,
+            Ok(copied) => panic!("poisoned stash returned {copied:?}"),
+        };
+        assert!(err.contains("poison"), "{err}");
+    }
+
+    #[test]
     fn last_import_recycle_stash_clones_mutex_vectors() {
         let paths = Mutex::new(vec!["a.stl".into()]);
         let roots = Mutex::new(vec!["dir".into()]);
