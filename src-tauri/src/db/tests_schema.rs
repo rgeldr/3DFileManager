@@ -14,7 +14,13 @@
 
     #[test]
     fn refresh_thumb_availability_marks_non_renderable_exts() {
-        let dir = std::env::temp_dir().join(format!("filelib-thumb-refresh-{}", std::process::id()));
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!(
+            "filelib-thumb-refresh-{}-{n}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let db = crate::db::open(&dir).unwrap();

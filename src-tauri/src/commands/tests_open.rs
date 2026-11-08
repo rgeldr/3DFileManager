@@ -273,15 +273,20 @@
 
     #[test]
     fn drag_icon_path_work_requires_an_existing_file() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::SeqCst);
         let dir = std::env::temp_dir().join(format!(
-            "filelib-dragicon-{}",
+            "filelib-dragicon-{}-{n}",
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let icon = dir.join("drag.png");
         fs::write(&icon, b"png").unwrap();
-        assert_eq!(drag_icon_path_work(&icon).unwrap(), icon.to_string_lossy());
+        let shown = drag_icon_path_work(&icon).unwrap();
+        assert_eq!(shown, icon.to_string_lossy());
+        assert!(!shown.contains('\0'));
         let err = match drag_icon_path_work(&dir.join("missing.png")) {
             Err(err) => err,
             Ok(path) => panic!("missing icon returned {path}"),
@@ -304,6 +309,15 @@
         let line = file_drag_finished_log_line(&finished).expect("finished drag");
         assert!(line.contains("drop"));
         assert!(line.contains("ok"));
+        let finished_quiet = drag_session::NativeDrag {
+            result: "cancel".into(),
+            effect: "none".into(),
+            finished: true,
+            detail: String::new(),
+        };
+        let quiet = file_drag_finished_log_line(&finished_quiet).expect("finished drag");
+        assert!(quiet.contains("cancel"));
+        assert!(!quiet.ends_with(' '));
         let pending = drag_session::NativeDrag {
             result: "started".into(),
             effect: "copy".into(),
