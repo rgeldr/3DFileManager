@@ -189,7 +189,7 @@
             r#"{"folder":"root","query":"","creator":"","tag":"","sort":"name"}"#,
         )
         .unwrap();
-        let rows = query_files(&db, &args).unwrap();
+        let rows = list_files_work(&db, &args).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].original_name, "part.stl");
         let count = count_files_for_scope_work(&db, None, true).unwrap();
@@ -198,7 +198,7 @@
             r#"{"folder":"nope","query":"","creator":"","tag":"","sort":"name"}"#,
         )
         .unwrap();
-        assert_eq!(query_files(&db, &bad).unwrap_err(), "Unknown folder filter.");
+        assert_eq!(list_files_work(&db, &bad).unwrap_err(), "Unknown folder filter.");
         drop(db);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -211,7 +211,7 @@
             .unwrap();
         db.set_tags(id, &["Hero".into()]).unwrap();
         db.set_creator_under_folder(None, "Ada", true).unwrap();
-        let tags = query_tag_counts(
+        let tags = list_tag_counts_work(
             &db,
             &TagCountArgs {
                 folder: "all".into(),
@@ -224,7 +224,7 @@
         .unwrap();
         let hero = tags.iter().find(|tag| tag.name == "Hero").unwrap();
         assert_eq!(hero.file_count, 1);
-        let types = query_type_counts(
+        let types = list_type_counts_work(
             &db,
             &TypeCountArgs {
                 folder: "root".into(),
@@ -237,7 +237,7 @@
         )
         .unwrap();
         assert!(types.iter().any(|row| row.id == "stl" && row.file_count == 1));
-        let creators = list_creators_for_args(
+        let creators = list_creators_work(
             &db,
             &ListCreatorsArgs {
                 folder: String::new(),
@@ -246,7 +246,7 @@
         )
         .unwrap();
         assert_eq!(creators, vec!["Ada".to_string()]);
-        let scoped = list_creators_for_args(
+        let scoped = list_creators_work(
             &db,
             &ListCreatorsArgs {
                 folder: "id".into(),
@@ -353,31 +353,44 @@
     }
 
     #[test]
+    fn recycle_last_import_work_delegates_to_recycle_paths_work() {
+        use std::sync::atomic::AtomicBool;
+        let cancelled = recycle_last_import_work(
+            &["definitely-missing-import.stl".into()],
+            &["batch-root".into()],
+            &AtomicBool::new(true),
+            |_| {},
+        )
+        .unwrap();
+        assert!(cancelled.cancelled);
+    }
+
+    #[test]
     fn tag_helpers_update_rows_and_drop_absent_files() {
         let (dir, db) = scratch_query_library("tags");
         let id = db
             .conn
             .query_row("SELECT id FROM files WHERE stored_relpath = 'part.stl'", [], |row| row.get(0))
             .unwrap();
-        replace_file_tags(&db, id, &["Hero".into()]).unwrap();
-        assert!(catalog_tags(&db).unwrap().iter().any(|name| name == "Hero"));
-        assert_eq!(tags_on_files(&db, &[id], &["Villain".into()]).unwrap(), 1);
-        assert!(tags_under_folder(&db, None, &["Extra".into()]).unwrap() >= 1);
-        assign_creator(&db, None, "Ada", true).unwrap();
-        bulk_file_meta(&db, &[id], Some("Bea"), None).unwrap();
-        let hero = tag_color_rows(&db)
+        set_tags_work(&db, id, &["Hero".into()]).unwrap();
+        assert!(list_tags_work(&db).unwrap().iter().any(|name| name == "Hero"));
+        assert_eq!(add_tags_to_files_work(&db, &[id], &["Villain".into()]).unwrap(), 1);
+        assert!(add_tags_under_folder_work(&db, None, &["Extra".into()]).unwrap() >= 1);
+        set_creator_under_folder_work(&db, None, "Ada", true).unwrap();
+        apply_bulk_meta_work(&db, &[id], Some("Bea"), None).unwrap();
+        let hero = list_tag_colors_work(&db)
             .unwrap()
             .into_iter()
             .find(|row| row.name == "Hero")
             .unwrap();
-        paint_tag(&db, hero.id, Some("#112233")).unwrap();
-        paint_tag(&db, hero.id, None).unwrap();
+        set_tag_color_work(&db, hero.id, Some("#112233")).unwrap();
+        set_tag_color_work(&db, hero.id, None).unwrap();
         db.conn
             .execute("UPDATE files SET missing = 1 WHERE id = ?1", [id])
             .unwrap();
-        assert_eq!(absent_files(&db).unwrap().len(), 1);
-        drop_absent_files(&db).unwrap();
-        assert!(absent_files(&db).unwrap().is_empty());
+        assert_eq!(missing_files_work(&db).unwrap().len(), 1);
+        remove_missing_work(&db).unwrap();
+        assert!(missing_files_work(&db).unwrap().is_empty());
         drop(db);
         let _ = fs::remove_dir_all(&dir);
     }

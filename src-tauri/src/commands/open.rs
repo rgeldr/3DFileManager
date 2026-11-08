@@ -265,6 +265,26 @@ pub(crate) fn write_debug_log_in(dir: &std::path::Path, line: String) -> Result<
 }
 
 /// The executable comes from saved settings. The argument is the catalog file, not a path from the page.
+pub(crate) fn text_preview_work(db: &AppDb, file_id: i64) -> Result<String, String> {
+    catalog_text_preview(db, file_id)
+}
+
+pub(crate) fn open_in_program_work(db: &AppDb, file_id: i64, program_id: &str) -> Result<(), String> {
+    launch_catalog_file(db, file_id, program_id)
+}
+
+pub(crate) fn open_in_default_app_path(db: &AppDb, file_id: i64) -> Result<PathBuf, String> {
+    catalog_file_path(db, file_id)
+}
+
+pub(crate) fn reveal_file_path_work(db: &AppDb, file_id: i64) -> Result<PathBuf, String> {
+    catalog_file_path(db, file_id)
+}
+
+pub(crate) fn reveal_folder_path_work(db: &AppDb, folder_id: Option<i64>) -> Result<PathBuf, String> {
+    reveal_folder_path(db, folder_id)
+}
+
 pub(crate) fn launch_catalog_file(db: &AppDb, file_id: i64, program_id: &str) -> Result<(), String> {
     let programs = db.settings().external_programs;
     let file_path = catalog_file_path(db, file_id)?;
@@ -277,7 +297,7 @@ async fn open_in_program(app: AppHandle, file_id: i64, program_id: String) -> Re
     let db = app.state::<AppState>().db.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let db = db.lock().map_err(|err| err.to_string())?;
-        launch_catalog_file(&db, file_id, &program_id)
+        open_in_program_work(&db, file_id, &program_id)
     })
     .await
     .map_err(|err| err.to_string())?
@@ -289,7 +309,7 @@ async fn open_in_default_app(app: AppHandle, file_id: i64) -> Result<(), String>
     tauri::async_runtime::spawn_blocking(move || {
         let path = {
             let db = db.lock().map_err(|err| err.to_string())?;
-            catalog_file_path(&db, file_id)?
+            open_in_default_app_path(&db, file_id)?
         };
         app.opener()
             .open_path(path.to_string_lossy().to_string(), None::<&str>)
@@ -305,7 +325,7 @@ async fn reveal_file(app: AppHandle, file_id: i64) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path = {
             let db = db.lock().map_err(|err| err.to_string())?;
-            catalog_file_path(&db, file_id)?
+            reveal_file_path_work(&db, file_id)?
         };
         app.opener()
             .reveal_item_in_dir(&path)
@@ -321,7 +341,7 @@ async fn reveal_folder(app: AppHandle, folder_id: Option<i64>) -> Result<(), Str
     tauri::async_runtime::spawn_blocking(move || {
         let path = {
             let db = db.lock().map_err(|err| err.to_string())?;
-            reveal_folder_path(&db, folder_id)?
+            reveal_folder_path_work(&db, folder_id)?
         };
         app.opener()
             .reveal_item_in_dir(&path)
@@ -336,7 +356,7 @@ async fn text_preview(app: AppHandle, file_id: i64) -> Result<String, String> {
     let db = app.state::<AppState>().db.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let db = db.lock().map_err(|err| err.to_string())?;
-        catalog_text_preview(&db, file_id)
+        text_preview_work(&db, file_id)
     })
     .await
     .map_err(|err| err.to_string())?

@@ -337,10 +337,10 @@
         let prepared = prepare_drag_paths_work(&db, &[id], "");
         assert!(!prepared.paths.is_empty());
         assert!(prepared.paths[0].ends_with("Hero.stl"));
-        let shown = reveal_folder_path(&db, None).unwrap();
+        let shown = reveal_folder_path_work(&db, None).unwrap();
         assert!(shown.is_dir());
         let folder = add_library_folder(&db, None, "Tray").unwrap();
-        let tray = reveal_folder_path(&db, Some(folder.id)).unwrap();
+        let tray = reveal_folder_path_work(&db, Some(folder.id)).unwrap();
         assert!(tray.ends_with("Tray"));
         drop(db);
         let _ = fs::remove_dir_all(&dir);
@@ -409,13 +409,17 @@
         let missing = db
             .insert_file("gone.txt", "gone.txt", "txt", 1, "sha-gone", 1, None, None)
             .unwrap();
-        assert_eq!(catalog_text_preview(&db, md).unwrap(), "# Title\n");
-        assert_eq!(catalog_text_preview(&db, scad).unwrap(), "cube(1);");
-        assert_eq!(catalog_text_preview(&db, txt).unwrap(), "Hellothere");
-        assert_eq!(catalog_text_preview(&db, step).unwrap(), "");
-        assert!(catalog_text_preview(&db, outside).unwrap_err().contains("outside"));
-        assert!(catalog_text_preview(&db, missing).unwrap_err().contains("missing"));
-        assert!(catalog_text_preview(&db, 999_999).unwrap_err().contains("not found"));
+        assert_eq!(text_preview_work(&db, md).unwrap(), "# Title\n");
+        assert_eq!(text_preview_work(&db, scad).unwrap(), "cube(1);");
+        assert_eq!(text_preview_work(&db, txt).unwrap(), "Hellothere");
+        assert_eq!(text_preview_work(&db, step).unwrap(), "");
+        assert!(text_preview_work(&db, outside).unwrap_err().contains("outside"));
+        assert!(text_preview_work(&db, missing).unwrap_err().contains("missing"));
+        assert!(text_preview_work(&db, 999_999).unwrap_err().contains("not found"));
+        let opened = reveal_file_path_work(&db, txt).unwrap();
+        assert!(opened.ends_with("readme.TXT"));
+        let folder_path = reveal_folder_path_work(&db, None).unwrap();
+        assert!(folder_path.is_dir());
         let _ = fs::remove_dir_all(&dir);
     }
 

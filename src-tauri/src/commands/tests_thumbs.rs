@@ -22,7 +22,7 @@
         image::DynamicImage::ImageRgba8(png)
             .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
             .unwrap();
-        store_rendered_thumb(&db, id, &bytes).unwrap();
+        save_rendered_thumb_work(&db, id, &bytes).unwrap();
         assert_eq!(thumb_status(&db, id), "unhashed");
         assert!(!db::thumb_path(&dir, "").exists());
         let _ = fs::remove_dir_all(&dir);
@@ -41,7 +41,7 @@
         let id = db
             .insert_file("x.stl", "x.stl", "stl", 1, "sha-x", 1, None, None)
             .unwrap();
-        store_rendered_thumb(&db, id, b"not a png").unwrap();
+        save_rendered_thumb_work(&db, id, b"not a png").unwrap();
         assert_eq!(thumb_status(&db, id), "unavailable");
         let _ = fs::remove_dir_all(&dir);
     }
@@ -64,7 +64,7 @@
         image::DynamicImage::ImageRgba8(png)
             .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
             .unwrap();
-        store_rendered_thumb(&db, id, &bytes).unwrap();
+        save_rendered_thumb_work(&db, id, &bytes).unwrap();
         assert!(db::thumb_path(&dir, "sha-render").is_file());
         assert_eq!(thumb_status(&db, id), "ok");
         let _ = fs::remove_dir_all(&dir);
@@ -290,4 +290,29 @@
         assert_eq!(held_db.settings().thumb_retry, 2);
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&held);
+    }
+
+    #[test]
+    fn thumbnail_work_helpers_manage_the_queue() {
+        let dir = std::env::temp_dir().join(format!("filelib-thumb-work-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        fs::write(root.join("mesh.stl"), b"solid").unwrap();
+        let id = db
+            .insert_file_with_thumb_status("mesh.stl", "mesh.stl", "stl", 6, "sha-mesh", 1, None, None, "none")
+            .unwrap();
+        let job = next_thumbnail_work(&db).unwrap().expect("thumb job");
+        assert_eq!(job.id, id);
+        assert_eq!(job.kind, "render");
+        release_rendering_thumb_work(&db, id).unwrap();
+        mark_thumb_unavailable_work(&db, id).unwrap();
+        assert_eq!(pending_thumbnail_count_work(&db).unwrap(), 0);
+        clear_thumbnail_cache_work(&db).unwrap();
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
     }

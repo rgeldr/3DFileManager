@@ -18,6 +18,25 @@ pub(crate) fn add_library_folder(
     db.create_folder(parent_id, name, 0)
 }
 
+pub(crate) fn create_folder_work(
+    db: &AppDb,
+    parent_id: Option<i64>,
+    name: &str,
+) -> Result<db::FolderRow, String> {
+    add_library_folder(db, parent_id, name)
+}
+
+pub(crate) fn restore_library_backup_work(
+    db: &mut AppDb,
+    thumbs: &mut AppDb,
+    backup_path: &std::path::Path,
+    library_path: &std::path::Path,
+    cancel: &AtomicBool,
+    progress: impl FnMut(relocate::DiskProgress),
+) -> Result<bool, String> {
+    backup::restore_library(db, thumbs, backup_path, library_path, cancel, progress)
+}
+
 pub(crate) fn rescan_library_work(
     db: &AppDb,
     cancel: &AtomicBool,
@@ -132,7 +151,7 @@ async fn create_folder(
     let db = app.state::<AppState>().db.clone();
     let row = off_ui("create_folder", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        add_library_folder(&db, parent_id, &name)
+        create_folder_work(&db, parent_id, &name)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Folders, &source);
@@ -267,7 +286,7 @@ async fn restore_library_backup(
     let result = tauri::async_runtime::spawn_blocking(move || {
         let mut db = db.lock().map_err(|e| e.to_string())?;
         let mut thumbs = thumbs.lock().map_err(|e| e.to_string())?;
-        let cancelled = backup::restore_library(
+        let cancelled = restore_library_backup_work(
             &mut db,
             &mut thumbs,
             PathBuf::from(backup_path).as_path(),

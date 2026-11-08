@@ -23,28 +23,31 @@ assert.equal(ignore.test("src/main.rs"), false);
 
 const summary = `
 Filename                      Regions    Missed Regions     Cover   Functions  Missed Functions  Executed       Lines      Missed Lines     Cover
-TOTAL                         21000               4196    80.00%        1510               659     56.30%       11600              2298    80.20%
+TOTAL                         21000               3941    81.00%        1510               639     57.70%       11600              2180    81.20%
 `;
 assert.deepEqual(parseLlvmCovSummary(summary), {
-  regions: 80.0,
-  functions: 56.3,
-  lines: 80.2,
+  regions: 81.0,
+  functions: 57.7,
+  lines: 81.2,
 });
 assert.deepEqual(coverageBelowFloor(parseLlvmCovSummary(summary)), []);
 
-const jason = { regions: 80.02, functions: 56.37, lines: 80.34 };
-assert.deepEqual(coverageBelowFloor(jason), []);
+const jasonEarlier = { regions: 80.02, functions: 56.37, lines: 80.34 };
+assert.ok(coverageBelowFloor(jasonEarlier).length >= 1);
 
-const droppedFunctions = { regions: 80.0, functions: 56.29, lines: 80.2 };
+const droppedFunctions = { regions: 81.0, functions: 57.69, lines: 81.2 };
 assert.equal(coverageBelowFloor(droppedFunctions).length, 1);
-assert.match(coverageBelowFloor(droppedFunctions)[0], /functions 56.29%/);
+assert.match(coverageBelowFloor(droppedFunctions)[0], /functions 57.69%/);
 
-assert.equal(COVERAGE_FLOORS.functions, 56.3);
-assert.equal(COVERAGE_FLOORS.lines, 80.2);
-assert.equal(COVERAGE_FLOORS.regions, 80.0);
+const jasonLater = { regions: 81.08, functions: 57.81, lines: 81.29 };
+assert.deepEqual(coverageBelowFloor(jasonLater), []);
+
+assert.equal(COVERAGE_FLOORS.functions, 57.7);
+assert.equal(COVERAGE_FLOORS.lines, 81.2);
+assert.equal(COVERAGE_FLOORS.regions, 81.0);
 assert.ok(COVERAGE_FLOORS.lines >= 80);
 assert.ok(COVERAGE_FLOORS.regions >= 80);
-assert.ok(COVERAGE_FLOORS.functions > 56.37 - 0.1);
-assert.ok(COVERAGE_FLOORS.functions <= 56.37);
-assert.ok(COVERAGE_FLOORS.lines <= 80.34);
-assert.ok(COVERAGE_FLOORS.regions <= 80.02);
+assert.ok(COVERAGE_FLOORS.functions > 57.81 - 0.2);
+assert.ok(COVERAGE_FLOORS.functions <= 57.81);
+assert.ok(COVERAGE_FLOORS.lines <= 81.29);
+assert.ok(COVERAGE_FLOORS.regions <= 81.08);

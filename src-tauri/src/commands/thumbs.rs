@@ -114,21 +114,41 @@ fn apply_thumb_action(db: &AppDb, candidate: &db::ThumbCandidate, action: ThumbA
     }
 }
 
+pub(crate) fn next_thumbnail_work(db: &AppDb) -> Result<Option<ThumbJob>, String> {
+    let Some(candidate) = db.claim_next_pending_thumb()? else {
+        return Ok(None);
+    };
+    let root = db.library_root()?;
+    let action = classify_thumb(&root, &candidate);
+    Ok(Some(apply_thumb_action(db, &candidate, action)?))
+}
+
+pub(crate) fn save_rendered_thumb_work(db: &AppDb, id: i64, png: &[u8]) -> Result<(), String> {
+    store_rendered_thumb(db, id, png)
+}
+
+pub(crate) fn mark_thumb_unavailable_work(db: &AppDb, id: i64) -> Result<(), String> {
+    db.set_thumb_status(id, "unavailable")
+}
+
+pub(crate) fn release_rendering_thumb_work(db: &AppDb, id: i64) -> Result<(), String> {
+    db.release_rendering_thumb(id)
+}
+
+pub(crate) fn pending_thumbnail_count_work(db: &AppDb) -> Result<i64, String> {
+    db.pending_thumb_count()
+}
+
+pub(crate) fn clear_thumbnail_cache_work(db: &AppDb) -> Result<(), String> {
+    db.clear_thumbs()
+}
+
 #[tauri::command]
 async fn next_thumbnail(app: AppHandle) -> Result<Option<ThumbJob>, String> {
     let thumbs = app.state::<AppState>().thumbs.clone();
     off_ui("next_thumbnail", move || {
-        let (candidate, root) = {
-            let db = thumbs.lock().map_err(|e| e.to_string())?;
-            let Some(candidate) = db.claim_next_pending_thumb()? else {
-                return Ok(None);
-            };
-            let root = db.library_root()?;
-            (candidate, root)
-        };
-        let action = classify_thumb(&root, &candidate);
         let db = thumbs.lock().map_err(|e| e.to_string())?;
-        Ok(Some(apply_thumb_action(&db, &candidate, action)?))
+        next_thumbnail_work(&db)
     })
     .await
 }
@@ -152,7 +172,7 @@ async fn save_rendered_thumb(app: AppHandle, id: i64, png: Vec<u8>) -> Result<()
     let thumbs = app.state::<AppState>().thumbs.clone();
     off_ui("save_rendered_thumb", move || {
         let db = thumbs.lock().map_err(|e| e.to_string())?;
-        store_rendered_thumb(&db, id, &png)
+        save_rendered_thumb_work(&db, id, &png)
     })
     .await
 }
@@ -162,7 +182,7 @@ async fn mark_thumb_unavailable(app: AppHandle, id: i64) -> Result<(), String> {
     let thumbs = app.state::<AppState>().thumbs.clone();
     off_ui("mark_thumb_unavailable", move || {
         let db = thumbs.lock().map_err(|e| e.to_string())?;
-        db.set_thumb_status(id, "unavailable")
+        mark_thumb_unavailable_work(&db, id)
     })
     .await
 }
@@ -172,7 +192,7 @@ async fn release_rendering_thumb(app: AppHandle, id: i64) -> Result<(), String> 
     let thumbs = app.state::<AppState>().thumbs.clone();
     off_ui("release_rendering_thumb", move || {
         let db = thumbs.lock().map_err(|e| e.to_string())?;
-        db.release_rendering_thumb(id)
+        release_rendering_thumb_work(&db, id)
     })
     .await
 }
@@ -182,7 +202,7 @@ async fn pending_thumbnail_count(app: AppHandle) -> Result<i64, String> {
     let thumbs = app.state::<AppState>().thumbs.clone();
     off_ui("pending_thumbnail_count", move || {
         let db = thumbs.lock().map_err(|e| e.to_string())?;
-        db.pending_thumb_count()
+        pending_thumbnail_count_work(&db)
     })
     .await
 }
@@ -193,7 +213,7 @@ async fn clear_thumbnail_cache(app: AppHandle, window: WebviewWindow) -> Result<
     let thumbs = app.state::<AppState>().thumbs.clone();
     off_ui("clear_thumbnail_cache", move || {
         let db = thumbs.lock().map_err(|e| e.to_string())?;
-        db.clear_thumbs()
+        clear_thumbnail_cache_work(&db)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Files, &source);

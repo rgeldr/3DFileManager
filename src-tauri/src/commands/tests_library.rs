@@ -33,7 +33,7 @@
         assert!(!stored.starts_with(r"\\?\"));
         let stats = library_stats_work(&db).unwrap();
         assert_eq!(stats.file_count, 0);
-        let folder = add_library_folder(&db, None, "Prints").unwrap();
+        let folder = create_folder_work(&db, None, "Prints").unwrap();
         assert_eq!(folder.name, "Prints");
         drop(db);
         let _ = std::fs::remove_dir_all(&dir);
@@ -162,5 +162,38 @@
         delete_folder_work(&db, folder.id).unwrap();
         assert!(db.folder_id_by_relpath("Empty").unwrap().is_none());
         drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn restore_library_backup_work_round_trips_exported_backup() {
+        use std::sync::atomic::AtomicBool;
+        let (dir, db) = scratch_library("restore-work");
+        let root = dir.join("library");
+        set_library_root_work(&db, &root).unwrap();
+        std::fs::write(root.join("keep.stl"), b"solid").unwrap();
+        let backup = dir.join("backup");
+        std::fs::create_dir_all(&backup).unwrap();
+        export_library_backup_work(&db, &backup, &AtomicBool::new(false), |_| {}).unwrap();
+        drop(db);
+        let restore_lib = dir.join("restored");
+        std::fs::create_dir_all(&restore_lib).unwrap();
+        let restore_data = dir.join("restore-data");
+        std::fs::create_dir_all(&restore_data).unwrap();
+        let mut live = db::open(&restore_data).unwrap();
+        let mut thumbs = db::open(&restore_data).unwrap();
+        let cancelled = restore_library_backup_work(
+            &mut live,
+            &mut thumbs,
+            &backup,
+            &restore_lib,
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+        assert!(!cancelled);
+        assert!(restore_lib.join("keep.stl").is_file());
+        drop(live);
+        drop(thumbs);
         let _ = std::fs::remove_dir_all(&dir);
     }
