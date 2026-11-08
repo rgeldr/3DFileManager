@@ -30,6 +30,10 @@ impl Drop for DiskGuard {
 
 pub const DISK_BUSY_MESSAGE: &str = "A rescan is already running in another window.";
 
+pub(crate) fn claim_disk_running_work(flag: &AtomicBool) -> Result<(), String> {
+    claim_disk_running(flag)
+}
+
 fn claim_disk_running(flag: &AtomicBool) -> Result<(), String> {
     if flag
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -46,7 +50,7 @@ fn request_disk_cancel(flag: &AtomicBool) {
 
 fn acquire_disk(app: &AppHandle) -> Result<DiskGuard, String> {
     let state = app.state::<AppState>();
-    claim_disk_running(&state.disk_running)?;
+    claim_disk_running_work(&state.disk_running)?;
     state.disk_cancel.store(false, Ordering::SeqCst);
     Ok(DiskGuard(app.clone()))
 }

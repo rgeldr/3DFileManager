@@ -52,9 +52,9 @@
     fn a_second_disk_claim_fails_immediately_and_cancel_is_visible() {
         let running = AtomicBool::new(false);
         let cancel = AtomicBool::new(false);
-        claim_disk_running(&running).unwrap();
+        claim_disk_running_work(&running).unwrap();
         let started = std::time::Instant::now();
-        let err = claim_disk_running(&running).unwrap_err();
+        let err = claim_disk_running_work(&running).unwrap_err();
         assert!(started.elapsed() < std::time::Duration::from_millis(200));
         assert_eq!(err, DISK_BUSY_MESSAGE);
         assert!(running.load(Ordering::SeqCst));

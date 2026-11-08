@@ -103,6 +103,36 @@ pub(crate) fn drag_sources_for_ids(db: &AppDb, ids: &[i64]) -> (Vec<drag_out::Dr
     (sources, skipped)
 }
 
+pub(crate) fn prepared_drag_when_db_busy() -> drag_out::PreparedDrag {
+    drag_out::PreparedDrag {
+        paths: Vec::new(),
+        skipped: vec!["The library is busy.".into()],
+        reports: Vec::new(),
+        icon_bytes: 0,
+    }
+}
+
+pub(crate) fn prepared_drag_from_worker_error(err: impl std::fmt::Display) -> drag_out::PreparedDrag {
+    drag_out::PreparedDrag {
+        paths: Vec::new(),
+        skipped: vec![err.to_string()],
+        reports: Vec::new(),
+        icon_bytes: 0,
+    }
+}
+
+pub(crate) fn start_file_drag_paths_work(
+    db: &AppDb,
+    ids: &[i64],
+    icon_path: &str,
+) -> Result<Vec<String>, String> {
+    paths_for_file_drag(db, ids, icon_path)
+}
+
+pub(crate) fn debug_log_work(line: String) -> Result<String, String> {
+    write_debug_log(line)
+}
+
 pub(crate) fn prepare_drag_paths_work(db: &AppDb, ids: &[i64], icon_path: &str) -> drag_out::PreparedDrag {
     let (sources, mut skipped) = drag_sources_for_ids(db, ids);
     let mut prepared = drag_out::prepare_drag_paths(&sources, icon_path);
@@ -150,22 +180,12 @@ async fn prepare_drag_paths(app: AppHandle, ids: Vec<i64>, icon_path: String) ->
     let db = app.state::<AppState>().db.clone();
     let prepared = tauri::async_runtime::spawn_blocking(move || {
         let Ok(db) = db.lock() else {
-            return drag_out::PreparedDrag {
-                paths: Vec::new(),
-                skipped: vec!["The library is busy.".into()],
-                reports: Vec::new(),
-                icon_bytes: 0,
-            };
+            return prepared_drag_when_db_busy();
         };
         prepare_drag_paths_work(&db, &ids, &icon_path)
     })
     .await
-    .unwrap_or_else(|err| drag_out::PreparedDrag {
-        paths: Vec::new(),
-        skipped: vec![err.to_string()],
-        reports: Vec::new(),
-        icon_bytes: 0,
-    });
+    .unwrap_or_else(|err| prepared_drag_from_worker_error(err));
     let _ = write_debug_log(drag_out::drag_log_line(&prepared.paths));
     prepared
 }
@@ -184,7 +204,7 @@ fn start_file_drag(app: AppHandle, ids: Vec<i64>, icon_path: String) -> Result<D
     let db = app.state::<AppState>().db.clone();
     let paths = {
         let db = db.lock().map_err(|err| err.to_string())?;
-        paths_for_file_drag(&db, &ids, &icon_path)?
+        start_file_drag_paths_work(&db, &ids, &icon_path)?
     };
     let _ = write_debug_log(drag_out::drag_start_line(&paths, &icon_path));
     let window = app
@@ -232,7 +252,7 @@ async fn drag_icon_path(app: AppHandle) -> Result<String, String> {
 
 #[tauri::command]
 async fn debug_log(line: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || write_debug_log(line))
+    tauri::async_runtime::spawn_blocking(move || debug_log_work(line))
         .await
         .map_err(|err| err.to_string())?
 }

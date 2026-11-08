@@ -602,6 +602,15 @@ pub(crate) fn recycle_last_import_work(
     recycle_paths_work(paths, roots, cancel, progress)
 }
 
+pub(crate) fn last_import_recycle_stash(
+    paths: &Mutex<Vec<String>>,
+    roots: &Mutex<Vec<String>>,
+) -> Result<(Vec<String>, Vec<String>), String> {
+    let paths = paths.lock().map_err(|e| e.to_string())?.clone();
+    let roots = roots.lock().map_err(|e| e.to_string())?.clone();
+    Ok((paths, roots))
+}
+
 #[tauri::command]
 async fn recycle_paths(app: AppHandle, window: WebviewWindow, paths: Vec<String>) -> Result<RecycleOutcome, String> {
     let source = window.label().to_string();
@@ -622,18 +631,8 @@ async fn recycle_paths(app: AppHandle, window: WebviewWindow, paths: Vec<String>
 async fn recycle_last_import(app: AppHandle, window: WebviewWindow) -> Result<RecycleOutcome, String> {
     let source = window.label().to_string();
     let _timer = CommandTimer::start("recycle_last_import");
-    let paths = app
-        .state::<AppState>()
-        .last_recycle_paths
-        .lock()
-        .map_err(|e| e.to_string())?
-        .clone();
-    let roots = app
-        .state::<AppState>()
-        .last_recycle_roots
-        .lock()
-        .map_err(|e| e.to_string())?
-        .clone();
+    let state = app.state::<AppState>();
+    let (paths, roots) = last_import_recycle_stash(&state.last_recycle_paths, &state.last_recycle_roots)?;
     let _guard = acquire_disk(&app)?;
     let cancel = app.state::<AppState>().disk_cancel.clone();
     let handle = app.clone();

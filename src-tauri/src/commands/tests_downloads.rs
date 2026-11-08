@@ -126,12 +126,12 @@
     fn reveal_download_in_folder_resolves_a_file_under_the_saved_root() {
         let (dir, db) = scratch_downloads("reveal");
         let sample = dir.join("downloads").join("model.stl");
-        let shown = reveal_download_in_folder(&db, &sample.to_string_lossy()).unwrap();
+        let shown = reveal_download_path_work(&db, &sample.to_string_lossy()).unwrap();
         assert!(shown.ends_with("model.stl"), "{}", shown.display());
         assert!(!shown.starts_with(r"\\?\"));
         let outside = dir.join("escape.stl");
         std::fs::write(&outside, b"nope").unwrap();
-        let err = reveal_download_in_folder(&db, &outside.to_string_lossy()).unwrap_err();
+        let err = reveal_download_path_work(&db, &outside.to_string_lossy()).unwrap_err();
         assert!(err.contains("outside"), "{err}");
         drop(db);
         let _ = std::fs::remove_dir_all(&dir);
@@ -144,7 +144,7 @@
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let db = db::open(&dir).unwrap();
-        let err = reveal_download_in_folder(&db, "x.stl").unwrap_err();
+        let err = reveal_download_path_work(&db, "x.stl").unwrap_err();
         assert!(err.contains("Downloads"), "{err}");
         drop(db);
         let _ = std::fs::remove_dir_all(&dir);

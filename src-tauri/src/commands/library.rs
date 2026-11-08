@@ -97,6 +97,34 @@ pub(crate) fn export_library_backup_work(
     backup::export_library(db, path, cancel, progress)
 }
 
+pub(crate) fn catalog_asset_scope_paths(
+    data_dir: &std::path::Path,
+    library_root: Option<&str>,
+) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Some(root) = library_root.filter(|s| !s.is_empty()) {
+        paths.push(PathBuf::from(root));
+    }
+    paths.push(data_dir.join("thumbs"));
+    paths
+}
+
+pub(crate) fn asset_scope_paths_after_set_library_root(
+    boot: &db::Bootstrap,
+    data_dir: &std::path::Path,
+) -> Vec<PathBuf> {
+    catalog_asset_scope_paths(data_dir, boot.settings.library_root.as_deref())
+}
+
+pub(crate) fn asset_scope_paths_after_uncancelled_job(db: &AppDb) -> Result<Vec<PathBuf>, String> {
+    let root = db.library_root().ok().map(|p| p.to_string_lossy().into_owned());
+    Ok(catalog_asset_scope_paths(&db.data_dir, root.as_deref()))
+}
+
+pub(crate) fn asset_scope_library_root_path(db: &AppDb) -> Result<PathBuf, String> {
+    db.library_root()
+}
+
 #[tauri::command]
 async fn library_stats(app: AppHandle) -> Result<db::LibraryStats, String> {
     let db = app.state::<AppState>().db.clone();
@@ -129,10 +157,9 @@ async fn set_library_root(
     let result = off_ui("set_library_root", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
         let result = set_library_root_work(&db, PathBuf::from(path).as_path())?;
-        if let Some(root) = &result.settings.library_root {
-            allow_asset_scope(&scope_app, PathBuf::from(root).as_path());
+        for scope_path in asset_scope_paths_after_set_library_root(&result, &db.data_dir) {
+            allow_asset_scope(&scope_app, &scope_path);
         }
-        allow_asset_scope(&scope_app, &db.data_dir.join("thumbs"));
         Ok(result)
     })
     .await?;
@@ -245,7 +272,7 @@ async fn move_library_root(app: AppHandle, window: WebviewWindow, path: String) 
             emit_disk(&handle, &progress)
         })?;
         if !cancelled {
-            if let Ok(root) = db.library_root() {
+            if let Ok(root) = asset_scope_library_root_path(db) {
                 allow_asset_scope(&scope_app, &root);
             }
         }
@@ -295,10 +322,9 @@ async fn restore_library_backup(
             |progress| emit_disk(&worker, &progress),
         )?;
         if !cancelled {
-            if let Ok(root) = db.library_root() {
-                allow_asset_scope(&scope_app, &root);
+            for scope_path in asset_scope_paths_after_uncancelled_job(&db)? {
+                allow_asset_scope(&scope_app, &scope_path);
             }
-            allow_asset_scope(&scope_app, &db.data_dir.join("thumbs"));
         }
         Ok::<DiskOutcome, String>(DiskOutcome { cancelled })
     })

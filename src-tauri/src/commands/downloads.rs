@@ -9,6 +9,10 @@ pub(crate) fn set_downloads_folder_work(
     crate::downloads::set_downloads_folder(db, path)
 }
 
+pub(crate) fn reveal_download_path_work(db: &AppDb, path: &str) -> Result<std::path::PathBuf, String> {
+    reveal_download_in_folder(db, path)
+}
+
 pub(crate) fn reveal_download_in_folder(db: &AppDb, path: &str) -> Result<std::path::PathBuf, String> {
     let saved = db
         .settings()
@@ -49,7 +53,7 @@ async fn reveal_path(app: AppHandle, path: String) -> Result<(), String> {
     let db = app.state::<AppState>().db.clone();
     let shown = off_ui("reveal_path", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        reveal_download_in_folder(&db, &path)
+        reveal_download_path_work(&db, &path)
     })
     .await?;
     tauri::async_runtime::spawn_blocking(move || {

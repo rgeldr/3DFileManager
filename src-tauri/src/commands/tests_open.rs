@@ -272,6 +272,31 @@
     }
 
     #[test]
+    fn prepared_drag_helpers_cover_busy_and_worker_errors() {
+        let busy = prepared_drag_when_db_busy();
+        assert!(busy.paths.is_empty());
+        assert!(busy.skipped[0].contains("busy"));
+        let err = prepared_drag_from_worker_error("worker died");
+        assert_eq!(err.skipped, vec!["worker died".to_string()]);
+    }
+
+    #[test]
+    fn debug_log_work_matches_write_debug_log_in_for_a_scratch_dir() {
+        let dir = std::env::temp_dir().join(format!("filelib-debuglog-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = write_debug_log_in(&dir, "first".into()).unwrap();
+        assert!(std::path::Path::new(&path).starts_with(&dir));
+        let log_path = dir.join("debug.log");
+        let body = fs::read_to_string(&log_path).unwrap();
+        assert!(body.contains("first"));
+        let second = write_debug_log_in(&dir, "second".into()).unwrap();
+        assert_eq!(path, second);
+        assert!(fs::read_to_string(&log_path).unwrap().contains("second"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn drag_failure_message_prefers_catalog_skips() {
         assert_eq!(
             drag_failure_message(&["That file is outside the library.".into()], &["Hero.stl".into()]),
@@ -302,7 +327,7 @@
         let outside = db
             .insert_file("secret.stl", "../secret.stl", "stl", 6, "sha-secret", 1, None, None)
             .unwrap();
-        let paths = paths_for_file_drag(&db, &[id], "").unwrap();
+        let paths = start_file_drag_paths_work(&db, &[id], "").unwrap();
         assert!(paths[0].ends_with("Hero.stl"));
         let err = match paths_for_file_drag(&db, &[outside], "") {
             Err(err) => err,

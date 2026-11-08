@@ -353,6 +353,17 @@
     }
 
     #[test]
+    fn last_import_recycle_stash_clones_mutex_vectors() {
+        let paths = Mutex::new(vec!["a.stl".into()]);
+        let roots = Mutex::new(vec!["dir".into()]);
+        let (p, r) = last_import_recycle_stash(&paths, &roots).unwrap();
+        assert_eq!(p, vec!["a.stl"]);
+        assert_eq!(r, vec!["dir"]);
+        paths.lock().unwrap().push("b.stl".into());
+        assert_eq!(p, vec!["a.stl"]);
+    }
+
+    #[test]
     fn recycle_last_import_work_delegates_to_recycle_paths_work() {
         use std::sync::atomic::AtomicBool;
         let cancelled = recycle_last_import_work(
