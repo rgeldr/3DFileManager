@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "./api";
 import type { LibraryModel } from "./hooks/useLibrary";
 import { clampInspector } from "./lib/paneWidths";
-import type { Settings } from "./types";
+import type { FileRow, Settings } from "./types";
 import { AppShell } from "./App";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -465,7 +465,7 @@ describe("AppShell", () => {
   it("shows the missing-files banner and opens the review dialog", async () => {
     const setMissingOpen = vi.fn();
     const setMissingFiles = vi.fn();
-    vi.mocked(api.missingFiles).mockResolvedValue([{ id: 1, path: "gone.stl" }]);
+    vi.mocked(api.missingFiles).mockResolvedValue([{ id: 1, sortName: "gone.stl" } as FileRow]);
     render(
       <AppShell
         app={libraryModel({
@@ -832,11 +832,11 @@ describe("AppShell", () => {
   });
 });
 
-function fileStub() {
+function fileStub(): FileRow {
   return {
     id: 1,
     sortName: "a",
     folderId: null,
     ext: "stl",
-  } as never;
+  } as FileRow;
 }

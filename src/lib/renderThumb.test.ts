@@ -156,7 +156,7 @@ describe("thumbnail helpers", () => {
 
   it("falls back to the main thread when worker rendering is unavailable", async () => {
     themeTokens();
-    vi.stubGlobal("OffscreenCanvas", class {} as typeof OffscreenCanvas);
+    vi.stubGlobal("OffscreenCanvas", class {} as unknown as typeof OffscreenCanvas);
     renderMeshInWorker.mockRejectedValue(new Error("webgl-unavailable"));
     vi.stubGlobal(
       "fetch",
