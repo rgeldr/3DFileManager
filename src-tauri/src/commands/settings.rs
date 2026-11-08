@@ -1,11 +1,11 @@
-fn validate_theme(theme: &str) -> Result<(), String> {
+pub(crate) fn validate_theme(theme: &str) -> Result<(), String> {
     if theme != "dark" && theme != "light" {
         return Err("Unknown theme.".into());
     }
     Ok(())
 }
 
-fn validate_grid_size(grid_size: &str) -> Result<(), String> {
+pub(crate) fn validate_grid_size(grid_size: &str) -> Result<(), String> {
     if !matches!(
         grid_size,
         "medium" | "large" | "extraLarge" | "list" | "details"
@@ -15,11 +15,79 @@ fn validate_grid_size(grid_size: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_search_scope(search_scope: &str) -> Result<(), String> {
+pub(crate) fn validate_search_scope(search_scope: &str) -> Result<(), String> {
     if !matches!(search_scope, "library" | "folder") {
         return Err("Unknown search scope.".into());
     }
     Ok(())
+}
+
+pub(crate) fn apply_theme(db: &AppDb, theme: String) -> Result<(), String> {
+    validate_theme(&theme)?;
+    let mut settings = db.settings();
+    settings.theme = theme;
+    db.save_settings(&settings)
+}
+
+pub(crate) fn apply_grid_size(db: &AppDb, grid_size: String) -> Result<(), String> {
+    validate_grid_size(&grid_size)?;
+    let mut settings = db.settings();
+    settings.grid_size = grid_size;
+    db.save_settings(&settings)
+}
+
+pub(crate) fn apply_search_scope(db: &AppDb, search_scope: String) -> Result<(), String> {
+    validate_search_scope(&search_scope)?;
+    let mut settings = db.settings();
+    settings.search_scope = search_scope;
+    db.save_settings(&settings)
+}
+
+pub(crate) fn get_settings_work(db: &AppDb) -> Settings {
+    db.settings()
+}
+
+pub(crate) fn set_theme_work(db: &AppDb, theme: String) -> Result<(), String> {
+    apply_theme(db, theme)
+}
+
+pub(crate) fn set_grid_size_work(db: &AppDb, grid_size: String) -> Result<(), String> {
+    apply_grid_size(db, grid_size)
+}
+
+pub(crate) fn set_search_scope_work(db: &AppDb, search_scope: String) -> Result<(), String> {
+    apply_search_scope(db, search_scope)
+}
+
+pub(crate) fn set_pane_widths_work(db: &AppDb, sidebar_width: u32, inspector_width: u32) -> Result<(), String> {
+    store_pane_widths(db, sidebar_width, inspector_width)
+}
+
+pub(crate) fn set_details_columns_work(db: &AppDb, columns: settings::DetailsColumns) -> Result<(), String> {
+    store_details_columns(db, columns)
+}
+
+pub(crate) fn set_preview_height_work(db: &AppDb, preview_height: u32) -> Result<(), String> {
+    store_preview_height(db, preview_height)
+}
+
+pub(crate) fn set_inspector_pinned_work(db: &AppDb, inspector_pinned: bool) -> Result<(), String> {
+    store_inspector_pinned(db, inspector_pinned)
+}
+
+pub(crate) fn set_sidebar_pinned_work(db: &AppDb, sidebar_pinned: bool) -> Result<(), String> {
+    store_sidebar_pinned(db, sidebar_pinned)
+}
+
+pub(crate) fn set_external_programs_work(
+    db: &AppDb,
+    programs: Vec<crate::external_programs::ExternalProgram>,
+) -> Result<(), String> {
+    save_external_programs(db, programs)
+}
+
+pub(crate) fn detect_external_programs_work() -> Result<Vec<crate::external_programs::ProgramSuggestion>, String> {
+    Ok(crate::external_programs::detect_installed_programs())
 }
 
 #[tauri::command]
@@ -27,11 +95,8 @@ async fn set_theme(app: AppHandle, window: WebviewWindow, theme: String) -> Resu
     let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
     off_ui("set_theme", move || {
-        validate_theme(&theme)?;
         let db = db.lock().map_err(|e| e.to_string())?;
-        let mut settings = db.settings();
-        settings.theme = theme;
-        db.save_settings(&settings)
+        set_theme_work(&db, theme)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Settings, &source);
@@ -43,15 +108,32 @@ async fn set_grid_size(app: AppHandle, window: WebviewWindow, grid_size: String)
     let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
     off_ui("set_grid_size", move || {
-        validate_grid_size(&grid_size)?;
         let db = db.lock().map_err(|e| e.to_string())?;
-        let mut settings = db.settings();
-        settings.grid_size = grid_size;
-        db.save_settings(&settings)
+        set_grid_size_work(&db, grid_size)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Settings, &source);
     Ok(())
+}
+
+pub(crate) fn store_pane_widths(db: &AppDb, sidebar_width: u32, inspector_width: u32) -> Result<(), String> {
+    db.set_pane_widths(sidebar_width, inspector_width)
+}
+
+pub(crate) fn store_details_columns(db: &AppDb, columns: settings::DetailsColumns) -> Result<(), String> {
+    db.set_details_columns(columns)
+}
+
+pub(crate) fn store_preview_height(db: &AppDb, preview_height: u32) -> Result<(), String> {
+    db.set_preview_height(preview_height)
+}
+
+pub(crate) fn store_inspector_pinned(db: &AppDb, inspector_pinned: bool) -> Result<(), String> {
+    db.set_inspector_pinned(inspector_pinned)
+}
+
+pub(crate) fn store_sidebar_pinned(db: &AppDb, sidebar_pinned: bool) -> Result<(), String> {
+    db.set_sidebar_pinned(sidebar_pinned)
 }
 
 #[tauri::command]
@@ -65,7 +147,7 @@ async fn set_pane_widths(
     let db = app.state::<AppState>().db.clone();
     off_ui("set_pane_widths", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.set_pane_widths(sidebar_width, inspector_width)
+        set_pane_widths_work(&db, sidebar_width, inspector_width)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Settings, &source);
@@ -82,7 +164,7 @@ async fn set_details_columns(
     let db = app.state::<AppState>().db.clone();
     off_ui("set_details_columns", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.set_details_columns(columns)
+        set_details_columns_work(&db, columns)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Settings, &source);
@@ -95,7 +177,7 @@ async fn set_preview_height(app: AppHandle, window: WebviewWindow, preview_heigh
     let db = app.state::<AppState>().db.clone();
     off_ui("set_preview_height", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.set_preview_height(preview_height)
+        set_preview_height_work(&db, preview_height)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Settings, &source);
@@ -108,7 +190,7 @@ async fn set_inspector_pinned(app: AppHandle, window: WebviewWindow, inspector_p
     let db = app.state::<AppState>().db.clone();
     off_ui("set_inspector_pinned", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.set_inspector_pinned(inspector_pinned)
+        set_inspector_pinned_work(&db, inspector_pinned)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Settings, &source);
@@ -121,7 +203,7 @@ async fn set_sidebar_pinned(app: AppHandle, window: WebviewWindow, sidebar_pinne
     let db = app.state::<AppState>().db.clone();
     off_ui("set_sidebar_pinned", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.set_sidebar_pinned(sidebar_pinned)
+        set_sidebar_pinned_work(&db, sidebar_pinned)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Settings, &source);
@@ -133,18 +215,15 @@ async fn set_search_scope(app: AppHandle, window: WebviewWindow, search_scope: S
     let source = window.label().to_string();
     let db = app.state::<AppState>().db.clone();
     off_ui("set_search_scope", move || {
-        validate_search_scope(&search_scope)?;
         let db = db.lock().map_err(|e| e.to_string())?;
-        let mut settings = db.settings();
-        settings.search_scope = search_scope;
-        db.save_settings(&settings)
+        set_search_scope_work(&db, search_scope)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Settings, &source);
     Ok(())
 }
 
-fn save_external_programs(
+pub(crate) fn save_external_programs(
     db: &AppDb,
     programs: Vec<crate::external_programs::ExternalProgram>,
 ) -> Result<(), String> {
@@ -164,7 +243,7 @@ async fn set_external_programs(
     let db = app.state::<AppState>().db.clone();
     off_ui("set_external_programs", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        save_external_programs(&db, programs)
+        set_external_programs_work(&db, programs)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Settings, &source);
@@ -174,7 +253,7 @@ async fn set_external_programs(
 #[tauri::command]
 async fn detect_external_programs() -> Result<Vec<crate::external_programs::ProgramSuggestion>, String> {
     off_ui("detect_external_programs", move || {
-        Ok(crate::external_programs::detect_installed_programs())
+        detect_external_programs_work()
     })
     .await
 }
@@ -184,7 +263,7 @@ async fn get_settings(app: AppHandle) -> Result<Settings, String> {
     let db = app.state::<AppState>().db.clone();
     off_ui("get_settings", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        Ok(db.settings())
+        Ok(get_settings_work(&db))
     })
     .await
 }

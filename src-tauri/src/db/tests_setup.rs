@@ -92,13 +92,14 @@
     }
 
     #[test]
-    fn column_exists_reads_table_info() {
+    fn schema_column_exists_reads_table_info_after_migrate() {
         let (dir, db) = scratch_db("column-exists");
-        assert!(super::column_exists(&db.conn, "files", "sha256").unwrap());
-        assert!(super::column_exists(&db.conn, "tags", "auto_color").unwrap());
-        assert!(super::column_exists(&db.conn, "tags", "custom_color").unwrap());
-        assert!(!super::column_exists(&db.conn, "files", "not_a_column").unwrap());
-        assert!(!super::column_exists(&db.conn, "no_such_table", "id").unwrap());
+        assert!(schema_column_exists(&db.conn, "files", "sha256").unwrap());
+        assert!(schema_column_exists(&db.conn, "tags", "auto_color").unwrap());
+        assert!(schema_column_exists(&db.conn, "tags", "custom_color").unwrap());
+        assert!(!schema_column_exists(&db.conn, "files", "not_a_column").unwrap());
+        assert!(!schema_column_exists(&db.conn, "no_such_table", "id").unwrap());
+        drop(db);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

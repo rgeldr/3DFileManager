@@ -25,6 +25,51 @@
         let removed = recycle_and_drop_files(&db, &items[1..], &cancel, |_| {}, |_| Ok(()));
         assert!(!removed.unwrap());
         assert!(!db.lock().unwrap().file_row_exists(drop_id).unwrap());
+
+        fs::write(root.join("later.stl"), b"later").unwrap();
+        let later = db.lock().unwrap()
+            .insert_file("later.stl", "later.stl", "stl", 5, "sha-later", 1, None, None)
+            .unwrap();
+        let later_items = db.lock().unwrap().trash_items(&[later]).unwrap();
+        let cancel_now = AtomicBool::new(true);
+        let mut cancel_progress = 0u32;
+        let mut cancel_recycled = false;
+        let cancelled = recycle_and_drop_files(
+            &db,
+            &later_items,
+            &cancel_now,
+            |_| cancel_progress += 1,
+            |_| {
+                cancel_recycled = true;
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(cancelled);
+        assert_eq!(cancel_progress, 0);
+        assert!(!cancel_recycled);
+        assert!(db.lock().unwrap().file_row_exists(later).unwrap());
+
+        fs::remove_file(root.join("later.stl")).unwrap();
+        let cancel_off = AtomicBool::new(false);
+        let mut reported = false;
+        let mut recycled = false;
+        let gone = recycle_and_drop_files(
+            &db,
+            &later_items,
+            &cancel_off,
+            |_| reported = true,
+            |_| {
+                recycled = true;
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert!(!gone);
+        assert!(reported);
+        assert!(!recycled);
+        assert!(!db.lock().unwrap().file_row_exists(later).unwrap());
+        drop(db);
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -114,4 +159,264 @@
         assert_eq!(tag_match_mode("All").unwrap(), db::TagMatch::All);
         assert_eq!(tag_match_mode("none").unwrap_err(), "Unknown tag match.");
         assert_eq!(tag_match_mode(" any").unwrap_err(), "Unknown tag match.");
+    }
+
+    fn scratch_query_library(label: &str) -> (std::path::PathBuf, db::AppDb) {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "filelib-query-{label}-{}-{n}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        fs::write(root.join("part.stl"), b"solid").unwrap();
+        db.insert_file("part.stl", "part.stl", "stl", 5, "sha-part", 1, None, None)
+            .unwrap();
+        (dir, db)
+    }
+
+    #[test]
+    fn query_files_lists_root_entries_and_counts_scope() {
+        let (dir, db) = scratch_query_library("list");
+        let args: ListFilesArgs = serde_json::from_str(
+            r#"{"folder":"root","query":"","creator":"","tag":"","sort":"name"}"#,
+        )
+        .unwrap();
+        let rows = list_files_work(&db, &args).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].original_name, "part.stl");
+        let count = count_files_for_scope_work(&db, None, true).unwrap();
+        assert_eq!(count, 1);
+        let bad: ListFilesArgs = serde_json::from_str(
+            r#"{"folder":"nope","query":"","creator":"","tag":"","sort":"name"}"#,
+        )
+        .unwrap();
+        assert_eq!(list_files_work(&db, &bad).unwrap_err(), "Unknown folder filter.");
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn query_tag_and_type_counts_and_creators_follow_the_command_filters() {
+        let (dir, db) = scratch_query_library("counts");
+        let id = db
+            .insert_file("hero.stl", "hero.stl", "stl", 4, "sha-hero", 1, None, None)
+            .unwrap();
+        db.set_tags(id, &["Hero".into()]).unwrap();
+        db.set_creator_under_folder(None, "Ada", true).unwrap();
+        let tags = list_tag_counts_work(
+            &db,
+            &TagCountArgs {
+                folder: "all".into(),
+                folder_id: None,
+                query: String::new(),
+                creator: String::new(),
+                exts: vec!["stl".into()],
+            },
+        )
+        .unwrap();
+        let hero = tags.iter().find(|tag| tag.name == "Hero").unwrap();
+        assert_eq!(hero.file_count, 1);
+        let types = list_type_counts_work(
+            &db,
+            &TypeCountArgs {
+                folder: "root".into(),
+                folder_id: None,
+                query: String::new(),
+                creator: "Ada".into(),
+                tag_ids: vec![hero.id],
+                tag_match: "all".into(),
+            },
+        )
+        .unwrap();
+        assert!(types.iter().any(|row| row.id == "stl" && row.file_count == 1));
+        let creators = list_creators_work(
+            &db,
+            &ListCreatorsArgs {
+                folder: String::new(),
+                folder_id: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(creators, vec!["Ada".to_string()]);
+        let scoped = list_creators_work(
+            &db,
+            &ListCreatorsArgs {
+                folder: "id".into(),
+                folder_id: None,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(scoped, "Missing folder id");
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rename_move_and_update_file_work_touch_disk_and_catalog() {
+        use std::sync::atomic::AtomicBool;
+        let (dir, db) = scratch_query_library("file-work");
+        let root = dir.join("library");
+        let id = db
+            .conn
+            .query_row("SELECT id FROM files WHERE stored_relpath = 'part.stl'", [], |row| row.get(0))
+            .unwrap();
+        rename_file_work(&db, id, "Renamed.stl").unwrap();
+        assert!(root.join("Renamed.stl").is_file());
+        let tray = add_library_folder(&db, None, "Tray").unwrap();
+        let cancel = AtomicBool::new(false);
+        move_files_work(&db, &[id], Some(tray.id), &cancel, |_| {}).unwrap();
+        assert!(root.join("Tray").join("Renamed.stl").is_file());
+        update_file_work(&db, id, "Renamed.stl", "Ada", "bench", Some(tray.id), &cancel, |_| {}).unwrap();
+        let notes: String = db
+            .conn
+            .query_row("SELECT notes FROM files WHERE id = ?1", [id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(notes, "bench");
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn delete_files_work_drops_the_catalog_when_recycle_succeeds() {
+        use std::sync::atomic::AtomicBool;
+        use std::sync::Mutex;
+        let (dir, db) = scratch_query_library("delete-work");
+        let id = db
+            .conn
+            .query_row("SELECT id FROM files WHERE stored_relpath = 'part.stl'", [], |row| row.get(0))
+            .unwrap();
+        let wrapped = Mutex::new(db);
+        let cancel = AtomicBool::new(false);
+        delete_files_work(&wrapped, &[id], &cancel, |_| {}, |_| Ok(())).unwrap();
+        assert!(!wrapped.lock().unwrap().file_row_exists(id).unwrap());
+        drop(wrapped);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn delete_files_work_keeps_the_row_when_recycle_fails() {
+        use std::sync::atomic::AtomicBool;
+        use std::sync::Mutex;
+        let (dir, db) = scratch_query_library("delete-fail");
+        let id = db
+            .conn
+            .query_row("SELECT id FROM files WHERE stored_relpath = 'part.stl'", [], |row| row.get(0))
+            .unwrap();
+        let wrapped = Mutex::new(db);
+        let err = delete_files_work(&wrapped, &[id], &AtomicBool::new(false), |_| {}, |_| Err("denied".into()));
+        let message = match err {
+            Err(message) => message,
+            Ok(_) => panic!("recycle failure was ignored"),
+        };
+        assert!(message.contains("denied"), "{message}");
+        assert!(wrapped.lock().unwrap().file_row_exists(id).unwrap());
+        drop(wrapped);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn recycle_paths_work_skips_a_missing_file_and_stops_when_cancelled() {
+        use std::sync::atomic::AtomicBool;
+        let cancel = AtomicBool::new(false);
+        let mut seen = 0u32;
+        let outcome = recycle_paths_work(
+            &[String::from("definitely-missing-part.stl")],
+            &[],
+            &cancel,
+            |_| seen += 1,
+        )
+        .unwrap();
+        assert!(!outcome.cancelled);
+        assert!(outcome.failed.is_empty());
+        assert!(seen >= 1);
+
+        let cancel_now = AtomicBool::new(true);
+        let mut seen_cancel = 0u32;
+        let cancelled = recycle_paths_work(
+            &[String::from("definitely-missing-part.stl")],
+            &[],
+            &cancel_now,
+            |_| seen_cancel += 1,
+        )
+        .unwrap();
+        assert!(cancelled.cancelled);
+        assert!(cancelled.failed.is_empty());
+        assert_eq!(seen_cancel, 0);
+    }
+
+    #[test]
+    fn last_import_recycle_stash_reports_a_poisoned_lock() {
+        let paths = Mutex::new(vec!["a.stl".into()]);
+        let roots = Mutex::new(vec!["dir".into()]);
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = paths.lock().expect("lock");
+            panic!("poison paths");
+        }));
+        let err = match last_import_recycle_stash(&paths, &roots) {
+            Err(err) => err,
+            Ok(copied) => panic!("poisoned stash returned {copied:?}"),
+        };
+        assert!(err.contains("poison"), "{err}");
+    }
+
+    #[test]
+    fn last_import_recycle_stash_clones_mutex_vectors() {
+        let paths = Mutex::new(vec!["a.stl".into()]);
+        let roots = Mutex::new(vec!["dir".into()]);
+        let (p, r) = last_import_recycle_stash(&paths, &roots).unwrap();
+        assert_eq!(p, vec!["a.stl"]);
+        assert_eq!(r, vec!["dir"]);
+        paths.lock().unwrap().push("b.stl".into());
+        assert_eq!(p, vec!["a.stl"]);
+    }
+
+    #[test]
+    fn recycle_last_import_work_delegates_to_recycle_paths_work() {
+        use std::sync::atomic::AtomicBool;
+        let cancelled = recycle_last_import_work(
+            &["definitely-missing-import.stl".into()],
+            &["batch-root".into()],
+            &AtomicBool::new(true),
+            |_| {},
+        )
+        .unwrap();
+        assert!(cancelled.cancelled);
+    }
+
+    #[test]
+    fn tag_helpers_update_rows_and_drop_absent_files() {
+        let (dir, db) = scratch_query_library("tags");
+        let id = db
+            .conn
+            .query_row("SELECT id FROM files WHERE stored_relpath = 'part.stl'", [], |row| row.get(0))
+            .unwrap();
+        set_tags_work(&db, id, &["Hero".into()]).unwrap();
+        assert!(list_tags_work(&db).unwrap().iter().any(|name| name == "Hero"));
+        assert_eq!(add_tags_to_files_work(&db, &[id], &["Villain".into()]).unwrap(), 1);
+        assert!(add_tags_under_folder_work(&db, None, &["Extra".into()]).unwrap() >= 1);
+        set_creator_under_folder_work(&db, None, "Ada", true).unwrap();
+        apply_bulk_meta_work(&db, &[id], Some("Bea"), None).unwrap();
+        let hero = list_tag_colors_work(&db)
+            .unwrap()
+            .into_iter()
+            .find(|row| row.name == "Hero")
+            .unwrap();
+        set_tag_color_work(&db, hero.id, Some("#112233")).unwrap();
+        set_tag_color_work(&db, hero.id, None).unwrap();
+        db.conn
+            .execute("UPDATE files SET missing = 1 WHERE id = ?1", [id])
+            .unwrap();
+        assert_eq!(missing_files_work(&db).unwrap().len(), 1);
+        remove_missing_work(&db).unwrap();
+        assert!(missing_files_work(&db).unwrap().is_empty());
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
     }

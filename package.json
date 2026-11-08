@@ -1,7 +1,7 @@
 {
   "name": "3d-file-library",
   "private": true,
-  "version": "26.11.6",
+  "version": "26.11.7",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -9,9 +9,10 @@
     "build": "tsc && vite build",
     "version:check": "node scripts/version.mjs check",
     "version:bump": "node scripts/version.mjs bump",
-    "test": "node scripts/version.test.mjs && node scripts/mingw-target.test.mjs && node scripts/check-capabilities.mjs && node scripts/check-capabilities-windows.mjs",
+    "test": "node scripts/version.test.mjs && node scripts/mingw-target.test.mjs && node scripts/check-capabilities.mjs && node scripts/check-capabilities-windows.mjs && node scripts/rust-coverage.test.mjs",
     "test:unit": "vitest run --coverage",
     "test:coverage": "vitest run --coverage",
+    "test:coverage:rust": "node scripts/rust-coverage.mjs",
     "preview": "vite preview",
     "tauri": "node scripts/with-mingw.mjs",
     "release": "tauri build && node scripts/make-latest-json.mjs"

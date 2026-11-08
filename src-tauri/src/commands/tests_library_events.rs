@@ -1,8 +1,26 @@
+    /// Match `fn {name}` but not `fn {name}_work` or other longer identifiers.
+    fn command_fn_start(source: &str, name: &str) -> usize {
+        let marker = format!("fn {name}");
+        let mut pos = 0usize;
+        while let Some(rel) = source[pos..].find(&marker) {
+            let start = pos + rel;
+            let after = start + marker.len();
+            let next = source.as_bytes().get(after).copied();
+            let ident_continues = matches!(
+                next,
+                Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')
+            );
+            if !ident_continues {
+                return start;
+            }
+            pos = after;
+        }
+        panic!("missing fn {name}");
+    }
+
     fn command_body(source: &str, name: &str) -> String {
         let marker = format!("fn {name}");
-        let start = source
-            .find(&marker)
-            .unwrap_or_else(|| panic!("missing {name}"));
+        let start = command_fn_start(source, name);
         let rest = &source[start..];
         let mut end = rest.len();
         if let Some(pos) = rest.find("\n#[tauri::command]") {
@@ -53,6 +71,75 @@
         let lib = include_str!("../lib.rs");
         assert!(lib.contains("use crate::library_events"));
         assert!(lib.contains("use tauri::WebviewWindow"));
+    }
+
+    fn assert_command_fn_start(source: &str, name: &str) {
+        let start = command_fn_start(source, name);
+        let marker = format!("fn {name}");
+        let slice = &source[start..];
+        assert!(
+            slice.starts_with(&marker),
+            "slice should begin at the command name, got {:?}",
+            &slice[..slice.len().min(40)]
+        );
+        let next = slice.as_bytes().get(marker.len()).copied();
+        let ident_continues = matches!(
+            next,
+            Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')
+        );
+        assert!(
+            !ident_continues,
+            "{name} resolved to a longer name such as {name}_work"
+        );
+    }
+
+    #[test]
+    fn command_fn_start_skips_work_helpers_with_the_same_prefix() {
+        let sample = "\
+pub(crate) fn rename_folder_work(db: &AppDb) -> () {}
+#[tauri::command]
+async fn rename_folder(app: AppHandle) {}
+pub(crate) fn delete_folder_work(db: &AppDb) {}
+async fn delete_folder(app: AppHandle) {}
+";
+        for name in ["rename_folder", "delete_folder"] {
+            let start = command_fn_start(sample, name);
+            assert_command_fn_start(sample, name);
+            assert!(sample[..start].ends_with("async "));
+        }
+
+        let lib = include_str!("library.rs");
+        for name in ["rename_folder", "move_folder"] {
+            let start = command_fn_start(lib, name);
+            assert_command_fn_start(lib, name);
+            assert!(
+                lib[..start].ends_with("async "),
+                "{name} should be the async command, not a helper"
+            );
+        }
+        let rename = command_body(lib, "rename_folder");
+        assert_eq!(rename.matches("emit_library_changed").count(), 1);
+        assert_eq!(emit_kind(&rename), Some("folders"));
+        assert!(rename.starts_with("fn rename_folder"));
+
+        let with_emit = "\
+pub(crate) fn rename_folder_work() {}\n\
+#[tauri::command]\n\
+async fn rename_folder() {\n\
+    emit_library_changed(&app, LibraryChangeKind::Folders, &source);\n\
+}\n\
+#[tauri::command]\n\
+async fn delete_folder() {\n\
+    emit_library_changed(&app, LibraryChangeKind::All, &source);\n\
+}\n\
+";
+        let rename = command_body(with_emit, "rename_folder");
+        assert_eq!(rename.matches("emit_library_changed").count(), 1);
+        assert_eq!(emit_kind(&rename), Some("folders"));
+        assert!(!rename.contains("rename_folder_work"));
+        let delete = command_body(with_emit, "delete_folder");
+        assert_eq!(delete.matches("emit_library_changed").count(), 1);
+        assert_eq!(emit_kind(&delete), Some("all"));
     }
 
     #[test]

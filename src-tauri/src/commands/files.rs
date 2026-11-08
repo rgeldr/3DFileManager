@@ -88,28 +88,128 @@ fn tag_match_mode(mode: &str) -> Result<db::TagMatch, String> {
     }
 }
 
+pub(crate) fn query_files(db: &AppDb, args: &ListFilesArgs) -> Result<Vec<db::FileRow>, String> {
+    let filter = folder_filter(&args.folder, args.folder_id)?;
+    let tag_match = tag_match_mode(&args.tag_match)?;
+    let exts = crate::names::ext_filter_values(&args.exts);
+    let ext_refs: Vec<&str> = exts.iter().map(String::as_str).collect();
+    db.query_files(db::FileQuery {
+        folder: filter,
+        query: &args.query,
+        creator: &args.creator,
+        tag: &args.tag,
+        tag_ids: &args.tag_ids,
+        tag_match,
+        exts: &ext_refs,
+        sort: &args.sort,
+        sort_direction: &args.sort_direction,
+        limit: args.limit,
+        offset: args.offset,
+    })
+}
+
+pub(crate) fn query_tag_counts(db: &AppDb, args: &TagCountArgs) -> Result<Vec<db::TagCount>, String> {
+    let filter = folder_filter(&args.folder, args.folder_id)?;
+    let exts = crate::names::ext_filter_values(&args.exts);
+    let ext_refs: Vec<&str> = exts.iter().map(String::as_str).collect();
+    db.tag_counts(filter, &args.query, &args.creator, &ext_refs)
+}
+
+pub(crate) fn query_type_counts(db: &AppDb, args: &TypeCountArgs) -> Result<Vec<db::TypeCount>, String> {
+    let filter = folder_filter(&args.folder, args.folder_id)?;
+    let tag_match = tag_match_mode(&args.tag_match)?;
+    db.type_counts(filter, &args.query, &args.creator, &args.tag_ids, tag_match)
+}
+
+pub(crate) fn list_creators_for_args(db: &AppDb, args: &ListCreatorsArgs) -> Result<Vec<String>, String> {
+    let filter = if args.folder.is_empty() {
+        FolderFilter::All
+    } else {
+        folder_filter(&args.folder, args.folder_id)?
+    };
+    db.list_creators(filter)
+}
+
+pub(crate) fn count_files_for_scope_work(
+    db: &AppDb,
+    folder_id: Option<i64>,
+    include_subfolders: bool,
+) -> Result<i64, String> {
+    Ok(db.file_ids_for_creator_scope(folder_id, include_subfolders)?.len() as i64)
+}
+
+pub(crate) fn list_files_work(db: &AppDb, args: &ListFilesArgs) -> Result<Vec<db::FileRow>, String> {
+    query_files(db, args)
+}
+
+pub(crate) fn list_tag_counts_work(db: &AppDb, args: &TagCountArgs) -> Result<Vec<db::TagCount>, String> {
+    query_tag_counts(db, args)
+}
+
+pub(crate) fn list_type_counts_work(db: &AppDb, args: &TypeCountArgs) -> Result<Vec<db::TypeCount>, String> {
+    query_type_counts(db, args)
+}
+
+pub(crate) fn missing_files_work(db: &AppDb) -> Result<Vec<db::FileRow>, String> {
+    absent_files(db)
+}
+
+pub(crate) fn remove_missing_work(db: &AppDb) -> Result<(), String> {
+    drop_absent_files(db)
+}
+
+pub(crate) fn set_tags_work(db: &AppDb, id: i64, tags: &[String]) -> Result<(), String> {
+    replace_file_tags(db, id, tags)
+}
+
+pub(crate) fn add_tags_under_folder_work(
+    db: &AppDb,
+    folder_id: Option<i64>,
+    tags: &[String],
+) -> Result<i64, String> {
+    tags_under_folder(db, folder_id, tags)
+}
+
+pub(crate) fn add_tags_to_files_work(db: &AppDb, ids: &[i64], tags: &[String]) -> Result<i64, String> {
+    tags_on_files(db, ids, tags)
+}
+
+pub(crate) fn apply_bulk_meta_work(
+    db: &AppDb,
+    ids: &[i64],
+    creator: Option<&str>,
+    tags: Option<&[String]>,
+) -> Result<(), String> {
+    bulk_file_meta(db, ids, creator, tags)
+}
+
+pub(crate) fn set_creator_under_folder_work(
+    db: &AppDb,
+    folder_id: Option<i64>,
+    creator: &str,
+    include_subfolders: bool,
+) -> Result<i64, String> {
+    assign_creator(db, folder_id, creator, include_subfolders)
+}
+
+pub(crate) fn list_tags_work(db: &AppDb) -> Result<Vec<String>, String> {
+    catalog_tags(db)
+}
+
+pub(crate) fn list_tag_colors_work(db: &AppDb) -> Result<Vec<db::TagColorRow>, String> {
+    tag_color_rows(db)
+}
+
+pub(crate) fn set_tag_color_work(db: &AppDb, id: i64, color: Option<&str>) -> Result<(), String> {
+    paint_tag(db, id, color)
+}
+
 #[tauri::command]
 async fn list_files(app: AppHandle, args: ListFilesArgs) -> Result<Vec<db::FileRow>, String> {
     let db = app.state::<AppState>().db.clone();
     off_ui("list_files", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        let filter = folder_filter(&args.folder, args.folder_id)?;
-        let tag_match = tag_match_mode(&args.tag_match)?;
-        let exts = crate::names::ext_filter_values(&args.exts);
-        let ext_refs: Vec<&str> = exts.iter().map(String::as_str).collect();
-        db.query_files(db::FileQuery {
-            folder: filter,
-            query: &args.query,
-            creator: &args.creator,
-            tag: &args.tag,
-            tag_ids: &args.tag_ids,
-            tag_match,
-            exts: &ext_refs,
-            sort: &args.sort,
-            sort_direction: &args.sort_direction,
-            limit: args.limit,
-            offset: args.offset,
-        })
+        list_files_work(&db, &args)
     })
     .await
 }
@@ -130,10 +230,7 @@ async fn list_tag_counts(app: AppHandle, args: TagCountArgs) -> Result<Vec<db::T
     let db = app.state::<AppState>().db.clone();
     off_ui("list_tag_counts", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        let filter = folder_filter(&args.folder, args.folder_id)?;
-        let exts = crate::names::ext_filter_values(&args.exts);
-        let ext_refs: Vec<&str> = exts.iter().map(String::as_str).collect();
-        db.tag_counts(filter, &args.query, &args.creator, &ext_refs)
+        list_tag_counts_work(&db, &args)
     })
     .await
 }
@@ -156,11 +253,100 @@ async fn list_type_counts(app: AppHandle, args: TypeCountArgs) -> Result<Vec<db:
     let db = app.state::<AppState>().db.clone();
     off_ui("list_type_counts", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        let filter = folder_filter(&args.folder, args.folder_id)?;
-        let tag_match = tag_match_mode(&args.tag_match)?;
-        db.type_counts(filter, &args.query, &args.creator, &args.tag_ids, tag_match)
+        list_type_counts_work(&db, &args)
     })
     .await
+}
+
+pub(crate) fn absent_files(db: &AppDb) -> Result<Vec<db::FileRow>, String> {
+    db.missing_files()
+}
+
+pub(crate) fn drop_absent_files(db: &AppDb) -> Result<(), String> {
+    db.remove_missing()
+}
+
+pub(crate) fn replace_file_tags(db: &AppDb, id: i64, tags: &[String]) -> Result<(), String> {
+    db.set_tags(id, tags)
+}
+
+pub(crate) fn tags_under_folder(db: &AppDb, folder_id: Option<i64>, tags: &[String]) -> Result<i64, String> {
+    db.add_tags_under_folder(folder_id, tags)
+}
+
+pub(crate) fn tags_on_files(db: &AppDb, ids: &[i64], tags: &[String]) -> Result<i64, String> {
+    db.add_tags_to_files(ids, tags)
+}
+
+pub(crate) fn bulk_file_meta(
+    db: &AppDb,
+    ids: &[i64],
+    creator: Option<&str>,
+    tags: Option<&[String]>,
+) -> Result<(), String> {
+    db.apply_import_meta(ids, creator, tags)
+}
+
+pub(crate) fn assign_creator(
+    db: &AppDb,
+    folder_id: Option<i64>,
+    creator: &str,
+    include_subfolders: bool,
+) -> Result<i64, String> {
+    db.set_creator_under_folder(folder_id, creator, include_subfolders)
+}
+
+pub(crate) fn catalog_tags(db: &AppDb) -> Result<Vec<String>, String> {
+    db.list_tags()
+}
+
+pub(crate) fn tag_color_rows(db: &AppDb) -> Result<Vec<db::TagColorRow>, String> {
+    db.list_tag_colors()
+}
+
+pub(crate) fn paint_tag(db: &AppDb, id: i64, color: Option<&str>) -> Result<(), String> {
+    db.set_tag_color(id, color)
+}
+
+pub(crate) fn rename_file_work(db: &AppDb, id: i64, name: &str) -> Result<(), String> {
+    db.rename_library_file(id, name)
+}
+
+pub(crate) fn update_file_work(
+    db: &AppDb,
+    id: i64,
+    sort_name: &str,
+    creator: &str,
+    notes: &str,
+    folder_id: Option<i64>,
+    cancel: &AtomicBool,
+    progress: impl FnMut(relocate::DiskProgress),
+) -> Result<bool, String> {
+    db.update_file_with(id, sort_name, creator, notes, folder_id, cancel, progress)
+}
+
+pub(crate) fn move_files_work(
+    db: &AppDb,
+    ids: &[i64],
+    folder_id: Option<i64>,
+    cancel: &AtomicBool,
+    progress: impl FnMut(relocate::DiskProgress),
+) -> Result<bool, String> {
+    db.move_files_with(ids, folder_id, cancel, progress)
+}
+
+pub(crate) fn delete_files_work(
+    db: &Mutex<AppDb>,
+    ids: &[i64],
+    cancel: &AtomicBool,
+    progress: impl FnMut(relocate::DiskProgress),
+    recycle: impl FnMut(&std::path::Path) -> Result<(), String>,
+) -> Result<bool, String> {
+    let items = {
+        let db = db.lock().map_err(|e| e.to_string())?;
+        db.trash_items(ids)?
+    };
+    recycle_and_drop_files(db, &items, cancel, progress, recycle)
 }
 
 #[tauri::command]
@@ -168,7 +354,7 @@ async fn missing_files(app: AppHandle) -> Result<Vec<db::FileRow>, String> {
     let db = app.state::<AppState>().db.clone();
     off_ui("missing_files", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.missing_files()
+        missing_files_work(&db)
     })
     .await
 }
@@ -179,7 +365,7 @@ async fn remove_missing(app: AppHandle, window: WebviewWindow) -> Result<(), Str
     let db = app.state::<AppState>().db.clone();
     off_ui("remove_missing", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.remove_missing()
+        remove_missing_work(&db)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Files, &source);
@@ -199,9 +385,16 @@ async fn update_file(
     let source = window.label().to_string();
     let _timer = CommandTimer::start("update_file");
     let result = block_on_disk(&app, move |db, cancel, handle| {
-        let cancelled = db.update_file_with(id, &sort_name, &creator, &notes, folder_id, cancel, |progress| {
-            emit_disk(&handle, &progress)
-        })?;
+        let cancelled = update_file_work(
+            db,
+            id,
+            &sort_name,
+            &creator,
+            &notes,
+            folder_id,
+            cancel,
+            |progress| emit_disk(&handle, &progress),
+        )?;
         Ok::<DiskOutcome, String>(DiskOutcome { cancelled })
     })
     .await?;
@@ -214,7 +407,7 @@ async fn rename_file(app: AppHandle, window: WebviewWindow, id: i64, name: Strin
     let source = window.label().to_string();
     let _timer = CommandTimer::start("rename_file");
     let result = block_on_disk(&app, move |db, _cancel, _handle| {
-        db.rename_library_file(id, &name)?;
+        rename_file_work(db, id, &name)?;
         Ok(DiskOutcome { cancelled: false })
     })
     .await?;
@@ -228,7 +421,7 @@ async fn set_tags(app: AppHandle, window: WebviewWindow, id: i64, tags: Vec<Stri
     let db = app.state::<AppState>().db.clone();
     off_ui("set_tags", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.set_tags(id, &tags)
+        set_tags_work(&db, id, &tags)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Tags, &source);
@@ -246,7 +439,7 @@ async fn add_tags_under_folder(
     let db = app.state::<AppState>().db.clone();
     let count = off_ui("add_tags_under_folder", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.add_tags_under_folder(folder_id, &tags)
+        add_tags_under_folder_work(&db, folder_id, &tags)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Tags, &source);
@@ -264,7 +457,7 @@ async fn add_tags_to_files(
     let db = app.state::<AppState>().db.clone();
     let count = off_ui("add_tags_to_files", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.add_tags_to_files(&ids, &tags)
+        add_tags_to_files_work(&db, &ids, &tags)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Tags, &source);
@@ -283,7 +476,7 @@ async fn apply_bulk_meta(
     let db = app.state::<AppState>().db.clone();
     off_ui("apply_bulk_meta", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.apply_import_meta(&ids, creator.as_deref(), tags.as_deref())
+        apply_bulk_meta_work(&db, &ids, creator.as_deref(), tags.as_deref())
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Tags, &source);
@@ -299,7 +492,7 @@ async fn count_files_for_scope(
     let db = app.state::<AppState>().db.clone();
     off_ui("count_files_for_scope", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        Ok(db.file_ids_for_creator_scope(folder_id, include_subfolders)?.len() as i64)
+        count_files_for_scope_work(&db, folder_id, include_subfolders)
     })
     .await
 }
@@ -316,7 +509,7 @@ async fn set_creator_under_folder(
     let db = app.state::<AppState>().db.clone();
     let count = off_ui("set_creator_under_folder", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.set_creator_under_folder(folder_id, &creator, include_subfolders)
+        set_creator_under_folder_work(&db, folder_id, &creator, include_subfolders)
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Tags, &source);
@@ -336,12 +529,7 @@ async fn list_creators(app: AppHandle, args: ListCreatorsArgs) -> Result<Vec<Str
     let db = app.state::<AppState>().db.clone();
     off_ui("list_creators", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        let filter = if args.folder.is_empty() {
-            FolderFilter::All
-        } else {
-            folder_filter(&args.folder, args.folder_id)?
-        };
-        db.list_creators(filter)
+        list_creators_work(&db, &args)
     })
     .await
 }
@@ -351,7 +539,7 @@ async fn list_tags(app: AppHandle) -> Result<Vec<String>, String> {
     let db = app.state::<AppState>().db.clone();
     off_ui("list_tags", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.list_tags()
+        list_tags_work(&db)
     })
     .await
 }
@@ -361,7 +549,7 @@ async fn list_tag_colors(app: AppHandle) -> Result<Vec<db::TagColorRow>, String>
     let db = app.state::<AppState>().db.clone();
     off_ui("list_tag_colors", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.list_tag_colors()
+        list_tag_colors_work(&db)
     })
     .await
 }
@@ -377,7 +565,7 @@ async fn set_tag_color(
     let db = app.state::<AppState>().db.clone();
     off_ui("set_tag_color", move || {
         let db = db.lock().map_err(|e| e.to_string())?;
-        db.set_tag_color(id, color.as_deref())
+        set_tag_color_work(&db, id, color.as_deref())
     })
     .await?;
     emit_library_changed(&app, LibraryChangeKind::Tags, &source);
@@ -391,6 +579,38 @@ struct RecycleOutcome {
     cancelled: bool,
 }
 
+pub(crate) fn recycle_paths_work(
+    paths: &[String],
+    roots: &[String],
+    cancel: &AtomicBool,
+    progress: impl FnMut(relocate::DiskProgress),
+) -> Result<RecycleOutcome, String> {
+    let (failed, cancelled) = import::recycle_paths_with(paths, roots, cancel, progress)?;
+    Ok(RecycleOutcome { failed, cancelled })
+}
+
+pub(crate) fn list_creators_work(db: &AppDb, args: &ListCreatorsArgs) -> Result<Vec<String>, String> {
+    list_creators_for_args(db, args)
+}
+
+pub(crate) fn recycle_last_import_work(
+    paths: &[String],
+    roots: &[String],
+    cancel: &AtomicBool,
+    progress: impl FnMut(relocate::DiskProgress),
+) -> Result<RecycleOutcome, String> {
+    recycle_paths_work(paths, roots, cancel, progress)
+}
+
+pub(crate) fn last_import_recycle_stash(
+    paths: &Mutex<Vec<String>>,
+    roots: &Mutex<Vec<String>>,
+) -> Result<(Vec<String>, Vec<String>), String> {
+    let paths = paths.lock().map_err(|e| e.to_string())?.clone();
+    let roots = roots.lock().map_err(|e| e.to_string())?.clone();
+    Ok((paths, roots))
+}
+
 #[tauri::command]
 async fn recycle_paths(app: AppHandle, window: WebviewWindow, paths: Vec<String>) -> Result<RecycleOutcome, String> {
     let source = window.label().to_string();
@@ -399,9 +619,7 @@ async fn recycle_paths(app: AppHandle, window: WebviewWindow, paths: Vec<String>
     let cancel = app.state::<AppState>().disk_cancel.clone();
     let handle = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let (failed, cancelled) =
-            import::recycle_paths_with(&paths, &[], &cancel, |progress| emit_disk(&handle, &progress))?;
-        Ok::<RecycleOutcome, String>(RecycleOutcome { failed, cancelled })
+        recycle_paths_work(&paths, &[], &cancel, |progress| emit_disk(&handle, &progress))
     })
     .await
     .map_err(|err| err.to_string())??;
@@ -413,25 +631,13 @@ async fn recycle_paths(app: AppHandle, window: WebviewWindow, paths: Vec<String>
 async fn recycle_last_import(app: AppHandle, window: WebviewWindow) -> Result<RecycleOutcome, String> {
     let source = window.label().to_string();
     let _timer = CommandTimer::start("recycle_last_import");
-    let paths = app
-        .state::<AppState>()
-        .last_recycle_paths
-        .lock()
-        .map_err(|e| e.to_string())?
-        .clone();
-    let roots = app
-        .state::<AppState>()
-        .last_recycle_roots
-        .lock()
-        .map_err(|e| e.to_string())?
-        .clone();
+    let state = app.state::<AppState>();
+    let (paths, roots) = last_import_recycle_stash(&state.last_recycle_paths, &state.last_recycle_roots)?;
     let _guard = acquire_disk(&app)?;
     let cancel = app.state::<AppState>().disk_cancel.clone();
     let handle = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let (failed, cancelled) =
-            import::recycle_paths_with(&paths, &roots, &cancel, |progress| emit_disk(&handle, &progress))?;
-        Ok::<RecycleOutcome, String>(RecycleOutcome { failed, cancelled })
+        recycle_last_import_work(&paths, &roots, &cancel, |progress| emit_disk(&handle, &progress))
     })
     .await
     .map_err(|err| err.to_string())??;
@@ -449,7 +655,7 @@ async fn move_files(
     let source = window.label().to_string();
     let _timer = CommandTimer::start("move_files");
     let result = block_on_disk(&app, move |db, cancel, handle| {
-        let cancelled = db.move_files_with(&ids, folder_id, cancel, |progress| emit_disk(&handle, &progress))?;
+        let cancelled = move_files_work(db, &ids, folder_id, cancel, |progress| emit_disk(&handle, &progress))?;
         Ok::<DiskOutcome, String>(DiskOutcome { cancelled })
     })
     .await?;
@@ -466,11 +672,7 @@ async fn delete_files(app: AppHandle, window: WebviewWindow, ids: Vec<i64>) -> R
     let db = app.state::<AppState>().db.clone();
     let handle = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let items = {
-            let db = db.lock().map_err(|e| e.to_string())?;
-            db.trash_items(&ids)?
-        };
-        let cancelled = recycle_and_drop_files(&db, &items, &cancel, |progress| emit_disk(&handle, &progress), |path| {
+        let cancelled = delete_files_work(&db, &ids, &cancel, |progress| emit_disk(&handle, &progress), |path| {
             trash::delete(path).map_err(|err| err.to_string())
         })?;
         Ok::<DiskOutcome, String>(DiskOutcome { cancelled })

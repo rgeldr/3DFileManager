@@ -272,6 +272,168 @@
     }
 
     #[test]
+    fn drag_icon_path_work_requires_an_existing_file() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!(
+            "filelib-dragicon-{}-{n}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let icon = dir.join("drag.png");
+        fs::write(&icon, b"png").unwrap();
+        let shown = drag_icon_path_work(&icon).unwrap();
+        assert_eq!(shown, icon.to_string_lossy());
+        assert!(!shown.contains('\0'));
+        let err = match drag_icon_path_work(&dir.join("missing.png")) {
+            Err(err) => err,
+            Ok(path) => panic!("missing icon returned {path}"),
+        };
+        assert!(err.contains("not found"), "{err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn file_drag_helpers_map_native_drag_results() {
+        let finished = drag_session::NativeDrag {
+            result: "drop".into(),
+            effect: "copy".into(),
+            finished: true,
+            detail: "ok".into(),
+        };
+        let outcome = file_drag_outcome_from_native(&finished);
+        assert_eq!(outcome.result, "drop");
+        assert_eq!(outcome.effect, "copy");
+        let line = file_drag_finished_log_line(&finished).expect("finished drag");
+        assert!(line.contains("drop"));
+        assert!(line.contains("ok"));
+        let finished_quiet = drag_session::NativeDrag {
+            result: "cancel".into(),
+            effect: "none".into(),
+            finished: true,
+            detail: String::new(),
+        };
+        let quiet = file_drag_finished_log_line(&finished_quiet).expect("finished drag");
+        assert!(quiet.contains("cancel"));
+        assert!(!quiet.ends_with(' '));
+        let pending = drag_session::NativeDrag {
+            result: "started".into(),
+            effect: "copy".into(),
+            finished: false,
+            detail: String::new(),
+        };
+        assert!(file_drag_finished_log_line(&pending).is_none());
+    }
+
+    #[test]
+    fn prepared_drag_helpers_cover_busy_and_worker_errors() {
+        let busy = prepared_drag_when_db_busy();
+        assert!(busy.paths.is_empty());
+        assert!(busy.skipped[0].contains("busy"));
+        let err = prepared_drag_from_worker_error("worker died");
+        assert_eq!(err.skipped, vec!["worker died".to_string()]);
+    }
+
+    #[test]
+    fn debug_log_work_appends_in_a_scratch_dir_not_appdata() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!(
+            "filelib-debugwork-{}-{n}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        assert_ne!(dir, data_dir());
+        let path = debug_log_work(&dir, "first".into()).unwrap();
+        assert!(std::path::Path::new(&path).starts_with(&dir));
+        let again = debug_log_work(&dir, "second".into()).unwrap();
+        assert_eq!(path, again);
+        let body = fs::read_to_string(dir.join("debug.log")).unwrap();
+        assert!(body.contains("first"));
+        assert!(body.contains("second"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn drag_failure_message_prefers_catalog_skips() {
+        assert_eq!(
+            drag_failure_message(&["That file is outside the library.".into()], &["Hero.stl".into()]),
+            "That file is outside the library."
+        );
+        assert_eq!(drag_failure_message(&[], &["Hero.stl".into()]), "Hero.stl");
+        assert_eq!(
+            drag_failure_message(&[], &[]),
+            "Could not drag these files."
+        );
+    }
+
+    #[test]
+    fn paths_for_file_drag_uses_catalog_errors_ahead_of_prepare_skips() {
+        let dir = std::env::temp_dir().join(format!("filelib-drag-start-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        fs::write(root.join("Hero.stl"), b"solid").unwrap();
+        fs::write(dir.join("secret.stl"), b"secret").unwrap();
+        let id = db
+            .insert_file("Hero.STL", "Hero.stl", "stl", 5, "sha-hero", 1, None, None)
+            .unwrap();
+        let outside = db
+            .insert_file("secret.stl", "../secret.stl", "stl", 6, "sha-secret", 1, None, None)
+            .unwrap();
+        let paths = start_file_drag_paths_work(&db, &[id], "").unwrap();
+        assert!(paths[0].ends_with("Hero.stl"));
+        let err = match paths_for_file_drag(&db, &[outside], "") {
+            Err(err) => err,
+            Ok(_) => panic!("an outside path was accepted"),
+        };
+        let (sources, skipped) = drag_sources_for_ids(&db, &[outside]);
+        let prepared = drag_out::prepare_drag_paths(&sources, "");
+        assert_eq!(err, drag_failure_message(&skipped, &prepared.skipped));
+        assert!(err.contains("outside"), "{err}");
+        let merged = prepare_drag_paths_work(&db, &[outside], "");
+        if !skipped.is_empty() && !prepared.skipped.is_empty() {
+            assert_ne!(err, merged.skipped.join(", "));
+        }
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn prepare_drag_paths_work_lists_catalog_paths_and_reveal_folder_path_opens_the_root() {
+        let dir = std::env::temp_dir().join(format!("filelib-drag-work-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        fs::write(root.join("Hero.stl"), b"solid").unwrap();
+        let id = db
+            .insert_file("Hero.STL", "Hero.stl", "stl", 5, "sha-hero", 1, None, None)
+            .unwrap();
+        let prepared = prepare_drag_paths_work(&db, &[id], "");
+        assert!(!prepared.paths.is_empty());
+        assert!(prepared.paths[0].ends_with("Hero.stl"));
+        let shown = reveal_folder_path_work(&db, None).unwrap();
+        assert!(shown.is_dir());
+        let folder = add_library_folder(&db, None, "Tray").unwrap();
+        let tray = reveal_folder_path_work(&db, Some(folder.id)).unwrap();
+        assert!(tray.ends_with("Tray"));
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn drag_source_for_id_uses_the_catalog_name_and_stays_inside_the_library() {
         let dir = std::env::temp_dir().join(format!("filelib-drag-one-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -334,21 +496,31 @@
         let missing = db
             .insert_file("gone.txt", "gone.txt", "txt", 1, "sha-gone", 1, None, None)
             .unwrap();
-        assert_eq!(catalog_text_preview(&db, md).unwrap(), "# Title\n");
-        assert_eq!(catalog_text_preview(&db, scad).unwrap(), "cube(1);");
-        assert_eq!(catalog_text_preview(&db, txt).unwrap(), "Hellothere");
-        assert_eq!(catalog_text_preview(&db, step).unwrap(), "");
-        assert!(catalog_text_preview(&db, outside).unwrap_err().contains("outside"));
-        assert!(catalog_text_preview(&db, missing).unwrap_err().contains("missing"));
-        assert!(catalog_text_preview(&db, 999_999).unwrap_err().contains("not found"));
+        assert_eq!(text_preview_work(&db, md).unwrap(), "# Title\n");
+        assert_eq!(text_preview_work(&db, scad).unwrap(), "cube(1);");
+        assert_eq!(text_preview_work(&db, txt).unwrap(), "Hellothere");
+        assert_eq!(text_preview_work(&db, step).unwrap(), "");
+        assert!(text_preview_work(&db, outside).unwrap_err().contains("outside"));
+        assert!(text_preview_work(&db, missing).unwrap_err().contains("missing"));
+        assert!(text_preview_work(&db, 999_999).unwrap_err().contains("not found"));
+        let opened = reveal_file_path_work(&db, txt).unwrap();
+        assert!(opened.ends_with("readme.TXT"));
+        let same = open_in_default_app_path(&db, txt).unwrap();
+        assert_eq!(same, opened);
+        let err = open_in_program_work(&db, txt, "not-configured").unwrap_err();
+        assert!(err.contains("External programs"), "{err}");
+        let folder_path = reveal_folder_path_work(&db, None).unwrap();
+        assert!(folder_path.is_dir());
         let _ = fs::remove_dir_all(&dir);
     }
 
+    #[cfg(unix)]
     struct EnvVarGuard {
         key: &'static str,
         prev: Option<std::ffi::OsString>,
     }
 
+    #[cfg(unix)]
     impl EnvVarGuard {
         fn set(key: &'static str, value: &std::path::Path) -> Self {
             let prev = std::env::var_os(key);
@@ -357,6 +529,7 @@
         }
     }
 
+    #[cfg(unix)]
     impl Drop for EnvVarGuard {
         fn drop(&mut self) {
             if let Some(prev) = self.prev.take() {

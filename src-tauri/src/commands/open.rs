@@ -62,7 +62,7 @@ fn read_text_preview(path: &std::path::Path) -> Result<String, String> {
 }
 
 /// Extension gate plus the 4KB read. `text_preview` only adds the app-state lock.
-fn catalog_text_preview(db: &AppDb, file_id: i64) -> Result<String, String> {
+pub(crate) fn catalog_text_preview(db: &AppDb, file_id: i64) -> Result<String, String> {
     let loc = db.file_location(file_id)?;
     let ext = names::extension_of(&loc.stored_relpath);
     if !matches!(ext.as_str(), "txt" | "md" | "scad") {
@@ -73,13 +73,13 @@ fn catalog_text_preview(db: &AppDb, file_id: i64) -> Result<String, String> {
     read_text_preview(&path)
 }
 
-fn catalog_file_path(db: &AppDb, file_id: i64) -> Result<PathBuf, String> {
+pub(crate) fn catalog_file_path(db: &AppDb, file_id: i64) -> Result<PathBuf, String> {
     let loc = db.file_location(file_id)?;
     let root = db.library_root()?;
     contained_library_file(&root, &loc.stored_relpath)
 }
 
-fn drag_source_for_id(db: &AppDb, id: i64) -> Result<drag_out::DragSource, String> {
+pub(crate) fn drag_source_for_id(db: &AppDb, id: i64) -> Result<drag_out::DragSource, String> {
     let loc = db.file_location(id)?;
     let root = db.library_root()?;
     let path = contained_library_file(&root, &loc.stored_relpath)?;
@@ -91,7 +91,7 @@ fn drag_source_for_id(db: &AppDb, id: i64) -> Result<drag_out::DragSource, Strin
 }
 
 /// Catalog ids only. A path the page invented never becomes a drag source.
-fn drag_sources_for_ids(db: &AppDb, ids: &[i64]) -> (Vec<drag_out::DragSource>, Vec<String>) {
+pub(crate) fn drag_sources_for_ids(db: &AppDb, ids: &[i64]) -> (Vec<drag_out::DragSource>, Vec<String>) {
     let mut sources = Vec::new();
     let mut skipped = Vec::new();
     for id in ids {
@@ -103,32 +103,89 @@ fn drag_sources_for_ids(db: &AppDb, ids: &[i64]) -> (Vec<drag_out::DragSource>, 
     (sources, skipped)
 }
 
+pub(crate) fn prepared_drag_when_db_busy() -> drag_out::PreparedDrag {
+    drag_out::PreparedDrag {
+        paths: Vec::new(),
+        skipped: vec!["The library is busy.".into()],
+        reports: Vec::new(),
+        icon_bytes: 0,
+    }
+}
+
+pub(crate) fn prepared_drag_from_worker_error(err: impl std::fmt::Display) -> drag_out::PreparedDrag {
+    drag_out::PreparedDrag {
+        paths: Vec::new(),
+        skipped: vec![err.to_string()],
+        reports: Vec::new(),
+        icon_bytes: 0,
+    }
+}
+
+pub(crate) fn start_file_drag_paths_work(
+    db: &AppDb,
+    ids: &[i64],
+    icon_path: &str,
+) -> Result<Vec<String>, String> {
+    paths_for_file_drag(db, ids, icon_path)
+}
+
+pub(crate) fn debug_log_work(dir: &std::path::Path, line: String) -> Result<String, String> {
+    write_debug_log_in(dir, line)
+}
+
+pub(crate) fn prepare_drag_paths_work(db: &AppDb, ids: &[i64], icon_path: &str) -> drag_out::PreparedDrag {
+    let (sources, mut skipped) = drag_sources_for_ids(db, ids);
+    let mut prepared = drag_out::prepare_drag_paths(&sources, icon_path);
+    skipped.append(&mut prepared.skipped);
+    prepared.skipped = skipped;
+    prepared
+}
+
+/// `start_file_drag` prefers catalog failures. A prepare-time skip is shown
+/// only when every requested id resolved to a library file.
+pub(crate) fn drag_failure_message(catalog_skipped: &[String], prepared_skipped: &[String]) -> String {
+    let message = if catalog_skipped.is_empty() {
+        prepared_skipped.join(", ")
+    } else {
+        catalog_skipped.join(", ")
+    };
+    if message.is_empty() {
+        "Could not drag these files.".into()
+    } else {
+        message
+    }
+}
+
+pub(crate) fn paths_for_file_drag(db: &AppDb, ids: &[i64], icon_path: &str) -> Result<Vec<String>, String> {
+    let (sources, skipped) = drag_sources_for_ids(db, ids);
+    let prepared = drag_out::prepare_drag_paths(&sources, icon_path);
+    if prepared.paths.is_empty() {
+        return Err(drag_failure_message(&skipped, &prepared.skipped));
+    }
+    Ok(prepared.paths)
+}
+
+pub(crate) fn reveal_folder_path(db: &AppDb, folder_id: Option<i64>) -> Result<PathBuf, String> {
+    let root = db.library_root()?;
+    let rel = match folder_id {
+        Some(id) => db.folder_relpath(id)?,
+        None => String::new(),
+    };
+    contained_library_dir(&root, &rel)
+}
+
 #[tauri::command]
 async fn prepare_drag_paths(app: AppHandle, ids: Vec<i64>, icon_path: String) -> drag_out::PreparedDrag {
     let _timer = CommandTimer::start("prepare_drag_paths");
     let db = app.state::<AppState>().db.clone();
     let prepared = tauri::async_runtime::spawn_blocking(move || {
         let Ok(db) = db.lock() else {
-            return drag_out::PreparedDrag {
-                paths: Vec::new(),
-                skipped: vec!["The library is busy.".into()],
-                reports: Vec::new(),
-                icon_bytes: 0,
-            };
+            return prepared_drag_when_db_busy();
         };
-        let (sources, mut skipped) = drag_sources_for_ids(&db, &ids);
-        let mut prepared = drag_out::prepare_drag_paths(&sources, &icon_path);
-        skipped.append(&mut prepared.skipped);
-        prepared.skipped = skipped;
-        prepared
+        prepare_drag_paths_work(&db, &ids, &icon_path)
     })
     .await
-    .unwrap_or_else(|err| drag_out::PreparedDrag {
-        paths: Vec::new(),
-        skipped: vec![err.to_string()],
-        reports: Vec::new(),
-        icon_bytes: 0,
-    });
+    .unwrap_or_else(|err| prepared_drag_from_worker_error(err));
     let _ = write_debug_log(drag_out::drag_log_line(&prepared.paths));
     prepared
 }
@@ -140,6 +197,32 @@ struct DragOutcome {
     effect: String,
 }
 
+pub(crate) fn drag_icon_path_work(path: &std::path::Path) -> Result<String, String> {
+    if !path.is_file() {
+        return Err(format!("Drag icon was not found at {}.", path.display()));
+    }
+    Ok(path.to_string_lossy().to_string())
+}
+
+pub(crate) fn file_drag_outcome_from_native(drag: &drag_session::NativeDrag) -> DragOutcome {
+    DragOutcome {
+        result: drag.result.clone(),
+        effect: drag.effect.clone(),
+    }
+}
+
+pub(crate) fn file_drag_finished_log_line(drag: &drag_session::NativeDrag) -> Option<String> {
+    if !drag.finished {
+        return None;
+    }
+    let mut line = drag_out::drag_result_line(&drag.result, &drag.effect);
+    if !drag.detail.is_empty() {
+        line.push(' ');
+        line.push_str(&drag.detail);
+    }
+    Some(line)
+}
+
 /// Synchronous on purpose: Tauri runs a sync command on the UI thread, and
 /// Windows `DoDragDrop` has to run on that STA while the button is still down.
 #[tauri::command]
@@ -147,21 +230,7 @@ fn start_file_drag(app: AppHandle, ids: Vec<i64>, icon_path: String) -> Result<D
     let db = app.state::<AppState>().db.clone();
     let paths = {
         let db = db.lock().map_err(|err| err.to_string())?;
-        let (sources, skipped) = drag_sources_for_ids(&db, &ids);
-        let prepared = drag_out::prepare_drag_paths(&sources, &icon_path);
-        if prepared.paths.is_empty() {
-            let message = if skipped.is_empty() {
-                prepared.skipped.join(", ")
-            } else {
-                skipped.join(", ")
-            };
-            return Err(if message.is_empty() {
-                "Could not drag these files.".into()
-            } else {
-                message
-            });
-        }
-        prepared.paths
+        start_file_drag_paths_work(&db, &ids, &icon_path)?
     };
     let _ = write_debug_log(drag_out::drag_start_line(&paths, &icon_path));
     let window = app
@@ -169,18 +238,10 @@ fn start_file_drag(app: AppHandle, ids: Vec<i64>, icon_path: String) -> Result<D
         .ok_or_else(|| "Main window is not available.".to_string())?;
     match drag_session::start(&window, &paths, &icon_path) {
         Ok(started) => {
-            if started.finished {
-                let mut line = drag_out::drag_result_line(&started.result, &started.effect);
-                if !started.detail.is_empty() {
-                    line.push(' ');
-                    line.push_str(&started.detail);
-                }
+            if let Some(line) = file_drag_finished_log_line(&started) {
                 let _ = write_debug_log(line);
             }
-            Ok(DragOutcome {
-                result: started.result,
-                effect: started.effect,
-            })
+            Ok(file_drag_outcome_from_native(&started))
         }
         Err(err) => {
             let _ = write_debug_log(format!(
@@ -199,17 +260,15 @@ async fn drag_icon_path(app: AppHandle) -> Result<String, String> {
             .path()
             .resolve("icons/drag.png", tauri::path::BaseDirectory::Resource)
             .map_err(|e| e.to_string())?;
-        if !path.is_file() {
-            return Err(format!("Drag icon was not found at {}.", path.display()));
-        }
-        Ok(path.to_string_lossy().to_string())
+        drag_icon_path_work(&path)
     })
     .await
 }
 
 #[tauri::command]
 async fn debug_log(line: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || write_debug_log(line))
+    let dir = data_dir();
+    tauri::async_runtime::spawn_blocking(move || debug_log_work(&dir, line))
         .await
         .map_err(|err| err.to_string())?
 }
@@ -241,8 +300,28 @@ pub(crate) fn write_debug_log_in(dir: &std::path::Path, line: String) -> Result<
     Ok(path.to_string_lossy().to_string())
 }
 
+pub(crate) fn text_preview_work(db: &AppDb, file_id: i64) -> Result<String, String> {
+    catalog_text_preview(db, file_id)
+}
+
+pub(crate) fn open_in_program_work(db: &AppDb, file_id: i64, program_id: &str) -> Result<(), String> {
+    launch_catalog_file(db, file_id, program_id)
+}
+
+pub(crate) fn open_in_default_app_path(db: &AppDb, file_id: i64) -> Result<PathBuf, String> {
+    catalog_file_path(db, file_id)
+}
+
+pub(crate) fn reveal_file_path_work(db: &AppDb, file_id: i64) -> Result<PathBuf, String> {
+    catalog_file_path(db, file_id)
+}
+
+pub(crate) fn reveal_folder_path_work(db: &AppDb, folder_id: Option<i64>) -> Result<PathBuf, String> {
+    reveal_folder_path(db, folder_id)
+}
+
 /// The executable comes from saved settings. The argument is the catalog file, not a path from the page.
-fn launch_catalog_file(db: &AppDb, file_id: i64, program_id: &str) -> Result<(), String> {
+pub(crate) fn launch_catalog_file(db: &AppDb, file_id: i64, program_id: &str) -> Result<(), String> {
     let programs = db.settings().external_programs;
     let file_path = catalog_file_path(db, file_id)?;
     let launch = crate::external_programs::launch_for_program(&programs, program_id, &file_path)?;
@@ -254,7 +333,7 @@ async fn open_in_program(app: AppHandle, file_id: i64, program_id: String) -> Re
     let db = app.state::<AppState>().db.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let db = db.lock().map_err(|err| err.to_string())?;
-        launch_catalog_file(&db, file_id, &program_id)
+        open_in_program_work(&db, file_id, &program_id)
     })
     .await
     .map_err(|err| err.to_string())?
@@ -266,7 +345,7 @@ async fn open_in_default_app(app: AppHandle, file_id: i64) -> Result<(), String>
     tauri::async_runtime::spawn_blocking(move || {
         let path = {
             let db = db.lock().map_err(|err| err.to_string())?;
-            catalog_file_path(&db, file_id)?
+            open_in_default_app_path(&db, file_id)?
         };
         app.opener()
             .open_path(path.to_string_lossy().to_string(), None::<&str>)
@@ -282,7 +361,7 @@ async fn reveal_file(app: AppHandle, file_id: i64) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path = {
             let db = db.lock().map_err(|err| err.to_string())?;
-            catalog_file_path(&db, file_id)?
+            reveal_file_path_work(&db, file_id)?
         };
         app.opener()
             .reveal_item_in_dir(&path)
@@ -298,12 +377,7 @@ async fn reveal_folder(app: AppHandle, folder_id: Option<i64>) -> Result<(), Str
     tauri::async_runtime::spawn_blocking(move || {
         let path = {
             let db = db.lock().map_err(|err| err.to_string())?;
-            let root = db.library_root()?;
-            let rel = match folder_id {
-                Some(id) => db.folder_relpath(id)?,
-                None => String::new(),
-            };
-            contained_library_dir(&root, &rel)?
+            reveal_folder_path_work(&db, folder_id)?
         };
         app.opener()
             .reveal_item_in_dir(&path)
@@ -318,7 +392,7 @@ async fn text_preview(app: AppHandle, file_id: i64) -> Result<String, String> {
     let db = app.state::<AppState>().db.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let db = db.lock().map_err(|err| err.to_string())?;
-        catalog_text_preview(&db, file_id)
+        text_preview_work(&db, file_id)
     })
     .await
     .map_err(|err| err.to_string())?

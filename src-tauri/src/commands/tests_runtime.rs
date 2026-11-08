@@ -1,4 +1,12 @@
     #[test]
+    fn command_log_line_and_slow_threshold() {
+        assert_eq!(command_log_line("list_files", 120), "command list_files 120ms");
+        assert!(!command_should_log(10));
+        assert!(command_should_log(50));
+        assert!(command_should_log(100));
+    }
+
+    #[test]
     fn off_ui_returns_the_worker_value_and_its_error() {
         let value = tauri::async_runtime::block_on(off_ui("off_ui_ok", || Ok::<i32, String>(2 + 2))).unwrap();
         assert_eq!(value, 4);
@@ -41,12 +49,30 @@
     }
 
     #[test]
+    fn canonicalize_asset_scope_directory_resolves_existing_dirs() {
+        use std::fs;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!(
+            "filelib-asset-scope-{}-{n}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let resolved = canonicalize_asset_scope_directory(&dir).expect("dir exists");
+        assert_eq!(resolved, dir.canonicalize().unwrap());
+        assert!(canonicalize_asset_scope_directory(&dir.join("missing")).is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_second_disk_claim_fails_immediately_and_cancel_is_visible() {
         let running = AtomicBool::new(false);
         let cancel = AtomicBool::new(false);
-        claim_disk_running(&running).unwrap();
+        claim_disk_running_work(&running).unwrap();
         let started = std::time::Instant::now();
-        let err = claim_disk_running(&running).unwrap_err();
+        let err = claim_disk_running_work(&running).unwrap_err();
         assert!(started.elapsed() < std::time::Duration::from_millis(200));
         assert_eq!(err, DISK_BUSY_MESSAGE);
         assert!(running.load(Ordering::SeqCst));

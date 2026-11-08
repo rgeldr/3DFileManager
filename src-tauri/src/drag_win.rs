@@ -129,7 +129,11 @@ impl IDataObject_Impl for HdropData {
         })
     }
 
-    fn GetDataHere(&self, _pformatetc: *const FORMATETC, _pmedium: *mut STGMEDIUM) -> windows::core::Result<()> {
+    fn GetDataHere(
+        &self,
+        _pformatetc: *const FORMATETC,
+        _pmedium: *mut STGMEDIUM,
+    ) -> windows::core::Result<()> {
         Err(DV_E_FORMATETC.into())
     }
 
@@ -147,7 +151,12 @@ impl IDataObject_Impl for HdropData {
         E_NOTIMPL
     }
 
-    fn SetData(&self, _pformatetc: *const FORMATETC, _pmedium: *const STGMEDIUM, _frelease: BOOL) -> windows::core::Result<()> {
+    fn SetData(
+        &self,
+        _pformatetc: *const FORMATETC,
+        _pmedium: *const STGMEDIUM,
+        _frelease: BOOL,
+    ) -> windows::core::Result<()> {
         Err(E_NOTIMPL.into())
     }
 
@@ -158,7 +167,12 @@ impl IDataObject_Impl for HdropData {
         Ok(HdropFormats::new(0).into())
     }
 
-    fn DAdvise(&self, _pformatetc: *const FORMATETC, _advf: u32, _sink: Option<&IAdviseSink>) -> windows::core::Result<u32> {
+    fn DAdvise(
+        &self,
+        _pformatetc: *const FORMATETC,
+        _advf: u32,
+        _sink: Option<&IAdviseSink>,
+    ) -> windows::core::Result<u32> {
         Err(OLE_E_ADVISENOTSUPPORTED.into())
     }
 
@@ -186,7 +200,12 @@ impl HdropFormats {
 
 #[allow(non_snake_case)]
 impl IEnumFORMATETC_Impl for HdropFormats {
-    fn Next(&self, celt: u32, rgelt: *mut FORMATETC, fetched: *mut u32) -> windows::core::Result<()> {
+    fn Next(
+        &self,
+        celt: u32,
+        rgelt: *mut FORMATETC,
+        fetched: *mut u32,
+    ) -> windows::core::Result<()> {
         if rgelt.is_null() || celt == 0 {
             return Err(E_INVALIDARG.into());
         }
@@ -214,7 +233,8 @@ impl IEnumFORMATETC_Impl for HdropFormats {
             return Ok(());
         }
         let current = self.index.load(Ordering::SeqCst);
-        self.index.store(current.saturating_add(celt as usize), Ordering::SeqCst);
+        self.index
+            .store(current.saturating_add(celt as usize), Ordering::SeqCst);
         Ok(())
     }
 
@@ -245,5 +265,249 @@ impl IDropSource_Impl for HdropSource {
 
     fn GiveFeedback(&self, _effect: DROPEFFECT) -> HRESULT {
         DRAGDROP_S_USEDEFAULTCURSORS
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `Result::unwrap_err` needs `T: Debug`. COM success values such as
+    /// `STGMEDIUM` and `IEnumFORMATETC` do not implement `Debug`.
+    fn expect_com_err<T>(result: windows::core::Result<T>) -> windows::core::Error {
+        result.err().unwrap_or_else(|| panic!("expected COM call to fail"))
+    }
+
+    #[test]
+    fn wants_hdrop_accepts_content_and_global_tymed() {
+        let format = FORMATETC {
+            cfFormat: CF_HDROP.0,
+            ptd: std::ptr::null_mut(),
+            dwAspect: DVASPECT_CONTENT.0,
+            lindex: -1,
+            tymed: TYMED_HGLOBAL.0 as u32,
+        };
+        assert!(wants_hdrop(&format));
+        let any_tymed = FORMATETC { tymed: 0, ..format };
+        assert!(wants_hdrop(&any_tymed));
+        let wrong = FORMATETC {
+            cfFormat: 0,
+            ..format
+        };
+        assert!(!wants_hdrop(&wrong));
+    }
+
+    #[test]
+    fn outcome_from_maps_drop_cancel_and_effect_bits() {
+        let drop = outcome_from(DRAGDROP_S_DROP, DROPEFFECT_COPY);
+        assert_eq!(drop.result, "drop");
+        assert_eq!(drop.effect, "copy");
+        assert!(drop.finished);
+        let cancel = outcome_from(DRAGDROP_S_CANCEL, DROPEFFECT_MOVE);
+        assert_eq!(cancel.result, "cancel");
+        assert_eq!(cancel.effect, "move");
+        let link = outcome_from(S_OK, DROPEFFECT_LINK);
+        assert_eq!(link.result, "error");
+        assert_eq!(link.effect, "link");
+        let none = outcome_from(S_OK, DROPEFFECT(0));
+        assert_eq!(none.effect, "none");
+    }
+
+    #[test]
+    fn wants_hdrop_rejects_other_aspects_and_media() {
+        let format = super::hdrop_format();
+        let any_aspect = FORMATETC {
+            dwAspect: 0,
+            ..format
+        };
+        assert!(wants_hdrop(&any_aspect));
+        let wrong_aspect = FORMATETC {
+            dwAspect: 2,
+            ..format
+        };
+        assert!(!wants_hdrop(&wrong_aspect));
+        let stream = FORMATETC {
+            tymed: TYMED_ISTREAM.0 as u32,
+            ..format
+        };
+        assert!(!wants_hdrop(&stream));
+    }
+
+    #[test]
+    fn hdrop_object_offers_only_a_wide_file_drop() {
+        use windows::Win32::System::Com::{IDataObject_Impl, IEnumFORMATETC_Impl};
+        use windows::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+        use windows::Win32::System::Ole::{IDropSource_Impl, ReleaseStgMedium};
+
+        let paths = vec![
+            r"C:\models\Hero.stl".to_string(),
+            r"D:\libs\Tile.3mf".to_string(),
+        ];
+        let data = HdropData::new(paths.clone());
+        let format = hdrop_format();
+
+        assert_eq!(
+            expect_com_err(IDataObject_Impl::GetData(&data, std::ptr::null())).code(),
+            E_INVALIDARG
+        );
+        let mut wrong = format;
+        wrong.cfFormat = 0;
+        assert_eq!(
+            expect_com_err(IDataObject_Impl::GetData(&data, &wrong)).code(),
+            DV_E_FORMATETC
+        );
+        assert_eq!(
+            expect_com_err(IDataObject_Impl::GetDataHere(
+                &data,
+                &format,
+                std::ptr::null_mut()
+            ))
+            .code(),
+            DV_E_FORMATETC
+        );
+        assert_eq!(IDataObject_Impl::QueryGetData(&data, &format), S_OK);
+        assert_eq!(
+            IDataObject_Impl::QueryGetData(&data, std::ptr::null()),
+            DV_E_FORMATETC
+        );
+        assert_eq!(
+            IDataObject_Impl::QueryGetData(&data, &wrong),
+            DV_E_FORMATETC
+        );
+
+        let mut canonical = format;
+        canonical.ptd = 1 as *mut _;
+        assert_eq!(
+            IDataObject_Impl::GetCanonicalFormatEtc(&data, &format, &mut canonical),
+            E_NOTIMPL
+        );
+        assert!(canonical.ptd.is_null());
+        assert_eq!(
+            IDataObject_Impl::GetCanonicalFormatEtc(&data, &format, std::ptr::null_mut()),
+            E_NOTIMPL
+        );
+        assert_eq!(
+            expect_com_err(IDataObject_Impl::SetData(
+                &data,
+                &format,
+                std::ptr::null(),
+                false.into()
+            ))
+            .code(),
+            E_NOTIMPL
+        );
+        assert_eq!(
+            expect_com_err(IDataObject_Impl::EnumFormatEtc(&data, 0)).code(),
+            E_NOTIMPL
+        );
+        assert!(IDataObject_Impl::EnumFormatEtc(&data, 1).is_ok());
+        assert_eq!(
+            expect_com_err(IDataObject_Impl::DAdvise(&data, &format, 0, None)).code(),
+            OLE_E_ADVISENOTSUPPORTED
+        );
+        assert_eq!(
+            expect_com_err(IDataObject_Impl::DUnadvise(&data, 1)).code(),
+            OLE_E_ADVISENOTSUPPORTED
+        );
+        assert_eq!(
+            expect_com_err(IDataObject_Impl::EnumDAdvise(&data)).code(),
+            OLE_E_ADVISENOTSUPPORTED
+        );
+
+        let medium = IDataObject_Impl::GetData(&data, &format).unwrap();
+        let expected = crate::drag_out::hdrop_bytes(&paths);
+        unsafe {
+            let handle = std::ptr::read(&medium.u.hGlobal);
+            let ptr = GlobalLock(handle);
+            assert!(!ptr.is_null());
+            let got = std::slice::from_raw_parts(ptr.cast::<u8>(), expected.len());
+            assert_eq!(got, expected.as_slice());
+            let _ = GlobalUnlock(handle);
+            let mut medium = medium;
+            ReleaseStgMedium(&mut medium);
+        }
+
+        let formats = HdropFormats::new(0);
+        let mut slot = FORMATETC {
+            cfFormat: 0,
+            ptd: std::ptr::null_mut(),
+            dwAspect: 0,
+            lindex: 0,
+            tymed: 0,
+        };
+        assert_eq!(
+            expect_com_err(IEnumFORMATETC_Impl::Next(
+                &formats,
+                0,
+                &mut slot,
+                std::ptr::null_mut()
+            ))
+            .code(),
+            E_INVALIDARG
+        );
+        assert_eq!(
+            expect_com_err(IEnumFORMATETC_Impl::Next(
+                &formats,
+                1,
+                std::ptr::null_mut(),
+                std::ptr::null_mut()
+            ))
+            .code(),
+            E_INVALIDARG
+        );
+        let mut fetched = 0u32;
+        assert!(IEnumFORMATETC_Impl::Next(&formats, 1, &mut slot, &mut fetched).is_ok());
+        assert_eq!(fetched, 1);
+        assert_eq!(slot.cfFormat, CF_HDROP.0);
+        assert_eq!(slot.tymed, TYMED_HGLOBAL.0 as u32);
+        fetched = 9;
+        assert_eq!(
+            expect_com_err(IEnumFORMATETC_Impl::Next(
+                &formats,
+                1,
+                &mut slot,
+                &mut fetched
+            ))
+            .code(),
+            S_FALSE
+        );
+        assert_eq!(fetched, 0);
+
+        let again = HdropFormats::new(0);
+        slot.cfFormat = 0;
+        assert_eq!(
+            expect_com_err(IEnumFORMATETC_Impl::Next(
+                &again,
+                2,
+                &mut slot,
+                std::ptr::null_mut()
+            ))
+            .code(),
+            S_FALSE
+        );
+        assert_eq!(slot.cfFormat, CF_HDROP.0);
+        assert!(IEnumFORMATETC_Impl::Skip(&again, 0).is_ok());
+        assert!(IEnumFORMATETC_Impl::Skip(&again, 4).is_ok());
+        assert!(IEnumFORMATETC_Impl::Reset(&again).is_ok());
+        assert_eq!(again.index.load(Ordering::SeqCst), 0);
+        assert!(IEnumFORMATETC_Impl::Clone(&again).is_ok());
+
+        let source = HdropSource;
+        assert_eq!(
+            IDropSource_Impl::QueryContinueDrag(&source, true.into(), MODIFIERKEYS_FLAGS(0)),
+            DRAGDROP_S_CANCEL
+        );
+        assert_eq!(
+            IDropSource_Impl::QueryContinueDrag(&source, false.into(), MODIFIERKEYS_FLAGS(0)),
+            DRAGDROP_S_DROP
+        );
+        assert_eq!(
+            IDropSource_Impl::QueryContinueDrag(&source, false.into(), MK_LBUTTON),
+            S_OK
+        );
+        assert_eq!(
+            IDropSource_Impl::GiveFeedback(&source, DROPEFFECT_COPY),
+            DRAGDROP_S_USEDEFAULTCURSORS
+        );
     }
 }
