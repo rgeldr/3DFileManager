@@ -197,6 +197,32 @@ struct DragOutcome {
     effect: String,
 }
 
+pub(crate) fn drag_icon_path_work(path: &std::path::Path) -> Result<String, String> {
+    if !path.is_file() {
+        return Err(format!("Drag icon was not found at {}.", path.display()));
+    }
+    Ok(path.to_string_lossy().to_string())
+}
+
+pub(crate) fn file_drag_outcome_from_native(drag: &drag_session::NativeDrag) -> DragOutcome {
+    DragOutcome {
+        result: drag.result.clone(),
+        effect: drag.effect.clone(),
+    }
+}
+
+pub(crate) fn file_drag_finished_log_line(drag: &drag_session::NativeDrag) -> Option<String> {
+    if !drag.finished {
+        return None;
+    }
+    let mut line = drag_out::drag_result_line(&drag.result, &drag.effect);
+    if !drag.detail.is_empty() {
+        line.push(' ');
+        line.push_str(&drag.detail);
+    }
+    Some(line)
+}
+
 /// Synchronous on purpose: Tauri runs a sync command on the UI thread, and
 /// Windows `DoDragDrop` has to run on that STA while the button is still down.
 #[tauri::command]
@@ -212,18 +238,10 @@ fn start_file_drag(app: AppHandle, ids: Vec<i64>, icon_path: String) -> Result<D
         .ok_or_else(|| "Main window is not available.".to_string())?;
     match drag_session::start(&window, &paths, &icon_path) {
         Ok(started) => {
-            if started.finished {
-                let mut line = drag_out::drag_result_line(&started.result, &started.effect);
-                if !started.detail.is_empty() {
-                    line.push(' ');
-                    line.push_str(&started.detail);
-                }
+            if let Some(line) = file_drag_finished_log_line(&started) {
                 let _ = write_debug_log(line);
             }
-            Ok(DragOutcome {
-                result: started.result,
-                effect: started.effect,
-            })
+            Ok(file_drag_outcome_from_native(&started))
         }
         Err(err) => {
             let _ = write_debug_log(format!(
@@ -242,10 +260,7 @@ async fn drag_icon_path(app: AppHandle) -> Result<String, String> {
             .path()
             .resolve("icons/drag.png", tauri::path::BaseDirectory::Resource)
             .map_err(|e| e.to_string())?;
-        if !path.is_file() {
-            return Err(format!("Drag icon was not found at {}.", path.display()));
-        }
-        Ok(path.to_string_lossy().to_string())
+        drag_icon_path_work(&path)
     })
     .await
 }

@@ -127,6 +127,10 @@ fn migrate(conn: &Connection) -> Result<(), String> {
         conn.pragma_update(None, "user_version", 4)
             .map_err(|e| e.to_string())?;
     }
+    refresh_thumb_availability(conn)
+}
+
+pub(crate) fn refresh_thumb_availability(conn: &Connection) -> Result<(), String> {
     conn.execute(
         "UPDATE files SET thumb_status = 'none' WHERE thumb_status = 'rendering'",
         [],

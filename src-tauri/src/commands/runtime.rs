@@ -129,8 +129,12 @@ fn data_dir() -> PathBuf {
         .join("3D File Library")
 }
 
+pub(crate) fn canonicalize_asset_scope_directory(path: &std::path::Path) -> Option<PathBuf> {
+    path.canonicalize().ok()
+}
+
 fn allow_asset_scope(app: &AppHandle, path: &std::path::Path) {
-    if let Ok(path) = path.canonicalize() {
+    if let Some(path) = canonicalize_asset_scope_directory(path) {
         let _ = app.asset_protocol_scope().allow_directory(&path, true);
     }
 }

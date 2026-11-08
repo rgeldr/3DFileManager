@@ -272,6 +272,48 @@
     }
 
     #[test]
+    fn drag_icon_path_work_requires_an_existing_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "filelib-dragicon-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let icon = dir.join("drag.png");
+        fs::write(&icon, b"png").unwrap();
+        assert_eq!(drag_icon_path_work(&icon).unwrap(), icon.to_string_lossy());
+        let err = match drag_icon_path_work(&dir.join("missing.png")) {
+            Err(err) => err,
+            Ok(path) => panic!("missing icon returned {path}"),
+        };
+        assert!(err.contains("not found"), "{err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn file_drag_helpers_map_native_drag_results() {
+        let finished = drag_session::NativeDrag {
+            result: "drop".into(),
+            effect: "copy".into(),
+            finished: true,
+            detail: "ok".into(),
+        };
+        let outcome = file_drag_outcome_from_native(&finished);
+        assert_eq!(outcome.result, "drop");
+        assert_eq!(outcome.effect, "copy");
+        let line = file_drag_finished_log_line(&finished).expect("finished drag");
+        assert!(line.contains("drop"));
+        assert!(line.contains("ok"));
+        let pending = drag_session::NativeDrag {
+            result: "started".into(),
+            effect: "copy".into(),
+            finished: false,
+            detail: String::new(),
+        };
+        assert!(file_drag_finished_log_line(&pending).is_none());
+    }
+
+    #[test]
     fn prepared_drag_helpers_cover_busy_and_worker_errors() {
         let busy = prepared_drag_when_db_busy();
         assert!(busy.paths.is_empty());

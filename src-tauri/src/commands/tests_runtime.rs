@@ -49,6 +49,24 @@
     }
 
     #[test]
+    fn canonicalize_asset_scope_directory_resolves_existing_dirs() {
+        use std::fs;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!(
+            "filelib-asset-scope-{}-{n}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let resolved = canonicalize_asset_scope_directory(&dir).expect("dir exists");
+        assert_eq!(resolved, dir.canonicalize().unwrap());
+        assert!(canonicalize_asset_scope_directory(&dir.join("missing")).is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_second_disk_claim_fails_immediately_and_cancel_is_visible() {
         let running = AtomicBool::new(false);
         let cancel = AtomicBool::new(false);

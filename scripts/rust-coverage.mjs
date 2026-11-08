@@ -8,8 +8,8 @@
  * use a forward slash, so `/tests_` drops those covered files out of the
  * set R0 counted and the three percentages fall.
  *
- * Floors are regression gates. Jason (Nov 7, 2026, evening) measured
- * regions 81.5%, functions 59.15%, lines 81.75%.
+ * Floors are regression gates. Jason (Nov 7, 2026, after extraction) measured
+ * regions 81.84%, functions 59.78%, lines 82.2%.
  * Floors sit at or below those verified totals with a small anti-flake buffer.
  */
 import { spawnSync } from "node:child_process";
@@ -18,11 +18,11 @@ import { fileURLToPath } from "node:url";
 
 export const PRODUCTION_IGNORE = "(\\\\tests_|_tests_|flow_tests_)";
 
-/** Jason Nov 7 evening verified; floors are at or below his totals. */
+/** Jason Nov 7 post-extraction verified; floors are at or below his totals. */
 export const COVERAGE_FLOORS = {
-  regions: 81.4,
-  functions: 59.0,
-  lines: 81.6,
+  regions: 81.7,
+  functions: 59.7,
+  lines: 82.0,
 };
 
 export function productionLlvmCovFlags() {

@@ -252,6 +252,10 @@ fn count_jobs(jobs: &[PathBuf], cancelled: &AtomicBool) -> Result<u32, String> {
     Ok(total)
 }
 
+pub(crate) fn join_import_relative_paths(prefix: &Path, rel: &Path) -> PathBuf {
+    join_rel(prefix, rel)
+}
+
 fn join_rel(prefix: &Path, rel: &Path) -> PathBuf {
     if prefix.as_os_str().is_empty() {
         rel.to_path_buf()
@@ -338,6 +342,10 @@ fn import_tree<F: FnMut(ImportProgress)>(
     Ok(())
 }
 
+
+pub(crate) fn import_path_within_root(path: &Path, root: &Path) -> bool {
+    path_within(path, root)
+}
 
 fn path_within(path: &Path, root: &Path) -> bool {
     let Ok(path) = path.canonicalize() else {
