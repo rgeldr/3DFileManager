@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FolderRow } from "../types";
-import { folderCrumbs, truncateCrumbs } from "../lib/breadcrumb";
+import { breadcrumbTitle, folderCrumbs, truncateCrumbs } from "../lib/breadcrumb";
 import { Breadcrumb, crumbKey } from "./Breadcrumb";
 
 afterEach(() => cleanup());
@@ -94,8 +94,25 @@ describe("breadcrumb", () => {
       />,
     );
     expect(screen.queryByText("…")).toBeNull();
+    expect(document.querySelector(".breadcrumb")?.getAttribute("title")).toBe(
+      "3D Print Library > Toys > Articulated Toys > Flexi Animals > Wolves > Dire Wolf",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Articulated Toys" }));
     expect(onNavigate).toHaveBeenCalledWith({ type: "folder", id: 2 });
+  });
+
+  it("does not title a truncated breadcrumb, and breadcrumbTitle skips the ellipsis", () => {
+    render(
+      <Breadcrumb
+        libraryName="3D Print Library"
+        folders={library}
+        browse={{ type: "folder", id: 5 }}
+        onNavigate={() => undefined}
+      />,
+    );
+    expect(document.querySelector(".breadcrumb")?.hasAttribute("title")).toBe(false);
+    const truncated = truncateCrumbs(folderCrumbs("3D Print Library", library, { type: "folder", id: 5 }));
+    expect(breadcrumbTitle(truncated)).toBe("3D Print Library > Wolves > Dire Wolf");
   });
 
   it("highlights a breadcrumb segment when dropTarget matches", () => {

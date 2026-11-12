@@ -119,6 +119,8 @@ export const api = {
   moveFiles: (ids: number[], folderId: number | null) =>
     invoke<DiskOutcome>("move_files", { ids, folderId }),
   deleteFiles: (ids: number[]) => invoke<DiskOutcome>("delete_files", { ids }),
+  duplicateFiles: (ids: number[]) =>
+    invoke<{ ids: number[]; failed: string[]; cancelled: boolean }>("duplicate_files", { ids }),
   rescanLibrary: () =>
     invoke<{
       addedFolders: number;

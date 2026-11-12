@@ -95,7 +95,7 @@ export function ImportSummaryDialog({ app }: { app: LibraryModel }) {
                     })();
                   }}
                 >
-                  Undo import of {summary.recycleCount} file{summary.recycleCount === 1 ? "" : "s"} (Recycle Bin)
+                  Move to Recycle Bin
                 </button>
               ) : null}
             </div>

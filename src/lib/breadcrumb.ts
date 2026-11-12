@@ -27,6 +27,13 @@ export function folderCrumbs(libraryName: string, folders: FolderRow[], browse: 
   return [root, ...chain.reverse()];
 }
 
+export function breadcrumbTitle(crumbs: Crumb[]): string {
+  return crumbs
+    .filter((crumb): crumb is Extract<Crumb, { kind: "place" }> => crumb.kind === "place")
+    .map((crumb) => crumb.label)
+    .join(" > ");
+}
+
 /** Keep the library name and the two closest folders when the path is longer than four segments. */
 export function truncateCrumbs(crumbs: Crumb[], max = VISIBLE_CRUMBS): Crumb[] {
   const places = crumbs.filter((crumb): crumb is Extract<Crumb, { kind: "place" }> => crumb.kind === "place");

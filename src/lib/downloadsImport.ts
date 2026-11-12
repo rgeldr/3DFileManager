@@ -1,13 +1,4 @@
 import type { Browse, FolderRow } from "../types";
-import type { FolderHistory } from "./folderHistory";
-
-export function defaultImportDestination(history: FolderHistory): Browse {
-  for (let index = history.back.length - 1; index >= 0; index -= 1) {
-    const place = history.back[index];
-    if (place.type !== "downloads") return place;
-  }
-  return { type: "root" };
-}
 
 export function browseToFolderId(place: Browse): number | null {
   return place.type === "folder" ? place.id : null;

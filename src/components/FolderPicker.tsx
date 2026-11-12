@@ -29,6 +29,7 @@ export function FolderPicker({
   const [focusIndex, setFocusIndex] = useState(-1);
   const browseKey = browse.type === "folder" ? `folder:${browse.id}` : browse.type;
   const destination = destinationDisplayPath(libraryName, folders, browse);
+  const destinationLabel = `Copy into: ${destination}`;
 
   useEffect(() => {
     setFocusIndex(-1);
@@ -97,8 +98,8 @@ export function FolderPicker({
           Up
         </button>
       </div>
-      <p className="folder-picker-destination" aria-live="polite" title={destination}>
-        Copy into: {destination}
+      <p className="folder-picker-destination" aria-live="polite" title={destinationLabel}>
+        {destinationLabel}
       </p>
       <div
         id={listId}

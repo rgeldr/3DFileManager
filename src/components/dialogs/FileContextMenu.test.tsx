@@ -5,10 +5,14 @@ import type { ExternalProgram, FileRow } from "../../types";
 import { FileContextMenu } from "./FileContextMenu";
 
 const openInProgram = vi.fn<(fileId: number, programId: string) => Promise<void>>();
+const duplicateFiles = vi.fn<
+  (ids: number[]) => Promise<{ ids: number[]; failed: string[]; cancelled: boolean }>
+>();
 
 vi.mock("../../api", () => ({
   api: {
     openInProgram: (fileId: number, programId: string) => openInProgram(fileId, programId),
+    duplicateFiles: (ids: number[]) => duplicateFiles(ids),
   },
 }));
 
@@ -16,6 +20,7 @@ afterEach(() => {
   cleanup();
   openInProgram.mockReset();
   openInProgram.mockResolvedValue(undefined);
+  duplicateFiles.mockReset();
 });
 
 const orca: ExternalProgram = {
@@ -95,11 +100,102 @@ describe("File context menu", () => {
       "Configure programs…",
       "Show in Explorer",
       "Rename",
+      "Duplicate",
       "Set Creator…",
       "Add tags…",
     ]);
     expect(screen.queryByRole("menuitem", { name: "Open" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Open containing folder" })).toBeNull();
+  });
+
+  it("duplicates the selection when the clicked file is selected", async () => {
+    duplicateFiles.mockResolvedValue({ ids: [11, 12], failed: [], cancelled: false });
+    const setSelected = vi.fn();
+    const refreshLists = vi.fn(async () => undefined);
+    const runDiskOp = vi.fn(
+      async (opts: {
+        title: string;
+        success: string;
+        cancelled: string;
+        run: () => Promise<{ cancelled: boolean }>;
+        after?: () => Promise<void>;
+      }) => {
+        await opts.run();
+        await opts.after?.();
+      },
+    );
+    const { model, calls } = app([1, 2], 1);
+    render(<FileContextMenu app={{ ...model, runDiskOp, setSelected, refreshLists } as LibraryModel} />);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Duplicate" }));
+    await waitFor(() => expect(duplicateFiles).toHaveBeenCalledWith([1, 2]));
+    expect(runDiskOp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Duplicating 2 files...",
+        success: "Duplicated 2 files",
+        cancelled: "Duplicate cancelled",
+      }),
+    );
+    expect(calls.setFileMenu).toHaveBeenCalledWith(null);
+    expect(setSelected).toHaveBeenCalledWith([11, 12]);
+    expect(refreshLists).toHaveBeenCalled();
+    expect(calls.setError).not.toHaveBeenCalled();
+  });
+
+  it("duplicates only the clicked file when it is outside the selection", async () => {
+    duplicateFiles.mockResolvedValue({ ids: [13], failed: ["disk full"], cancelled: false });
+    const setSelected = vi.fn();
+    const refreshLists = vi.fn(async () => undefined);
+    const runDiskOp = vi.fn(
+      async (opts: {
+        title: string;
+        success: string;
+        run: () => Promise<{ cancelled: boolean }>;
+        after?: () => Promise<void>;
+      }) => {
+        await opts.run();
+        await opts.after?.();
+      },
+    );
+    const { model, calls } = app([1, 2], 3);
+    render(
+      <FileContextMenu
+        app={
+          {
+            ...model,
+            files: [...(model.files as { id: number; sortName: string }[]), { id: 3, sortName: "dragon" }],
+            runDiskOp,
+            setSelected,
+            refreshLists,
+          } as unknown as LibraryModel
+        }
+      />,
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Duplicate" }));
+    await waitFor(() => expect(duplicateFiles).toHaveBeenCalledWith([3]));
+    expect(runDiskOp.mock.calls[0][0].title).toBe('Duplicating "dragon"...');
+    expect(runDiskOp.mock.calls[0][0].success).toBe("Duplicated 1 file");
+    expect(setSelected).toHaveBeenCalledWith([13]);
+    expect(calls.setError).toHaveBeenCalledWith("disk full");
+  });
+
+  it("reports a duplicate that creates nothing", async () => {
+    duplicateFiles.mockResolvedValue({ ids: [], failed: ["That file is missing on disk, so it can't be duplicated."], cancelled: false });
+    let thrown = "";
+    const runDiskOp = vi.fn(async (opts: { run: () => Promise<unknown>; after?: () => Promise<void> }) => {
+      try {
+        await opts.run();
+        await opts.after?.();
+      } catch (err) {
+        thrown = String(err);
+      }
+    });
+    const setSelected = vi.fn();
+    const { model } = app([1], 1);
+    render(<FileContextMenu app={{ ...model, runDiskOp, setSelected, refreshLists: vi.fn() } as LibraryModel} />);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Duplicate" }));
+    await waitFor(() => expect(duplicateFiles).toHaveBeenCalledWith([1]));
+    expect(thrown).toContain("missing on disk");
+    expect(setSelected).not.toHaveBeenCalled();
   });
 
   it("renames the clicked file", () => {

@@ -1,4 +1,4 @@
-Status: plan only, not started
+Status: implemented
 
 # UI fixes
 
@@ -29,7 +29,7 @@ Append `### N. Short name` with N = one more than the last item. Do not reuse or
 
 ### 1. Import finished — recycle button label
 
-**Status:** not started
+**Status:** implemented
 
 **What Jason saw.** Import finished dialog, text `Imported 1. Duplicates 0. Left in place 0.`, buttons `Keep originals` and `Undo import of 1 file (Recycle Bin)`. The second label is wrong. It must be exactly `Move to Recycle Bin` for every `recycleCount` (no count, no plural).
 
@@ -177,7 +177,7 @@ git commit -m "fix: label import recycle button Move to Recycle Bin"
 
 ### 2. Add to library — Up button stays put
 
-**Status:** not started
+**Status:** implemented
 
 **What Jason saw.** Add to library dialog (`1 file will be copied into the library`, breadcrumb like `3D Print Library > FDM Prints > Toys`, an Up button, a `Copy into: ...` line, a folder tree). With a short path, Up sits on the right of the breadcrumb. With a long path (`... > Articulated Toys > Dummy 13 > dummy-13`) Up drops onto its own line and a horizontal scrollbar appears.
 
@@ -438,7 +438,7 @@ git commit -m "fix: keep the Add to library Up button on one row"
 
 ### 3. Downloads — reset Add to library for every import
 
-**Status:** not started
+**Status:** implemented
 
 **What Jason saw.** Importing more than one file from Downloads, one Add to library after another. The next dialog still has the previous import's destination folder, source field (`Maker World`), and tags (`Angels, FDM`). Each new import must start from defaults.
 
@@ -635,7 +635,7 @@ git commit -m "fix: reset Add to library fields for each Downloads import"
 
 ### 4. Duplicate a file from the context menu
 
-**Status:** not started
+**Status:** implemented
 
 **What Jason saw.** The file right-click menu needs a `Duplicate` item. It applies to files only, not folders. The copy stays in the same folder. The new name inserts ` (N)` before the extension: `part.stl` becomes `part (1).stl`. If the stem already ends in ` (N)`, use the next free number: `part (1).stl` becomes `part (2).stl`. Numbers that already exist are skipped.
 

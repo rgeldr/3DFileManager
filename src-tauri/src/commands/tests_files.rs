@@ -420,3 +420,189 @@
         drop(db);
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn duplicate_files_copies_bytes_metadata_and_the_next_free_number() {
+        let dir = std::env::temp_dir().join(format!("filelib-duplicate-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        fs::write(root.join("part.stl"), b"solid part").unwrap();
+        let id = db
+            .insert_file_with_thumb_status(
+                "part.stl",
+                "part.stl",
+                "stl",
+                10,
+                "sha-part",
+                1,
+                None,
+                Some("pack.zip"),
+                "ok",
+            )
+            .unwrap();
+        db.conn
+            .execute(
+                "UPDATE files SET creator = 'Ada', notes = 'kept' WHERE id = ?1",
+                [id],
+            )
+            .unwrap();
+        db.set_tags(id, &["FDM".into(), "Angels".into()]).unwrap();
+        let toys = db.create_folder(None, "Toys", 0).unwrap();
+        fs::write(root.join("Toys").join("widget.stl"), b"widget").unwrap();
+        let widget = db
+            .insert_file_with_thumb_status(
+                "widget.stl",
+                "Toys/widget.stl",
+                "stl",
+                6,
+                "sha-widget",
+                1,
+                Some(toys.id),
+                None,
+                "none",
+            )
+            .unwrap();
+
+        let cancel = AtomicBool::new(false);
+        let outcome = duplicate_files_work(&db, &[id, id], &cancel).unwrap();
+        assert!(outcome.failed.is_empty(), "{:?}", outcome.failed);
+        assert!(!outcome.cancelled);
+        assert_eq!(outcome.ids.len(), 2);
+        assert_eq!(fs::read(root.join("part (1).stl")).unwrap(), b"solid part");
+        assert_eq!(fs::read(root.join("part (2).stl")).unwrap(), b"solid part");
+        let widget_copy = duplicate_files_work(&db, &[widget], &cancel).unwrap();
+        assert!(widget_copy.failed.is_empty(), "{:?}", widget_copy.failed);
+        assert_eq!(
+            fs::read(root.join("Toys").join("widget (1).stl")).unwrap(),
+            b"widget"
+        );
+
+        let copy_id = outcome.ids[0];
+        let (name, creator, notes, sha, thumb, archive, folder): (
+                String,
+                String,
+                String,
+                String,
+                String,
+                Option<String>,
+                Option<i64>,
+            ) = db
+                .conn
+                .query_row(
+                    "SELECT original_name, creator, notes, sha256, thumb_status, source_archive, folder_id FROM files WHERE id = ?1",
+                    [copy_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
+                )
+                .unwrap();
+        assert_eq!(name, "part (1).stl");
+        assert_eq!(creator, "Ada");
+        assert_eq!(notes, "kept");
+        assert_eq!(sha, "sha-part");
+        assert_eq!(thumb, "ok");
+        assert_ne!(thumb, "unhashed");
+        assert_eq!(archive.as_deref(), Some("pack.zip"));
+        assert_eq!(folder, None);
+        let tags: Vec<String> = {
+            let mut stmt = db
+                    .conn
+                    .prepare("SELECT t.name FROM tags t JOIN file_tags ft ON ft.tag_id = t.id WHERE ft.file_id = ?1 ORDER BY t.name")
+                    .unwrap();
+            stmt.query_map([copy_id], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<Vec<String>, _>>()
+                .unwrap()
+        };
+        assert_eq!(tags, vec!["Angels".to_string(), "FDM".to_string()]);
+
+        let widget_thumb: String = db
+            .conn
+            .query_row(
+                "SELECT thumb_status FROM files WHERE id = ?1",
+                [widget_copy.ids[0]],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let widget_folder: Option<i64> = db
+            .conn
+            .query_row(
+                "SELECT folder_id FROM files WHERE id = ?1",
+                [widget_copy.ids[0]],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(widget_thumb, "none");
+        assert_ne!(widget_thumb, "unhashed");
+        assert_eq!(widget_folder, Some(toys.id));
+
+        let second = duplicate_files_work(&db, &[copy_id], &cancel).unwrap();
+        assert_eq!(second.ids.len(), 1);
+        let second_name: String = db
+            .conn
+            .query_row(
+                "SELECT original_name FROM files WHERE id = ?1",
+                [second.ids[0]],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(second_name, "part (3).stl");
+
+        let missing = duplicate_files_work(&db, &[999], &cancel).unwrap();
+        assert!(missing.ids.is_empty());
+        assert!(
+            missing.failed[0].contains("missing"),
+            "{}",
+            missing.failed[0]
+        );
+
+        fs::remove_file(root.join("part.stl")).unwrap();
+        let gone = duplicate_files_work(&db, &[id], &cancel).unwrap();
+        assert!(gone.ids.is_empty());
+        assert!(gone.failed[0].contains("missing"), "{}", gone.failed[0]);
+
+        cancel.store(true, Ordering::SeqCst);
+        let stopped = duplicate_files_work(&db, &[copy_id], &cancel).unwrap();
+        assert!(stopped.cancelled);
+        assert!(stopped.ids.is_empty());
+
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn duplicate_files_skips_a_disk_name_that_is_not_in_the_catalog() {
+        let dir = std::env::temp_dir().join(format!("filelib-duplicate-disk-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let db = db::open(&dir).unwrap();
+        let root = dir.join("library");
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = Settings::default();
+        settings.library_root = Some(root.to_string_lossy().to_string());
+        db.save_settings(&settings).unwrap();
+        fs::write(root.join("part.stl"), b"solid part").unwrap();
+        fs::write(root.join("part (1).stl"), b"keep me").unwrap();
+        let id = db
+            .insert_file("part.stl", "part.stl", "stl", 10, "sha-part", 1, None, None)
+            .unwrap();
+        assert!(include_str!("files.rs").contains("async fn duplicate_files"));
+        assert!(include_str!("../lib.rs").contains("duplicate_files"));
+        let outcome = duplicate_files_work(&db, &[id], &AtomicBool::new(false)).unwrap();
+        assert!(outcome.failed.is_empty(), "{:?}", outcome.failed);
+        assert_eq!(fs::read(root.join("part (1).stl")).unwrap(), b"keep me");
+        assert_eq!(fs::read(root.join("part (2).stl")).unwrap(), b"solid part");
+        let name: String = db
+            .conn
+            .query_row(
+                "SELECT original_name FROM files WHERE id = ?1",
+                [outcome.ids[0]],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(name, "part (2).stl");
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }

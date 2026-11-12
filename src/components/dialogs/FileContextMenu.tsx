@@ -6,6 +6,7 @@ export function FileContextMenu({ app }: { app: LibraryModel }) {
   const {
     fileMenu, setFileMenu, setError, selected, files, settings, setExternalProgramsOpen,
     setCreatorTarget, setCreatorValue, setFolderTagTarget, setFolderTagInput, openRenameFile,
+    runDiskOp, setSelected, refreshLists,
   } = app;
   const programs = settings?.externalPrograms ?? [];
   const selectionTarget = (fileId: number) => {
@@ -85,6 +86,41 @@ export function FileContextMenu({ app }: { app: LibraryModel }) {
                 }}
               >
                 Rename
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  const target = selectionTarget(fileMenu.fileId);
+                  const ids = target.fileIds;
+                  const title = ids.length === 1 ? `Duplicating "${target.name}"...` : `Duplicating ${ids.length} files...`;
+                  const success = ids.length === 1 ? "Duplicated 1 file" : `Duplicated ${ids.length} files`;
+                  setFileMenu(null);
+                  let created: number[] = [];
+                  let failures: string[] = [];
+                  void runDiskOp({
+                    title,
+                    cancellable: true,
+                    success,
+                    cancelled: "Duplicate cancelled",
+                    run: async () => {
+                      const outcome = await api.duplicateFiles(ids);
+                      created = outcome.ids;
+                      failures = outcome.failed;
+                      if (!outcome.cancelled && outcome.ids.length === 0 && outcome.failed.length > 0) {
+                        throw new Error(outcome.failed.join("\n"));
+                      }
+                      return outcome;
+                    },
+                    after: async () => {
+                      if (created.length > 0) setSelected(created);
+                      await refreshLists();
+                      if (failures.length > 0) setError(failures.join("\n"));
+                    },
+                  });
+                }}
+              >
+                Duplicate
               </button>
               <button
                 type="button"

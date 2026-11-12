@@ -21,7 +21,7 @@ The summary can set a creator and tags on the files imported in that batch. Type
 Then choose:
 
 - **Keep originals** to leave the source files where they were.
-- The Recycle Bin button, when it is shown, to move the imported originals and the duplicate originals to the Recycle Bin.
+- **Move to Recycle Bin**, when it is shown, to move the imported originals and the duplicate originals to the Recycle Bin.
 
 Unsupported files and files that failed to import stay in the source folder. The source folder itself is not recycled.
 
@@ -32,8 +32,8 @@ If the summary says duplicate checking continues in the background, the app is s
 While **Downloads** is open in the sidebar, select one or more listed files and choose **Add to library** from the context menu.
 
 1. The **Add to library** dialog shows how many files will be imported into the library (same hard-link or copy rules as other imports).
-2. Pick the destination folder in the library tree. The default is the library folder you last had open before Downloads, or the library root.
-3. Optionally set creator and tags for this batch, the same fields as after a drop import.
+2. Pick the destination folder in the library tree. The destination starts at the library root every time Add to library opens.
+3. Creator and tags start empty. The import summary still shows the creator and tags entered for that batch.
 4. Click **Add to library**. When import finishes, the app leaves Downloads if files were imported and shows the destination folder with those files selected.
 
 Duplicates are detected the same way as other imports. Unsupported paths are skipped.

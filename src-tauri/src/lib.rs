@@ -115,6 +115,7 @@ pub fn run() {
             remove_missing,
             update_file,
             rename_file,
+            duplicate_files,
             set_tags,
             add_tags_under_folder,
             add_tags_to_files,

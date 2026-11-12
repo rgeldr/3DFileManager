@@ -15,7 +15,7 @@ import {
   samePlace,
   targetFolderId as browseTargetFolderId,
 } from "../lib/folderHistory";
-import { defaultImportDestination, downloadsImportNavigation } from "../lib/downloadsImport";
+import { downloadsImportNavigation } from "../lib/downloadsImport";
 import { browseContainingFolder, containingFolderPlace } from "../lib/containingFolder";
 import { libraryListScope, libraryRefreshKey, librarySearchLimit, tagCountScope, truncateLibraryList } from "../lib/tagFilter";
 import { extsForSelectedTypes, mergeTypeCounts } from "../lib/typeFilter";
@@ -485,6 +485,9 @@ export function useLibrary() {
 
   const openAddToLibrary = useCallback((paths: string[]) => {
     if (paths.length === 0) return;
+    setImportCreator("");
+    setImportTags([]);
+    setImportTagText("");
     setAddToLibraryPaths([...paths]);
   }, []);
 
@@ -561,7 +564,7 @@ export function useLibrary() {
     openRenameFolderPrompt, openRenameFile, openContainingFolder, openDeleteFolderConfirm, performDeleteFolder, runImportRef, refreshListsRef,
     runImport, dialogOpen, browseKey, onSelect, selectedFile, downloadsList, downloadsTruncated, downloadSort, setDownloadSort,
     downloadsSelected, setDownloadsSelected, downloadsMenu, setDownloadsMenu, refreshDownloads, applyDownloadsFolder, selectedDownloadRow,
-    addToLibraryPaths, setAddToLibraryPaths, openAddToLibrary, runDownloadsImport, defaultImportDestination: defaultImportDestination(history),
+    addToLibraryPaths, setAddToLibraryPaths, openAddToLibrary, runDownloadsImport,
   };
   useLibraryChanged({
     ready,
