@@ -6,7 +6,7 @@ Status: plan only, not started
 
 **Goal:** Fix the Import finished recycle button label, and keep the Add to library Up button in one place when the folder path is long.
 
-**Architecture:** Item 1 is a string change in `ImportSummaryDialog`. The click handler, `recycle_last_import`, and the question sentence stay as they are. Item 2 is picker-only CSS plus a tooltip string. The main-window breadcrumb and the External Programs Up button stay as they are. Later notes from Jason append as the next number. Do not renumber.
+**Architecture:** Item 1 is a string change in `ImportSummaryDialog`. The click handler, `recycle_last_import`, and the question sentence stay as they are. Item 2 is picker-only CSS plus a tooltip string. The main-window breadcrumb and the External Programs Up button stay as they are. Item 3 clears the shared creator and tag state when Add to library opens, and starts the destination at the library root. The import summary for the batch that just finished still shows that batch's creator and tags. Later notes from Jason append as the next number. Do not renumber.
 
 **Tech Stack:** React 19, Vitest 5 + v8 (`npm run test:unit`), plain CSS in `src/styles/dialogs.css`. No Rust change for these two items.
 
@@ -19,7 +19,7 @@ Status: plan only, not started
 - After implementation, run `/review-bugbot` on that PR and address findings before merge. This plan PR is not that review.
 - Karpathy: minimal focused diffs. No new component, no recycle-behavior change, no hand-edited version fields, no drive-by refactors.
 - Version changes happen only through `npm run version:bump` (`scripts/version.mjs`), which writes `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src-tauri/Cargo.lock` together. One bump per implementation PR, after tests pass. Do not edit those version fields by hand.
-- Items 1 and 2 are independent. One commit per item, one implementation PR, unless a later item is large enough to split.
+- Items 1, 2, and 3 are independent. One commit per item, one implementation PR, unless a later item is large enough to split.
 
 ## How to add the next item
 
@@ -436,7 +436,204 @@ git commit -m "fix: keep the Add to library Up button on one row"
 
 ---
 
-## After both items
+### 3. Downloads — reset Add to library for every import
+
+**Status:** not started
+
+**What Jason saw.** Importing more than one file from Downloads, one Add to library after another. The next dialog still has the previous import's destination folder, source field (`Maker World`), and tags (`Angels, FDM`). Each new import must start from defaults.
+
+One context-menu selection of several files is still one import: one dialog, one `importPaths` call, one destination, one creator, one tag set (`DownloadsContextMenu` calls `openAddToLibrary(menu.selection)`). This item does not split that batch. The reset is the next time the dialog opens.
+
+**Where the state lives.** Nothing is written to settings or disk.
+
+| What Jason called it | State | Where | Initial value |
+| --- | --- | --- | --- |
+| Source field (`Maker World`) | `importCreator: string` | `useLibrary` `useState`, line 65 of `src/hooks/useLibrary.ts` | `""` |
+| Tags (`Angels`, `FDM` chips) | `importTags: string[]` | same hook, line 66 | `[]` |
+| Tags still typed in the box (`Angels, FDM`) | `importTagText: string` | same hook, line 67 | `""` |
+| Destination folder | `browse` inside `AddToLibraryDialog` | `useState`, seeded from the `defaultPlace` prop | see below |
+
+The source field is the creator input. `ImportMetaFields` has no separate source control. Placeholder: `Creator for all imported files`. The same three values are passed into `ImportSummaryDialog`, so the summary and the next Add to library dialog are the same state.
+
+**Why creator and tags persist.** `runImport` (drop or folder import) clears all three before `setSummary` (`useLibrary.ts` around lines 434–436). `runDownloadsImport` (around lines 454–484) does not. It leaves them so the summary opens pre-filled. That was explicit in `docs/plans/downloads-folder.md` ("Leave `importCreator`, `importTags`, and `importTagText` as entered") and is locked by the test `imports into the dialog folder, keeps creator and tags, and opens the summary` in `src/hooks/useLibrary.test.tsx`. Cancel only sets `addToLibraryPaths` to null (`App.tsx`), so a cancelled draft stays in the hook too.
+
+Do not clear inside `runDownloadsImport`. `Keep originals` and `Move to Recycle Bin` read `importCreator`, `importTags`, and `importTagText` when they call `applyBulkMeta`. Clearing before `setSummary` would drop `Maker World` and `Angels, FDM` before they are saved onto the files just imported.
+
+**Why the destination persists.** `AddToLibraryDialog` drops its local `browse` when it unmounts. The next open copies `defaultPlace`. `App.tsx` passes `defaultPlace={defaultImportDestination}`, and the hook sets that to `defaultImportDestination(history)` (`useLibrary.ts` return value). The function in `src/lib/downloadsImport.ts` walks `history.back` from the end and returns the last place whose type is not `"downloads"`, or `{ type: "root" }`.
+
+After a successful Downloads import (`importedCount > 0`), `runDownloadsImport` calls `setBrowse` to that folder. `setBrowse` is `pushFolder`. The user then opens Downloads again from the sidebar, which pushes `{ type: "downloads" }` on top of that folder. The last non-Downloads place is now the folder just imported into, so the next dialog opens there. The wiki states this rule today (`docs/wiki/Importing.md`: "The default is the library folder you last had open before Downloads, or the library root"). A successful import leaves Downloads, so the next visit's "folder before Downloads" is the previous import's destination. Root is the only destination that is empty on every new dialog.
+
+**Defaults for every new Add to library dialog.**
+
+| Field | Default |
+| --- | --- |
+| `importCreator` | `""` |
+| `importTags` | `[]` |
+| `importTagText` | `""` |
+| Destination `browse` | `{ type: "root" }` (breadcrumb is the library name only, for example `3D Print Library`; `Copy into: 3D Print Library`) |
+
+The summary for the import that just finished still shows the creator and tags from that dialog until it is closed. The next Add to library, including one opened after Cancel, starts from the table above. A multi-file selection still shares one filled-in dialog for that batch.
+
+**Files:**
+
+- Modify: `src/hooks/useLibrary.ts` (`openAddToLibrary` only)
+- Modify: `src/hooks/useLibrary.test.tsx`
+- Modify: `src/App.tsx` (pass `defaultPlace={{ type: "root" }}`; drop `defaultImportDestination` from the destructure)
+- Modify: `src/App.test.tsx`
+- Modify: `src/components/dialogs/AddToLibraryDialog.test.tsx` (new-path reset when `defaultPlace` is root)
+- Delete: `defaultImportDestination` from `src/lib/downloadsImport.ts`, and delete `src/lib/downloadsImport.test.ts` (that file only tests it). Remove the now-unused `FolderHistory` import in `downloadsImport.ts`.
+- Modify: `docs/wiki/Importing.md` step 2 and step 3 so they match the new defaults
+- Do not modify: `runDownloadsImport`, `ImportMetaFields.tsx`, `ImportSummaryDialog.tsx` handlers, `docs/plans/downloads-folder.md` (that file records the old decision)
+
+**Interfaces:**
+
+- Consumes: `openAddToLibrary(paths: string[]) => void`. Empty `paths` still returns without changing state.
+- Produces: no new export. `defaultImportDestination` is removed. Callers use `{ type: "root" }`.
+
+- [ ] **Step 1: Write the failing tests**
+
+In `src/hooks/useLibrary.test.tsx`, extend `ignores empty add-to-library paths` so an empty selection does not wipe a draft:
+
+```tsx
+act(() => {
+  result.current.setImportCreator("Maker World");
+  result.current.setImportTags(["Angels", "FDM"]);
+  result.current.setImportTagText("Angels, FDM");
+  result.current.openAddToLibrary([]);
+});
+expect(result.current.addToLibraryPaths).toBeNull();
+expect(result.current.importCreator).toBe("Maker World");
+expect(result.current.importTags).toEqual(["Angels", "FDM"]);
+expect(result.current.importTagText).toBe("Angels, FDM");
+```
+
+Add this test next to `imports into the dialog folder, keeps creator and tags, and opens the summary`. Paths are plain strings. The test must not touch the filesystem.
+
+```tsx
+it("clears creator and tags when the next Add to library opens", async () => {
+  api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+  mockCatalog();
+  api.listDownloads.mockResolvedValue({ status: "ok", rows: [], truncated: false });
+  api.importPaths.mockResolvedValue({
+    importedIds: [9],
+    importedCount: 1,
+    duplicateCount: 0,
+    unsupportedCount: 0,
+    failed: [],
+    recycleCount: 0,
+    leftInPlace: 0,
+    cancelled: false,
+    pendingHashCount: 0,
+  });
+  const { result } = renderHook(() => useLibrary(), { wrapper });
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  act(() => {
+    result.current.setImportCreator("Maker World");
+    result.current.setImportTags(["Angels", "FDM"]);
+    result.current.setImportTagText("Angels, FDM");
+    result.current.setBrowse({ type: "downloads" });
+  });
+  await waitFor(() => expect(result.current.browse).toEqual({ type: "downloads" }));
+  await act(async () => {
+    await result.current.runDownloadsImport(["D:\\Downloads\\a.stl"], 2);
+  });
+  expect(result.current.importCreator).toBe("Maker World");
+  expect(result.current.importTags).toEqual(["Angels", "FDM"]);
+  expect(result.current.importTagText).toBe("Angels, FDM");
+  expect(result.current.summary?.importedIds).toEqual([9]);
+  act(() => {
+    result.current.openAddToLibrary(["D:\\Downloads\\b.stl"]);
+  });
+  expect(result.current.addToLibraryPaths).toEqual(["D:\\Downloads\\b.stl"]);
+  expect(result.current.importCreator).toBe("");
+  expect(result.current.importTags).toEqual([]);
+  expect(result.current.importTagText).toBe("");
+});
+```
+
+In `src/components/dialogs/AddToLibraryDialog.test.tsx`:
+
+```tsx
+it("returns to the library root when the next file opens there", () => {
+  const model = app();
+  const { rerender } = render(
+    <AddToLibraryDialog
+      app={model}
+      paths={["D:\\Downloads\\a.stl"]}
+      defaultPlace={{ type: "root" }}
+      onClose={() => undefined}
+    />,
+  );
+  fireEvent.click(screen.getByRole("option", { name: "Terrain" }));
+  expect(copyIntoLine()).toBe("Copy into: 3D Print Library / Terrain");
+  rerender(
+    <AddToLibraryDialog
+      app={model}
+      paths={["D:\\Downloads\\b.stl"]}
+      defaultPlace={{ type: "root" }}
+      onClose={() => undefined}
+    />,
+  );
+  expect(copyIntoLine()).toBe("Copy into: 3D Print Library");
+});
+```
+
+In `src/App.test.tsx`, render `AppShell` through `libraryModel` with `addToLibraryPaths: ["D:\\Downloads\\a.stl"]`, `libraryName: "3D Print Library"`, `folders: [{ id: 2, parentId: null, name: "Toys", relpath: "Toys", sortOrder: 0 }]`, `defaultImportDestination: { type: "folder", id: 2 }`, `importCreator: ""`, `importTags: []`, `importTagText: ""`, `creators: []`, `tags: []`, no-op setters, and `runDownloadsImport: async () => true`. Assert `screen.getByText("Copy into: 3D Print Library")` (exact match, so `Copy into: 3D Print Library / Toys` does not pass). The clear of `Maker World` is the hook test. This App test only locks the destination prop.
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+```powershell
+Set-Location D:\GitHub\3DFileManager
+npm run test:unit -- src/hooks/useLibrary.test.tsx src/components/dialogs/AddToLibraryDialog.test.tsx src/App.test.tsx src/lib/downloadsImport.test.ts
+```
+
+Expected: FAIL. After `openAddToLibrary(["D:\\Downloads\\b.stl"])`, `importCreator` is still `Maker World`. The App test finds `Copy into: 3D Print Library / Toys` because `App.tsx` still passes `defaultImportDestination`. The dialog rerender test passes already: `pathKey` resets `browse` to `defaultPlace`. Keep that test so a later edit cannot leave the previous folder selected.
+
+- [ ] **Step 3: Reset on open, and start at the library root**
+
+`openAddToLibrary` in `src/hooks/useLibrary.ts`:
+
+```tsx
+const openAddToLibrary = useCallback((paths: string[]) => {
+  if (paths.length === 0) return;
+  setImportCreator("");
+  setImportTags([]);
+  setImportTagText("");
+  setAddToLibraryPaths([...paths]);
+}, []);
+```
+
+Leave `runDownloadsImport` unchanged, including `setBrowse(next.place)` after a non-zero import.
+
+In `src/App.tsx`, remove `defaultImportDestination` from the destructure and pass:
+
+```tsx
+defaultPlace={{ type: "root" }}
+```
+
+Delete `defaultImportDestination` from `src/lib/downloadsImport.ts` and from the `useLibrary` import and return value. Delete `src/lib/downloadsImport.test.ts`.
+
+In `docs/wiki/Importing.md`, replace the destination and creator sentences under From Downloads with: the destination starts at the library root every time Add to library opens; creator and tags start empty. The import summary still shows the creator and tags entered for that batch.
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+```powershell
+npm run test:unit -- src/hooks/useLibrary.test.tsx src/components/dialogs/AddToLibraryDialog.test.tsx src/App.test.tsx src/lib/downloadsImport.navigation.test.ts
+```
+
+Expected: PASS. `downloadsImport.test.ts` is gone, so it is not in this command.
+
+- [ ] **Step 5: Commit**
+
+```powershell
+git add src/hooks/useLibrary.ts src/hooks/useLibrary.test.tsx src/App.tsx src/App.test.tsx src/lib/downloadsImport.ts src/components/dialogs/AddToLibraryDialog.test.tsx docs/wiki/Importing.md
+git add -u src/lib/downloadsImport.test.ts
+git commit -m "fix: reset Add to library fields for each Downloads import"
+```
+
+---
+
+## After these items
 
 - [ ] **Graph coverage**
 
@@ -446,7 +643,7 @@ From `D:\GitHub\3DFileManager`. Do not pipe JSON through PowerShell `>` or `Out-
 node .cursor/skills/graph-coverage/scripts/graph-coverage.mjs --summary --changed --out "$env:TEMP\graph-coverage-ui-fixes.json"
 ```
 
-Static linkage only. On this diff the new symbol is `breadcrumbTitle`. A test that calls it must leave it off `metrics.untested` with `reachedFromTest: false`. `ImportSummaryDialog` and `Breadcrumb` should show a `covers` link from their test files. Re-run the same command after any test added to close a gap. Paste the ratios, the untested rows for touched files, and `blastRadius` into the implementation PR.
+Static linkage only. On this diff the new symbol is `breadcrumbTitle`. A test that calls it must leave it off `metrics.untested` with `reachedFromTest: false`. `ImportSummaryDialog`, `Breadcrumb`, and `openAddToLibrary` should show a `covers` link from their test files. `defaultImportDestination` should be gone, not listed as untested. Re-run the same command after any test added to close a gap. Paste the ratios, the untested rows for touched files, and `blastRadius` into the implementation PR.
 
 Then run the whole unit suite so the 80% thresholds in `vitest.config.ts` still pass:
 
@@ -483,16 +680,17 @@ npm run tauri dev
 2. Open Add to library on a file. At `3D Print Library` (or one short folder), Up is on the same row as the breadcrumb, at the trailing end, and the dialog has no horizontal scrollbar.
 3. Go to a long folder, for example `3D Print Library > FDM Prints > Toys > Articulated Toys > Dummy 13 > dummy-13`. Up stays on that same row. The breadcrumb shows an ellipsis inside its own area and does not scroll horizontally. Hovering the breadcrumb shows the full ` > ` path. The `Copy into:` line ellipsizes on one line, and its tooltip is the full `Copy into: ...` sentence with ` / ` separators.
 4. Narrow the window until the card is at `calc(100% - 32px)`. Up does not wrap. The folder list still scrolls on its own (`.folder-picker-list` is `overflow: auto`, `max-height: 220px`).
+5. From Downloads, Add to library on one file. Set the destination to a nested folder, creator to `Maker World`, and tags to `Angels` and `FDM`. Confirm. The import summary still shows that creator and those tags. Close it, return to Downloads, and Add to library on a different file. The destination is the library root only, the creator box is empty, and there are no tag chips and no tag text. Cancel a draft and open the dialog again: those fields are empty again. Select two files and Add to library once: one dialog, one destination, one creator, one tag set.
 
 ## Karpathy-style checklist
 
-- Assumptions: the recycle click already does the right disk work; only its label is wrong. The Up wrap is the toolbar flex rules, not missing crumb data.
-- Simple: one string in item 1. CSS plus two tooltip strings in item 2. No new component.
-- Not in scope: rewriting the question sentence, undoing library copies, changing `trash::delete`, collapsing crumbs with `truncateCrumbs`, restyling the main breadcrumb, touching External Programs Up.
-- Verifiable: the test snippets above, `npm run test:unit` at the 80% thresholds, graph-coverage on `--changed`, and the four Windows checks.
+- Assumptions: the recycle click already does the right disk work; only its label is wrong. The Up wrap is the toolbar flex rules, not missing crumb data. Downloads creator and tags are three `useState` values, and the sticky destination is `defaultImportDestination(history)` after the post-import `setBrowse`.
+- Simple: one string in item 1. CSS plus two tooltip strings in item 2. Three setters and a root `defaultPlace` in item 3. No new component.
+- Not in scope: rewriting the question sentence, undoing library copies, changing `trash::delete`, collapsing crumbs with `truncateCrumbs`, restyling the main breadcrumb, touching External Programs Up, clearing creator and tags inside `runDownloadsImport`, splitting a multi-file selection into one dialog per file.
+- Verifiable: the test snippets above, `npm run test:unit` at the 80% thresholds, graph-coverage on `--changed`, and the five Windows checks.
 
 ## Self-review
 
-- Spec coverage: item 1 is the exact label `Move to Recycle Bin`, plus a written account of `recycle_last_import` and the question-sentence mismatch (flagged, not "fixed"). Item 2 is a fixed Up slot, breadcrumb ellipsis with a full-path tooltip, and a Copy into truncation check. Tests, graph-coverage, `/review-bugbot`, Karpathy, `npm run version:bump`, and PowerShell steps are in "After both items".
+- Spec coverage: item 1 is the exact label `Move to Recycle Bin`, plus a written account of `recycle_last_import` and the question-sentence mismatch (flagged, not changed). Item 2 is a fixed Up slot, breadcrumb ellipsis with a full-path tooltip, and a Copy into truncation check. Item 3 names the three hook fields and the history default, defines empty creator, empty tags, and library-root destination, and resets on `openAddToLibrary` without clearing `runDownloadsImport`. Tests, graph-coverage, `/review-bugbot`, Karpathy, `npm run version:bump`, and PowerShell steps are in "After these items".
 - No placeholders. Commands and code snippets are in the steps.
-- `breadcrumbTitle(crumbs: Crumb[]): string` is the only new signature, and the tests call that name.
+- `breadcrumbTitle(crumbs: Crumb[]): string` is the only new signature, and the tests call that name. Item 3 removes `defaultImportDestination` and adds no replacement export.
