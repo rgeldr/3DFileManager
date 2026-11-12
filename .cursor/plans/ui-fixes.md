@@ -4,11 +4,11 @@ Status: plan only, not started
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Fix the Import finished recycle button label, and keep the Add to library Up button in one place when the folder path is long.
+**Goal:** Fix the Import finished recycle button label, keep the Add to library Up button in one place, reset Downloads import settings, and add Duplicate on the file context menu.
 
-**Architecture:** Item 1 is a string change in `ImportSummaryDialog`. The click handler, `recycle_last_import`, and the question sentence stay as they are. Item 2 is picker-only CSS plus a tooltip string. The main-window breadcrumb and the External Programs Up button stay as they are. Item 3 clears the shared creator and tag state when Add to library opens, and starts the destination at the library root. The import summary for the batch that just finished still shows that batch's creator and tags. Later notes from Jason append as the next number. Do not renumber.
+**Architecture:** Item 1 is a string change in `ImportSummaryDialog`. The click handler, `recycle_last_import`, and the question sentence stay as they are. Item 2 is picker-only CSS plus a tooltip string. The main-window breadcrumb and the External Programs Up button stay as they are. Item 3 clears the shared creator and tag state when Add to library opens, and starts the destination at the library root. The import summary for the batch that just finished still shows that batch's creator and tags. Item 4 adds a file-only context menu command. Naming is a pure Rust function. The copy is a new file in the same folder, with its own catalog row that copies creator, notes, tags, and the source hash. Later notes from Jason append as the next number. Do not renumber.
 
-**Tech Stack:** React 19, Vitest 5 + v8 (`npm run test:unit`), plain CSS in `src/styles/dialogs.css`. No Rust change for these two items.
+**Tech Stack:** React 19, Vitest 5 + v8 (`npm run test:unit`), plain CSS in `src/styles/dialogs.css`, Tauri command plus Rust tests for item 4 (`cargo test` in `src-tauri`). Items 1–3 do not change Rust.
 
 ## Global Constraints
 
@@ -19,7 +19,7 @@ Status: plan only, not started
 - After implementation, run `/review-bugbot` on that PR and address findings before merge. This plan PR is not that review.
 - Karpathy: minimal focused diffs. No new component, no recycle-behavior change, no hand-edited version fields, no drive-by refactors.
 - Version changes happen only through `npm run version:bump` (`scripts/version.mjs`), which writes `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and `src-tauri/Cargo.lock` together. One bump per implementation PR, after tests pass. Do not edit those version fields by hand.
-- Items 1, 2, and 3 are independent. One commit per item, one implementation PR, unless a later item is large enough to split.
+- Items 1, 2, 3, and 4 are independent. One commit per item, one implementation PR, unless a later item is large enough to split. Rust tests for item 4 use `std::env::temp_dir` the way `src-tauri/src/db/tests_files.rs` already does. Do not hard-code `/tmp`.
 
 ## How to add the next item
 
@@ -633,6 +633,224 @@ git commit -m "fix: reset Add to library fields for each Downloads import"
 
 ---
 
+### 4. Duplicate a file from the context menu
+
+**Status:** not started
+
+**What Jason saw.** The file right-click menu needs a `Duplicate` item. It applies to files only, not folders. The copy stays in the same folder. The new name inserts ` (N)` before the extension: `part.stl` becomes `part (1).stl`. If the stem already ends in ` (N)`, use the next free number: `part (1).stl` becomes `part (2).stl`. Numbers that already exist are skipped.
+
+**Where the menu is built.** Library files use `FileContextMenu` (`src/components/dialogs/FileContextMenu.tsx`), portaled from `App.tsx`. The grid opens it in `App.tsx` `onContextMenu`: if the clicked file is not in `selected`, the selection is replaced with that file, then `setFileMenu({ x, y, fileId })`. Current items, in order: `Open in…`, `Show in Explorer`, `Rename`, `Set Creator…`, `Add tags…`. `Rename` and `Open in…` use only `fileMenu.fileId`. `Set Creator…` and `Add tags…` use `selectionTarget`: every `selected` id when the clicked id is inside the selection, otherwise just the clicked id.
+
+Folders use `FolderContextMenu` (`src/components/dialogs/FolderContextMenu.tsx`): `New folder`, `Rename`, `Delete`, `Tag contents…`, `Set Creator…`, `Show in Explorer`, `Rescan`. Sidebar folders and grid folders both use that menu. Do not add `Duplicate` there.
+
+Downloads rows use `DownloadsContextMenu` (`Add to library`, `Show in Explorer`). Those paths are not library files. Do not add `Duplicate` there.
+
+**Naming.** Do not call `unique_file_path` in `src-tauri/src/names.rs`. That helper, on a collision, starts at ` (2)` and never produces ` (1)`.
+
+Add `duplicate_file_name(file_name: &str, taken: &[String]) -> Result<String, String>` in `names.rs`. `taken` is file names already in that folder plus names reserved earlier in the same batch. Compare with `to_ascii_lowercase`, the same ASCII case folding SQLite `COLLATE NOCASE` uses. No new crate. Parse by hand.
+
+Split the extension the way `std::path::Path` does. The extension is the text after the last dot, with its original case kept in the new file name. The catalog `ext` column stays lowercase. A leading-dot name such as `.gitignore` has no extension (`file_stem` is the whole name). An empty stem means there is no extension split.
+
+A numbered stem matches only a final ` (N)` where `N` is a decimal integer with no leading zero (`[1-9]\d*`), the base before that suffix is non-empty, and the base does not end in a space or a period. Otherwise the whole stem is the base and the first number is 1.
+
+| Source | Taken | Result | Why |
+| --- | --- | --- | --- |
+| `part.stl` | none | `part (1).stl` | first copy starts at 1 |
+| `part.stl` | `part (1).stl` | `part (2).stl` | 1 exists |
+| `part (1).stl` | none | `part (2).stl` | already numbered, start at N+1 |
+| `part (1).stl` | `part (2).stl` | `part (3).stl` | skip the taken number |
+| `part.stl` | `part (1).stl`, `part (3).stl` | `part (2).stl` | gap is filled when starting from 1 |
+| `part (3).stl` | `part (1).stl`, `part (2).stl` | `part (4).stl` | do not fill gaps below N+1 |
+| `README` | none | `README (1)` | no extension |
+| `part.backup.stl` | none | `part.backup (1).stl` | last dot is the extension |
+| `v(2).stl` | none | `v(2) (1).stl` | no space before `(` |
+| `v(2)` | none | `v(2) (1)` | same rule, no extension |
+| `part.STL` | `PART (1).stl` | `part (2).STL` | case-insensitive collision, source extension case kept |
+| `part (01).stl` | none | `part (01) (1).stl` | leading zero is not ` (N)` |
+| `(1).stl` | none | `(1) (1).stl` | empty base is not stripped |
+| `part (0).stl` | none | `part (0) (1).stl` | zero is not ` (N)` |
+| `part  (1).stl` | none | `part  (1) (1).stl` | base would end in a space, so do not strip |
+| `.gitignore` | none | `.gitignore (1)` | leading dot is not an extension |
+| `part (2) (1).stl` | none | `part (2) (2).stl` | only the trailing ` (N)` counts |
+
+Search `n` from the start number through 9999 inclusive. If none are free, return `No free name next to "{file_name}".` Do not fall back to a `-copy` suffix.
+
+**Copy command.** New Tauri command `duplicate_files` in `src-tauri/src/commands/files.rs`, registered in `generate_handler!` in `src-tauri/src/lib.rs` next to `rename_file`. One disk lock for the whole id list, same `block_on_disk` shape as `rename_file`. Emit `LibraryChangeKind::Files` when at least one row was inserted.
+
+```rust
+struct DuplicateOutcome {
+    ids: Vec<i64>,
+    failed: Vec<String>,
+    cancelled: bool,
+}
+```
+
+For each id, in selection order:
+
+1. Load the source row (stored path, folder id, creator, notes, source archive, ext, sha256, thumb status, missing, tag names). A missing id or `missing = 1` appends `That file is missing on disk, so it can't be duplicated.` and continues.
+2. Resolve the path with `contained_library_file`. If the file is not on disk, same missing error. Do not create a row.
+3. Build `taken` from catalog names in that `folder_id` (`NULL` for the library root) and from names already chosen in this batch for that folder. Case-insensitive.
+4. `duplicate_file_name` on the source disk file name.
+5. `std::fs::copy` into the same parent directory. Not `hard_link`: a hard link would make a later Recycle Bin delete of one name drop the bytes the other name still needs.
+6. Insert a new `files` row. Copy `creator`, `notes`, `source_archive`, `ext`, and `sha256`. `original_name` and `stored_relpath` are the new file name in the same folder. `sort_name` comes from `default_sort_name` of that new name (the same helper `insert_file` uses). `folder_id` is the source folder. `size_bytes` and `mtime` come from the new file's metadata. `imported_at` is now. `missing` is 0.
+7. Copy tags with `set_tags` so both `file_tags` and `tags_text` match the source. Tag rows are shared. Do not create new tag names.
+8. Thumbnail: if the source `thumb_status` is `ok` and `sha256` is non-empty, the new row is also `ok`. Thumbnails are files named `thumbs/{sha}.png`, so the copy shares that png. `remove_catalogued_file` already deletes the png only when no remaining row has that sha. Otherwise set `none` when `queues_thumbnail(ext)` and `unavailable` when it does not. Never `unhashed`.
+
+**Why the hash is copied.** `sha_exists` makes a normal import skip bytes that are already in the library. The hash pass (`src-tauri/src/hash_pass.rs`, `commit_if_unmoved` then `recycle_duplicate`) sends a row to the Recycle Bin when its bytes match another row and the row is still `unhashed`. An intentional duplicate is the same bytes on purpose. Storing the source sha and a non-`unhashed` thumb status keeps the hash pass from deleting it. Do not change import or the hash pass.
+
+If the copy or the insert fails, delete the new file when it exists and delete the new row when it was inserted. Append `"{file name}: {error}"` to `failed` and continue with the next id. Check the cancel flag between files. Files already copied stay. `cancelled` is true and `ids` holds the new row ids.
+
+**UI.** Label exactly `Duplicate`, placed after `Rename` and before `Set Creator…`.
+
+Use `selectionTarget` so a multi-selection duplicates every selected file, and a click on a file outside the selection duplicates only that file. Each file is copied into its own folder. A library search can show files from more than one folder. Do not drop them all into the folder currently on screen.
+
+`runDiskOp` (`useLibrary.ts`): title `Duplicating "part.stl"...` for one file and `Duplicating 3 files...` for more, `cancellable: true`, success `Duplicated 1 file` or `Duplicated N files`, cancelled `Duplicate cancelled`. `api.duplicateFiles(ids)` invokes `duplicate_files`. On a full failure (`ids` empty and `failed` non-empty), throw so `runDiskOp` shows `setError`. When some copies succeed, `after` selects the new ids, refreshes the list, and `setError`s the joined `failed` lines.
+
+`src/api.ts`:
+
+```ts
+duplicateFiles: (ids: number[]) =>
+  invoke<{ ids: number[]; failed: string[]; cancelled: boolean }>("duplicate_files", { ids }),
+```
+
+Add `duplicateFiles: [[1]]` to `sampleArgs` in `src/api.test.ts`. That test invokes every wrapper and checks `generate_handler!`.
+
+**Files:**
+
+- Modify: `src-tauri/src/names.rs` (`duplicate_file_name` and tests)
+- Modify: `src-tauri/src/commands/files.rs` (`duplicate_files` command and work function)
+- Modify: `src-tauri/src/lib.rs` (handler list)
+- Modify: `src-tauri/src/db/tests_files.rs` (one copy that checks bytes, creator, notes, tags, sha, thumb status, and the next number)
+- Modify: `src/api.ts`, `src/api.test.ts`
+- Modify: `src/components/dialogs/FileContextMenu.tsx`, `src/components/dialogs/FileContextMenu.test.tsx`
+- Modify: `src/components/dialogs/FolderContextMenu.test.tsx` (assert there is no `Duplicate` item)
+- Do not modify: `FolderContextMenu.tsx`, `DownloadsContextMenu.tsx`, `unique_file_path`, `hash_pass.rs`
+
+**Interfaces:**
+
+- Consumes: `selectionTarget`, `runDiskOp`, `set_tags`, `contained_library_file`, `default_sort_name`.
+- Produces: `pub fn duplicate_file_name(file_name: &str, taken: &[String]) -> Result<String, String>`. Tauri `duplicate_files(ids: Vec<i64>) -> Result<DuplicateOutcome, String>` with camelCase JSON `ids`, `failed`, `cancelled`.
+
+- [ ] **Step 1: Write the failing naming test**
+
+In `src-tauri/src/names.rs` tests:
+
+```rust
+#[test]
+fn duplicate_file_name_covers_the_numbering_rules() {
+    let next = |name: &str, taken: &[&str]| {
+        let taken: Vec<String> = taken.iter().map(|item| (*item).to_string()).collect();
+        duplicate_file_name(name, &taken).unwrap()
+    };
+    assert_eq!(next("part.stl", &[]), "part (1).stl");
+    assert_eq!(next("part.stl", &["part (1).stl"]), "part (2).stl");
+    assert_eq!(next("part (1).stl", &[]), "part (2).stl");
+    assert_eq!(next("part (1).stl", &["part (2).stl"]), "part (3).stl");
+    assert_eq!(next("part.stl", &["part (1).stl", "part (3).stl"]), "part (2).stl");
+    assert_eq!(next("part (3).stl", &["part (1).stl", "part (2).stl"]), "part (4).stl");
+    assert_eq!(next("README", &[]), "README (1)");
+    assert_eq!(next("part.backup.stl", &[]), "part.backup (1).stl");
+    assert_eq!(next("v(2).stl", &[]), "v(2) (1).stl");
+    assert_eq!(next("v(2)", &[]), "v(2) (1)");
+    assert_eq!(next("part.STL", &["PART (1).stl"]), "part (2).STL");
+    assert_eq!(next("part (01).stl", &[]), "part (01) (1).stl");
+    assert_eq!(next("(1).stl", &[]), "(1) (1).stl");
+    assert_eq!(next("part (0).stl", &[]), "part (0) (1).stl");
+    assert_eq!(next("part  (1).stl", &[]), "part  (1) (1).stl");
+    assert_eq!(next(".gitignore", &[]), ".gitignore (1)");
+    assert_eq!(next("part (2) (1).stl", &[]), "part (2) (2).stl");
+    let exhausted: Vec<String> = (1..10_000).map(|n| format!("part ({n}).stl")).collect();
+    let err = duplicate_file_name("part.stl", &exhausted).unwrap_err();
+    assert!(err.contains("part.stl"), "{err}");
+}
+```
+
+- [ ] **Step 2: Run the naming test to verify it fails**
+
+```powershell
+Set-Location D:\GitHub\3DFileManager\src-tauri
+cargo test duplicate_file_name_covers_the_numbering_rules -- --nocapture
+```
+
+Expected: FAIL to compile, `duplicate_file_name` is not defined.
+
+- [ ] **Step 3: Implement `duplicate_file_name`**
+
+Only the function described above. Re-run the same `cargo test` command. Expected: PASS.
+
+- [ ] **Step 4: Write the failing menu and catalog tests**
+
+`FileContextMenu.test.tsx`: the item-order test gains `Duplicate` after `Rename`. A new test clicks `Duplicate` with `selected` `[1, 2]` and `fileId` 1 and expects `runDiskOp` to call `api.duplicateFiles([1, 2])`. A click with `fileId` 3 and `selected` `[1, 2]` expects `duplicateFiles([3])`. Mock `../../api` the way the file already mocks `openInProgram`.
+
+`FolderContextMenu.test.tsx`: `screen.queryByRole("menuitem", { name: "Duplicate" })` is null.
+
+`src-tauri/src/db/tests_files.rs`: name the test `duplicate_files_copies_bytes_metadata_and_the_next_free_number` so `cargo test duplicate_files` runs it. Follow `move_files_cancel_keeps_the_rest` for the temp library (`std::env::temp_dir`, then `remove_dir_all`). Insert `part.stl` with creator `Ada`, notes `kept`, sha `sha-part`, tags `FDM` and `Angels`, and `thumb_status` `ok`. Write the bytes `solid part`. Duplicate it. Assert the new path is `part (1).stl`, the bytes match, creator, notes, tags, sha, folder id, and `thumb_status` `ok` match, and `thumb_status` is not `unhashed`. Duplicate the copy and assert `part (2).stl`. A missing id returns an error and does not add a row.
+
+- [ ] **Step 5: Implement the command and the menu**
+
+Work function and `duplicate_files` command as specified. `FileContextMenu` item:
+
+Pull `runDiskOp`, `setSelected`, and `refreshLists` from `app`. The menu item:
+
+```tsx
+<button
+  type="button"
+  role="menuitem"
+  onClick={() => {
+    const target = selectionTarget(fileMenu.fileId);
+    const ids = target.fileIds;
+    const title = ids.length === 1 ? `Duplicating "${target.name}"...` : `Duplicating ${ids.length} files...`;
+    const success = ids.length === 1 ? "Duplicated 1 file" : `Duplicated ${ids.length} files`;
+    setFileMenu(null);
+    let created: number[] = [];
+    let failures: string[] = [];
+    void runDiskOp({
+      title,
+      cancellable: true,
+      success,
+      cancelled: "Duplicate cancelled",
+      run: async () => {
+        const outcome = await api.duplicateFiles(ids);
+        created = outcome.ids;
+        failures = outcome.failed;
+        if (!outcome.cancelled && outcome.ids.length === 0 && outcome.failed.length > 0) {
+          throw new Error(outcome.failed.join("\n"));
+        }
+        return outcome;
+      },
+      after: async () => {
+        if (created.length > 0) setSelected(created);
+        await refreshLists();
+        if (failures.length > 0) setError(failures.join("\n"));
+      },
+    });
+  }}
+>
+  Duplicate
+</button>
+```
+
+- [ ] **Step 6: Run the tests**
+
+```powershell
+Set-Location D:\GitHub\3DFileManager\src-tauri
+cargo test duplicate_file_name_covers_the_numbering_rules -- --nocapture
+cargo test duplicate_files -- --nocapture
+Set-Location D:\GitHub\3DFileManager
+npm run test:unit -- src/components/dialogs/FileContextMenu.test.tsx src/components/dialogs/FolderContextMenu.test.tsx src/api.test.ts
+```
+
+Expected: PASS. Name the catalog test so `cargo test duplicate_files` matches it.
+
+- [ ] **Step 7: Commit**
+
+```powershell
+git add src-tauri/src/names.rs src-tauri/src/commands/files.rs src-tauri/src/lib.rs src-tauri/src/db/tests_files.rs src/api.ts src/api.test.ts src/components/dialogs/FileContextMenu.tsx src/components/dialogs/FileContextMenu.test.tsx src/components/dialogs/FolderContextMenu.test.tsx
+git commit -m "feat: duplicate library files from the context menu"
+```
+
+---
+
 ## After these items
 
 - [ ] **Graph coverage**
@@ -643,7 +861,7 @@ From `D:\GitHub\3DFileManager`. Do not pipe JSON through PowerShell `>` or `Out-
 node .cursor/skills/graph-coverage/scripts/graph-coverage.mjs --summary --changed --out "$env:TEMP\graph-coverage-ui-fixes.json"
 ```
 
-Static linkage only. On this diff the new symbol is `breadcrumbTitle`. A test that calls it must leave it off `metrics.untested` with `reachedFromTest: false`. `ImportSummaryDialog`, `Breadcrumb`, and `openAddToLibrary` should show a `covers` link from their test files. `defaultImportDestination` should be gone, not listed as untested. Re-run the same command after any test added to close a gap. Paste the ratios, the untested rows for touched files, and `blastRadius` into the implementation PR.
+Static linkage only. On this diff the new symbols are `breadcrumbTitle`, `duplicate_file_name`, and the duplicate command work function. A test that calls each name must leave it off `metrics.untested` with `reachedFromTest: false`. `ImportSummaryDialog`, `Breadcrumb`, `openAddToLibrary`, and `FileContextMenu` should show a `covers` link from their test files. `defaultImportDestination` should be gone, not listed as untested. Re-run the same command after any test added to close a gap. Paste the ratios, the untested rows for touched files, and `blastRadius` into the implementation PR. Also run `cargo test duplicate_file_name -- --nocapture` and `cargo test duplicate_files -- --nocapture` from `src-tauri`.
 
 Then run the whole unit suite so the 80% thresholds in `vitest.config.ts` still pass:
 
@@ -681,16 +899,17 @@ npm run tauri dev
 3. Go to a long folder, for example `3D Print Library > FDM Prints > Toys > Articulated Toys > Dummy 13 > dummy-13`. Up stays on that same row. The breadcrumb shows an ellipsis inside its own area and does not scroll horizontally. Hovering the breadcrumb shows the full ` > ` path. The `Copy into:` line ellipsizes on one line, and its tooltip is the full `Copy into: ...` sentence with ` / ` separators.
 4. Narrow the window until the card is at `calc(100% - 32px)`. Up does not wrap. The folder list still scrolls on its own (`.folder-picker-list` is `overflow: auto`, `max-height: 220px`).
 5. From Downloads, Add to library on one file. Set the destination to a nested folder, creator to `Maker World`, and tags to `Angels` and `FDM`. Confirm. The import summary still shows that creator and those tags. Close it, return to Downloads, and Add to library on a different file. The destination is the library root only, the creator box is empty, and there are no tag chips and no tag text. Cancel a draft and open the dialog again: those fields are empty again. Select two files and Add to library once: one dialog, one destination, one creator, one tag set.
+6. Right-click `part.stl` and choose `Duplicate`. The same folder gains `part (1).stl` with the same creator and tags, and that row stays after the library refreshes. Duplicate `part (1).stl` and get `part (2).stl`. With `part (1).stl` and `part (3).stl` present, duplicating `part.stl` creates `part (2).stl`. Right-click `v(2).stl` and get `v(2) (1).stl`. A folder menu has no `Duplicate`. Two selected files both copy. Right-click a file that is not in the selection and only that file copies.
 
 ## Karpathy-style checklist
 
-- Assumptions: the recycle click already does the right disk work; only its label is wrong. The Up wrap is the toolbar flex rules, not missing crumb data. Downloads creator and tags are three `useState` values, and the sticky destination is `defaultImportDestination(history)` after the post-import `setBrowse`.
-- Simple: one string in item 1. CSS plus two tooltip strings in item 2. Three setters and a root `defaultPlace` in item 3. No new component.
-- Not in scope: rewriting the question sentence, undoing library copies, changing `trash::delete`, collapsing crumbs with `truncateCrumbs`, restyling the main breadcrumb, touching External Programs Up, clearing creator and tags inside `runDownloadsImport`, splitting a multi-file selection into one dialog per file.
-- Verifiable: the test snippets above, `npm run test:unit` at the 80% thresholds, graph-coverage on `--changed`, and the five Windows checks.
+- Assumptions: the recycle click already does the right disk work; only its label is wrong. The Up wrap is the toolbar flex rules, not missing crumb data. Downloads creator and tags are three `useState` values, and the sticky destination is `defaultImportDestination(history)` after the post-import `setBrowse`. A duplicate must store the source sha and must not be `unhashed`, or the hash pass will recycle it.
+- Simple: one string in item 1. CSS plus two tooltip strings in item 2. Three setters and a root `defaultPlace` in item 3. One naming function, one command, and one menu item in item 4. No new component.
+- Not in scope: rewriting the question sentence, undoing library copies, changing `trash::delete`, collapsing crumbs with `truncateCrumbs`, restyling the main breadcrumb, touching External Programs Up, clearing creator and tags inside `runDownloadsImport`, splitting a multi-file selection into one dialog per file, duplicating folders or Downloads rows, changing `unique_file_path` or the hash pass.
+- Verifiable: the test snippets above, `npm run test:unit` at the 80% thresholds, `cargo test` for the duplicate names and command, graph-coverage on `--changed`, and the six Windows checks.
 
 ## Self-review
 
-- Spec coverage: item 1 is the exact label `Move to Recycle Bin`, plus a written account of `recycle_last_import` and the question-sentence mismatch (flagged, not changed). Item 2 is a fixed Up slot, breadcrumb ellipsis with a full-path tooltip, and a Copy into truncation check. Item 3 names the three hook fields and the history default, defines empty creator, empty tags, and library-root destination, and resets on `openAddToLibrary` without clearing `runDownloadsImport`. Tests, graph-coverage, `/review-bugbot`, Karpathy, `npm run version:bump`, and PowerShell steps are in "After these items".
+- Spec coverage: item 1 is the exact label `Move to Recycle Bin`, plus a written account of `recycle_last_import` and the question-sentence mismatch (flagged, not changed). Item 2 is a fixed Up slot, breadcrumb ellipsis with a full-path tooltip, and a Copy into truncation check. Item 3 names the three hook fields and the history default, defines empty creator, empty tags, and library-root destination, and resets on `openAddToLibrary` without clearing `runDownloadsImport`. Item 4 names `FileContextMenu`, the folder and Downloads menus that stay unchanged, `duplicate_file_name`, the copy command, metadata and hash handling, multi-select, errors, and the naming edge cases. Tests, graph-coverage, `/review-bugbot`, Karpathy, `npm run version:bump`, and PowerShell steps are in "After these items".
 - No placeholders. Commands and code snippets are in the steps.
-- `breadcrumbTitle(crumbs: Crumb[]): string` is the only new signature, and the tests call that name. Item 3 removes `defaultImportDestination` and adds no replacement export.
+- `breadcrumbTitle(crumbs: Crumb[]): string` is the new TypeScript signature, and the tests call that name. Item 3 removes `defaultImportDestination` and adds no replacement export. `duplicate_file_name(file_name: &str, taken: &[String]) -> Result<String, String>` is the new Rust signature, and `duplicate_file_name_covers_the_numbering_rules` calls it.
