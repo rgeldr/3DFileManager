@@ -63,6 +63,13 @@ describe("FolderPicker", () => {
       />,
     );
     expect(screen.queryByText("…")).toBeNull();
+    expect(document.querySelector(".breadcrumb")?.getAttribute("title")).toBe("Library > L1 > L2 > L3 > L4 > L5");
+    const destination = document.querySelector(".folder-picker-destination");
+    expect(destination?.textContent?.replace(/\s+/g, " ").trim()).toBe("Copy into: Library / L1 / L2 / L3 / L4 / L5");
+    expect(destination?.getAttribute("title")).toBe("Copy into: Library / L1 / L2 / L3 / L4 / L5");
+    const toolbar = document.querySelector(".folder-picker-toolbar");
+    expect(toolbar?.children[0]?.className).toContain("breadcrumb");
+    expect(toolbar?.children[1]?.className).toContain("folder-picker-up");
     fireEvent.click(screen.getByRole("button", { name: "L2" }));
     expect(onBrowseChange).toHaveBeenCalledWith({ type: "folder", id: 2 });
     expect(document.querySelector(".tree-twist-icon.open")).toBeNull();

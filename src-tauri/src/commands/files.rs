@@ -682,3 +682,256 @@ async fn delete_files(app: AppHandle, window: WebviewWindow, ids: Vec<i64>) -> R
     emit_library_changed(&app, LibraryChangeKind::Files, &source);
     Ok(result)
 }
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DuplicateOutcome {
+    pub ids: Vec<i64>,
+    pub failed: Vec<String>,
+    pub cancelled: bool,
+}
+
+const DUPLICATE_MISSING: &str = "That file is missing on disk, so it can't be duplicated.";
+
+pub(crate) fn duplicate_files_work(
+    db: &AppDb,
+    ids: &[i64],
+    cancel: &AtomicBool,
+) -> Result<DuplicateOutcome, String> {
+    let mut outcome = DuplicateOutcome {
+        ids: Vec::new(),
+        failed: Vec::new(),
+        cancelled: false,
+    };
+    let root = db.library_root()?;
+    let mut reserved: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for id in ids {
+        if cancel.load(Ordering::SeqCst) {
+            outcome.cancelled = true;
+            break;
+        }
+        match duplicate_one(db, &root, *id, &mut reserved) {
+            Ok(new_id) => outcome.ids.push(new_id),
+            Err(message) => outcome.failed.push(message),
+        }
+    }
+    Ok(outcome)
+}
+
+fn duplicate_one(
+    db: &AppDb,
+    root: &std::path::Path,
+    id: i64,
+    reserved: &mut std::collections::HashMap<String, Vec<String>>,
+) -> Result<i64, String> {
+    let source = load_duplicate_source(db, id)?;
+    if source.missing != 0 {
+        return Err(DUPLICATE_MISSING.into());
+    }
+    let source_path = contained_library_file(root, &source.stored_relpath)
+        .map_err(|_| DUPLICATE_MISSING.to_string())?;
+    let parent = source_path
+        .parent()
+        .ok_or_else(|| DUPLICATE_MISSING.to_string())?;
+    let file_name = source_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| DUPLICATE_MISSING.to_string())?
+        .to_string();
+    let stored = source.stored_relpath.replace('\\', "/");
+    let parent_rel = stored
+        .rsplit_once('/')
+        .map(|(parent, _)| parent.to_string())
+        .unwrap_or_default();
+    let mut taken = names_in_folder(db, source.folder_id)?;
+    if let Ok(entries) = std::fs::read_dir(parent) {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                taken.push(name.to_string());
+            }
+        }
+    }
+    if let Some(held) = reserved.get(&parent_rel) {
+        taken.extend(held.iter().cloned());
+    }
+    let new_name = loop {
+        let candidate = names::duplicate_file_name(&file_name, &taken)?;
+        if parent.join(&candidate).exists() {
+            taken.push(candidate);
+            continue;
+        }
+        break candidate;
+    };
+    let dest = parent.join(&new_name);
+    std::fs::copy(&source_path, &dest).map_err(|err| err.to_string())?;
+    let meta = match std::fs::metadata(&dest) {
+        Ok(meta) => meta,
+        Err(err) => {
+            let _ = std::fs::remove_file(&dest);
+            return Err(err.to_string());
+        }
+    };
+    let size = i64::try_from(meta.len()).unwrap_or(i64::MAX);
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|time| time.as_secs() as i64)
+        .unwrap_or(0);
+    let new_rel = if parent_rel.is_empty() {
+        new_name.clone()
+    } else {
+        format!("{parent_rel}/{new_name}")
+    };
+    let new_id = match db.insert_file_with_thumb_status(
+        &new_name,
+        &new_rel,
+        &source.ext,
+        size,
+        &source.sha256,
+        mtime,
+        source.folder_id,
+        source.source_archive.as_deref(),
+        duplicate_thumb_status(&source),
+    ) {
+        Ok(new_id) => new_id,
+        Err(err) => {
+            let _ = std::fs::remove_file(&dest);
+            return Err(err);
+        }
+    };
+    let tags = match tag_names(db, id) {
+        Ok(tags) => tags,
+        Err(err) => {
+            forget_duplicate(db, new_id, &dest);
+            return Err(err);
+        }
+    };
+    if let Err(err) = db.conn.execute(
+        "UPDATE files SET creator = ?1, notes = ?2 WHERE id = ?3",
+        rusqlite::params![source.creator, source.notes, new_id],
+    ) {
+        forget_duplicate(db, new_id, &dest);
+        return Err(err.to_string());
+    }
+    if let Err(err) = db.set_tags(new_id, &tags) {
+        forget_duplicate(db, new_id, &dest);
+        return Err(err);
+    }
+    reserved.entry(parent_rel).or_default().push(new_name);
+    Ok(new_id)
+}
+
+struct DuplicateSource {
+    stored_relpath: String,
+    folder_id: Option<i64>,
+    sha256: String,
+    creator: String,
+    notes: String,
+    source_archive: Option<String>,
+    ext: String,
+    thumb_status: String,
+    missing: i64,
+}
+
+fn load_duplicate_source(db: &AppDb, id: i64) -> Result<DuplicateSource, String> {
+    db.conn
+        .query_row(
+            "SELECT stored_relpath, folder_id, sha256, creator, notes, source_archive, ext, thumb_status, missing
+             FROM files WHERE id = ?1",
+            [id],
+            |row| {
+                Ok(DuplicateSource {
+                    stored_relpath: row.get(0)?,
+                    folder_id: row.get(1)?,
+                    sha256: row.get(2)?,
+                    creator: row.get(3)?,
+                    notes: row.get(4)?,
+                    source_archive: row.get(5)?,
+                    ext: row.get(6)?,
+                    thumb_status: row.get(7)?,
+                    missing: row.get(8)?,
+                })
+            },
+        )
+        .map_err(|err| match err {
+            rusqlite::Error::QueryReturnedNoRows => DUPLICATE_MISSING.to_string(),
+            other => other.to_string(),
+        })
+}
+
+fn names_in_folder(db: &AppDb, folder_id: Option<i64>) -> Result<Vec<String>, String> {
+    let mut stmt = db
+        .conn
+        .prepare(
+            "SELECT original_name, stored_relpath FROM files
+             WHERE missing = 0 AND ((?1 IS NULL AND folder_id IS NULL) OR folder_id = ?1)",
+        )
+        .map_err(|err| err.to_string())?;
+    let rows = stmt
+        .query_map(rusqlite::params![folder_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|err| err.to_string())?;
+    let mut names = Vec::new();
+    for row in rows {
+        let (original, stored) = row.map_err(|err| err.to_string())?;
+        names.push(original);
+        if let Some((_, name)) = stored.rsplit_once('/') {
+            names.push(name.to_string());
+        } else if let Some((_, name)) = stored.rsplit_once('\\') {
+            names.push(name.to_string());
+        } else {
+            names.push(stored);
+        }
+    }
+    Ok(names)
+}
+
+fn tag_names(db: &AppDb, id: i64) -> Result<Vec<String>, String> {
+    let mut stmt = db
+        .conn
+        .prepare(
+            "SELECT t.name FROM tags t JOIN file_tags ft ON ft.tag_id = t.id WHERE ft.file_id = ?1 ORDER BY t.name",
+        )
+        .map_err(|err| err.to_string())?;
+    let rows = stmt
+        .query_map([id], |row| row.get(0))
+        .map_err(|err| err.to_string())?;
+    rows.collect::<Result<Vec<String>, _>>()
+        .map_err(|err| err.to_string())
+}
+
+fn duplicate_thumb_status(source: &DuplicateSource) -> &'static str {
+    if source.thumb_status == "ok" && !source.sha256.is_empty() {
+        "ok"
+    } else if names::queues_thumbnail(&source.ext) {
+        "none"
+    } else {
+        "unavailable"
+    }
+}
+
+fn forget_duplicate(db: &AppDb, id: i64, dest: &std::path::Path) {
+    let _ = db.conn.execute("DELETE FROM files WHERE id = ?1", [id]);
+    let _ = std::fs::remove_file(dest);
+}
+
+#[tauri::command]
+async fn duplicate_files(
+    app: AppHandle,
+    window: WebviewWindow,
+    ids: Vec<i64>,
+) -> Result<DuplicateOutcome, String> {
+    let source = window.label().to_string();
+    let _timer = CommandTimer::start("duplicate_files");
+    let result = block_on_disk(&app, move |db, cancel, _handle| {
+        duplicate_files_work(db, &ids, cancel)
+    })
+    .await?;
+    if !result.ids.is_empty() {
+        emit_library_changed(&app, LibraryChangeKind::Files, &source);
+    }
+    Ok(result)
+}

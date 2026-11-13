@@ -285,6 +285,30 @@ function libraryModel(overrides: Record<string, unknown> = {}): LibraryModel {
 }
 
 describe("AppShell", () => {
+  it("opens Add to library at the library root", () => {
+    render(
+      <AppShell
+        app={libraryModel({
+          settings: { ...baseSettings, libraryRoot: "D:\\Library" },
+          libraryName: "3D Print Library",
+          folders: [{ id: 2, parentId: null, name: "Toys", relpath: "Toys", sortOrder: 0 }],
+          defaultImportDestination: { type: "folder", id: 2 },
+          addToLibraryPaths: ["D:\\Downloads\\a.stl"],
+          importCreator: "",
+          importTags: [],
+          importTagText: "",
+          setImportCreator: () => undefined,
+          setImportTags: () => undefined,
+          setImportTagText: () => undefined,
+          runDownloadsImport: async () => true,
+          setAddToLibraryPaths: () => undefined,
+        })}
+      />,
+    );
+    expect(screen.getByText("Copy into: 3D Print Library")).toBeTruthy();
+    expect(screen.queryByText(/Copy into: 3D Print Library \/ Toys/)).toBeNull();
+  });
+
   it("shows the setup screen when there is no library root", () => {
     render(<AppShell app={libraryModel()} />);
     expect(screen.getByText("3D File Library")).toBeTruthy();

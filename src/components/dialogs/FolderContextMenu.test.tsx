@@ -32,6 +32,7 @@ describe("Folder context menu", () => {
       "Show in Explorer",
       "Rescan",
     ]);
+    expect(screen.queryByRole("menuitem", { name: "Duplicate" })).toBeNull();
     fireEvent.pointerDown(screen.getByRole("menuitem", { name: "Show in Explorer" }));
     expect(calls.onClose).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("menuitem", { name: "Show in Explorer" }));

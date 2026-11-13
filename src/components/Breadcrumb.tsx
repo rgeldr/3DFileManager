@@ -1,5 +1,5 @@
 import type { Browse, FolderRow } from "../types";
-import { folderCrumbs, truncateCrumbs, type Crumb } from "../lib/breadcrumb";
+import { breadcrumbTitle, folderCrumbs, truncateCrumbs, type Crumb } from "../lib/breadcrumb";
 import { FOLDER_ROOT_DROP_ID } from "../lib/folderMove";
 
 export function Breadcrumb({
@@ -17,9 +17,8 @@ export function Breadcrumb({
   onNavigate: (place: Browse) => void;
   fullPath?: boolean;
 }) {
-  const crumbs = fullPath
-    ? folderCrumbs(libraryName, folders, browse)
-    : truncateCrumbs(folderCrumbs(libraryName, folders, browse));
+  const allCrumbs = folderCrumbs(libraryName, folders, browse);
+  const crumbs = fullPath ? allCrumbs : truncateCrumbs(allCrumbs);
 
   const dropIdForCrumb = (crumb: Extract<Crumb, { kind: "place" }>): string | null => {
     if (crumb.place.type === "root") return FOLDER_ROOT_DROP_ID;
@@ -28,7 +27,7 @@ export function Breadcrumb({
   };
 
   return (
-    <nav className="breadcrumb" aria-label="Folder path">
+    <nav className="breadcrumb" aria-label="Folder path" title={fullPath ? breadcrumbTitle(allCrumbs) : undefined}>
       {crumbs.map((crumb, index) => (
         <span className="breadcrumb-part" key={crumbKey(crumb, index)}>
           {index > 0 ? <span className="breadcrumb-sep"> &gt; </span> : null}

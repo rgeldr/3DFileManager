@@ -204,6 +204,76 @@ pub fn unique_dir_name(parent: &Path, name: &str) -> String {
     format!("{safe}-copy")
 }
 
+/// Next free `name (N).ext` beside `file_name`. Unnumbered names start at `(1)`.
+/// A stem that already ends in ` (N)` continues at `N + 1`. This is not `unique_file_path`,
+/// which starts at `(2)`.
+pub fn duplicate_file_name(file_name: &str, taken: &[String]) -> Result<String, String> {
+    let (stem, ext) = split_stem_ext(file_name);
+    let (base, start) = match numbered_suffix(&stem) {
+        Some((base, number)) => (base.to_string(), number.saturating_add(1)),
+        None => (stem, 1),
+    };
+    let taken_lower: Vec<String> = taken.iter().map(|name| name.to_ascii_lowercase()).collect();
+    if start <= 9999 {
+        for number in start..=9999 {
+            let candidate = if ext.is_empty() {
+                format!("{base} ({number})")
+            } else {
+                format!("{base} ({number}).{ext}")
+            };
+            if validate_windows_file_name(&candidate).is_err() {
+                continue;
+            }
+            if taken_lower
+                .iter()
+                .any(|item| item == &candidate.to_ascii_lowercase())
+            {
+                continue;
+            }
+            return Ok(candidate);
+        }
+    }
+    Err(format!("No free name next to \"{file_name}\"."))
+}
+
+fn split_stem_ext(file_name: &str) -> (String, String) {
+    let path = Path::new(file_name);
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some(ext) if !ext.is_empty() => {
+            let stem = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("");
+            if stem.is_empty() {
+                (file_name.to_string(), String::new())
+            } else {
+                (stem.to_string(), ext.to_string())
+            }
+        }
+        _ => (file_name.to_string(), String::new()),
+    }
+}
+
+/// `stem` ends in ` (N)` when N is an integer >= 1 with no leading zero, and the base is non-empty
+/// and does not end in a space or a period.
+fn numbered_suffix(stem: &str) -> Option<(&str, u32)> {
+    let close = stem.rfind(" (")?;
+    let rest = stem.get(close + 2..)?;
+    let number = rest.strip_suffix(')')?;
+    if number.is_empty()
+        || number.starts_with('0')
+        || !number.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    let n: u32 = number.parse().ok()?;
+    let base = stem.get(..close)?;
+    if base.is_empty() || base.ends_with(' ') || base.ends_with('.') {
+        return None;
+    }
+    Some((base, n))
+}
+
 pub fn is_archive(ext: &str) -> bool {
     matches!(ext, "zip" | "rar" | "7z")
 }
@@ -391,5 +461,39 @@ mod tests {
         let group: &SupportedType = supported_types().iter().find(|group| group.id == "stl").unwrap();
         assert_eq!(group.label, "stl");
         assert_eq!(group.exts, vec!["stl".to_string()]);
+    }
+
+    #[test]
+    fn duplicate_file_name_covers_the_numbering_rules() {
+        let cases: [(&str, &str, Vec<String>); 15] = [
+            ("part.stl", "part (1).stl", vec![]),
+            ("part (1).stl", "part (2).stl", vec![]),
+            ("part (1).stl", "part (3).stl", vec!["part (2).stl".into()]),
+            ("part.stl", "part (2).stl", vec!["part (1).stl".into()]),
+            ("part.stl", "part (1).stl", vec!["part (2).stl".into()]),
+            ("part.stl", "part (2).stl", vec!["PART (1).STL".into()]),
+            ("v(2).stl", "v(2) (1).stl", vec![]),
+            ("archive.tar.gz", "archive.tar (1).gz", vec![]),
+            ("noext", "noext (1)", vec![]),
+            (".gitignore", ".gitignore (1)", vec![]),
+            ("part.STL", "part (1).STL", vec![]),
+            ("part (2) (1).stl", "part (2) (2).stl", vec![]),
+            ("part (0).stl", "part (0) (1).stl", vec![]),
+            ("part (01).stl", "part (01) (1).stl", vec![]),
+            ("part  (1).stl", "part  (1) (1).stl", vec![]),
+        ];
+        for (source, expected, taken) in cases {
+            assert_eq!(
+                duplicate_file_name(source, &taken).unwrap(),
+                expected,
+                "{source}"
+            );
+        }
+        let taken: Vec<String> = (1..=9999).map(|n| format!("full ({n}).stl")).collect();
+        let err = duplicate_file_name("full.stl", &taken).unwrap_err();
+        assert!(err.contains("full.stl"), "{err}");
+        let numbered: Vec<String> = (3..=9999).map(|n| format!("part ({n}).stl")).collect();
+        let err = duplicate_file_name("part (2).stl", &numbered).unwrap_err();
+        assert!(err.contains("part (2).stl"), "{err}");
     }
 }

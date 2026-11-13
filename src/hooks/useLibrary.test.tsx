@@ -572,6 +572,45 @@ describe("useLibrary", () => {
     expect(result.current.selected).toEqual([9, 10]);
   });
 
+  it("clears creator and tags when the next Add to library opens", async () => {
+    api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
+    mockCatalog();
+    api.listDownloads.mockResolvedValue({ status: "ok", rows: [], truncated: false });
+    api.importPaths.mockResolvedValue({
+      importedIds: [9],
+      importedCount: 1,
+      duplicateCount: 0,
+      unsupportedCount: 0,
+      failed: [],
+      recycleCount: 0,
+      leftInPlace: 0,
+      cancelled: false,
+      pendingHashCount: 0,
+    });
+    const { result } = renderHook(() => useLibrary(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => {
+      result.current.setImportCreator("Maker World");
+      result.current.setImportTags(["Angels", "FDM"]);
+      result.current.setImportTagText("flexi");
+      result.current.setBrowse({ type: "downloads" });
+    });
+    await waitFor(() => expect(result.current.browse).toEqual({ type: "downloads" }));
+    await act(async () => {
+      await result.current.runDownloadsImport(["D:\\Downloads\\a.stl"], null);
+    });
+    expect(result.current.importCreator).toBe("Maker World");
+    expect(result.current.importTags).toEqual(["Angels", "FDM"]);
+    expect(result.current.importTagText).toBe("flexi");
+    act(() => {
+      result.current.openAddToLibrary(["D:\\Downloads\\b.stl"]);
+    });
+    expect(result.current.importCreator).toBe("");
+    expect(result.current.importTags).toEqual([]);
+    expect(result.current.importTagText).toBe("");
+    expect(result.current.addToLibraryPaths).toEqual(["D:\\Downloads\\b.stl"]);
+  });
+
   it("stays on Downloads and still opens the summary when nothing was imported", async () => {
     api.bootstrap.mockResolvedValue({ settings, folders: [], missingCount: 0 });
     mockCatalog();
@@ -873,9 +912,15 @@ describe("useLibrary", () => {
     const { result } = renderHook(() => useLibrary(), { wrapper });
     await waitFor(() => expect(result.current.ready).toBe(true));
     act(() => {
+      result.current.setImportCreator("Maker World");
+      result.current.setImportTags(["Angels", "FDM"]);
+      result.current.setImportTagText("flexi");
       result.current.openAddToLibrary([]);
     });
     expect(result.current.addToLibraryPaths).toBeNull();
+    expect(result.current.importCreator).toBe("Maker World");
+    expect(result.current.importTags).toEqual(["Angels", "FDM"]);
+    expect(result.current.importTagText).toBe("flexi");
   });
 
   it("moves a folder through runDiskOp", async () => {

@@ -1,6 +1,6 @@
 [package]
 name = "file-library"
-version = "26.11.7"
+version = "26.11.8"
 description = "3D File Library"
 authors = ["Jason"]
 license = "MIT"

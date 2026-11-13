@@ -137,7 +137,6 @@ export function AppShell({ app }: { app: LibraryModel }) {
     selectedDownloadRow,
     addToLibraryPaths,
     setAddToLibraryPaths,
-    defaultImportDestination,
   } = app;
   const onDownloads = browse.type === "downloads";
   const [gridFolderMenu, setGridFolderMenu] = useState<{ x: number; y: number; folderId: number } | null>(null);
@@ -634,7 +633,7 @@ export function AppShell({ app }: { app: LibraryModel }) {
         <AddToLibraryDialog
           app={app}
           paths={addToLibraryPaths}
-          defaultPlace={defaultImportDestination}
+          defaultPlace={{ type: "root" }}
           onClose={() => setAddToLibraryPaths(null)}
         />
       ) : null}

@@ -496,4 +496,26 @@ describe("AddToLibraryDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add to library" }));
     await waitFor(() => expect(importPaths).toHaveBeenCalledWith(["/tmp/a.stl"], null));
   });
+
+  it("returns to the library root when the next file opens there", () => {
+    const { rerender } = render(
+      <AddToLibraryDialog
+        app={app()}
+        paths={["D:\\Downloads\\a.stl"]}
+        defaultPlace={{ type: "root" }}
+        onClose={() => undefined}
+      />,
+    );
+    fireEvent.click(screen.getByRole("option", { name: "Terrain" }));
+    expect(copyIntoLine()).toContain("Terrain");
+    rerender(
+      <AddToLibraryDialog
+        app={app()}
+        paths={["D:\\Downloads\\b.stl"]}
+        defaultPlace={{ type: "root" }}
+        onClose={() => undefined}
+      />,
+    );
+    expect(copyIntoLine()).toBe("Copy into: 3D Print Library");
+  });
 });

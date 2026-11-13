@@ -63,6 +63,7 @@ describe("Import summary tags", () => {
     expect((screen.getByPlaceholderText("Tags for all imported files") as HTMLInputElement).value).toBe(
       "fdm, skeleton",
     );
+    expect(screen.queryByRole("button", { name: "Move to Recycle Bin" })).toBeNull();
   });
 
   it("suggests the tag after the last comma", () => {
@@ -139,20 +140,40 @@ describe("Import summary tags", () => {
     expect(screen.queryByPlaceholderText("Creator for all imported files")).toBeNull();
   });
 
-  it("runs recycle through runDiskOp when originals should be removed", async () => {
+  it("names the recycle button Move to Recycle Bin and still recycles originals", async () => {
     recycleLastImport.mockResolvedValue({ cancelled: false, failed: [] });
-    const runDiskOp = vi.fn(async (opts: { run: () => Promise<unknown> }) => {
+    const runDiskOp = vi.fn(async (opts: { title: string; success: string; cancelled: string; run: () => Promise<unknown> }) => {
       await opts.run();
     });
     const model = app({
       summary: { ...summary(), recycleCount: 2 },
       runDiskOp,
     });
-    render(<ImportSummaryDialog app={model} />);
-    fireEvent.click(screen.getByRole("button", { name: "Undo import of 2 files (Recycle Bin)" }));
+    const { rerender } = render(<ImportSummaryDialog app={model} />);
+    expect(screen.getByText("Keep those originals, or move the imported files and duplicates to the Recycle Bin?")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Undo import/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Move to Recycle Bin" }));
     await waitFor(() => expect(runDiskOp).toHaveBeenCalled());
+    expect(runDiskOp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Moving originals to the Recycle Bin...",
+        success: "Originals moved to the Recycle Bin",
+        cancelled: "Recycle cancelled",
+      }),
+    );
     expect(recycleLastImport).toHaveBeenCalled();
     expect(model.setSummary).toHaveBeenCalledWith(null);
+
+    rerender(
+      <ImportSummaryDialog
+        app={app({
+          summary: { ...summary(), recycleCount: 1 },
+          runDiskOp,
+        })}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Move to Recycle Bin" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Undo import/ })).toBeNull();
   });
 
   it("surfaces applyBulkMeta failures without closing the summary", async () => {

@@ -151,14 +151,16 @@
   flex-direction: column;
   gap: var(--space-2);
   min-height: 0;
+  min-width: 0;
 }
 
 .folder-picker-toolbar {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: var(--space-2);
   justify-content: space-between;
+  min-width: 0;
 }
 
 .card.card-add-library {
@@ -167,15 +169,21 @@
 }
 
 .folder-picker-toolbar .breadcrumb {
-  flex: 1 1 auto;
+  display: block;
+  flex: 1 1 0%;
   min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .folder-picker-toolbar .breadcrumb-part,
 .folder-picker-toolbar .breadcrumb-segment {
-  flex: 0 0 auto;
+  display: inline-flex;
+  vertical-align: middle;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .folder-picker-up {

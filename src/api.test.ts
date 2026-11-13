@@ -79,6 +79,7 @@ const sampleArgs: Record<string, unknown[]> = {
   recyclePaths: [["/tmp/a.stl"]],
   moveFiles: [[1], null],
   deleteFiles: [[1]],
+  duplicateFiles: [[1]],
   exportLibraryBackup: ["/backup"],
   restoreLibraryBackup: ["/backup", "/library"],
   saveRenderedThumb: [1, [1, 2, 3]],
